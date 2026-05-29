@@ -459,30 +459,47 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   }
 }
 
-async function executePunishment(
+export async function executePunishment(
   chatId: string,
   userId: string,
   action: string,
   reason: string,
-  ctx: MessageContext,
-  adapter: WhatsAppAdapter
+  ctx: MessageContext | null,
+  adapter: WhatsAppAdapter,
+  warnedBy: string = 'system'
 ) {
   const isSenderAdmin = await checkIfAdmin(chatId, userId, adapter);
   if (isSenderAdmin) return;
 
-  // 1. Delete message
-  try {
-    await adapter.deleteMessage(chatId, ctx.id, userId);
-  } catch {}
+  // 1. Delete message if triggered by a specific message
+  if (ctx && action !== 'warn_no_delete') {
+    try {
+      await adapter.deleteMessage(chatId, ctx.id, userId);
+    } catch {}
+  }
+
+  const actualAction = action === 'warn_no_delete' ? 'warn' : action;
+
+  // Log infraction
+  await prisma.infractionLog.create({
+    data: {
+      groupId: chatId,
+      userId,
+      type: actualAction,
+      reason,
+      action: actualAction,
+      createdBy: warnedBy
+    }
+  }).catch(err => console.error('Failed to log infraction:', err));
 
   // 2. Execute action
-  if (action === 'warn') {
+  if (actualAction === 'warn') {
     await prisma.warning.create({
       data: {
         groupId: chatId,
         userId,
         reason,
-        warnedBy: 'system'
+        warnedBy
       }
     });
 
@@ -491,28 +508,56 @@ async function executePunishment(
     });
 
     const mention = `@${userId.split('@')[0]}`;
-    let warningMsg = `⚠️ *PERINGATAN SISTEM* ⚠️\n\n${mention} mendapatkan peringatan otomatis.\nAlasan: *${reason}*\nJumlah Peringatan: *${userWarnings}/3*`;
+    let warningMsg = `⚠️ *PERINGATAN* ⚠️\n\n${mention} mendapatkan peringatan.\nAlasan: *${reason}*\nJumlah Peringatan: *${userWarnings}*`;
 
-    if (userWarnings >= 3) {
-      warningMsg += `\n\n🚫 ${mention} telah mencapai batas 3 peringatan! Melakukan tindakan mengeluarkan dari grup.`;
-      await prisma.warning.deleteMany({ where: { groupId: chatId, userId } });
-      const socket = (adapter as any).sock;
-      if (socket) {
-        try {
-          await socket.groupParticipantsUpdate(chatId, [userId], 'remove');
-        } catch (err) {
-          console.error('[System Warn] Failed to kick user:', err);
-        }
+    // Fetch dynamic rules
+    const rules = await prisma.warningRule.findMany({
+      where: { groupId: chatId },
+      orderBy: { threshold: 'desc' }
+    });
+
+    let triggeredRule = null;
+    for (const rule of rules) {
+      if (userWarnings >= rule.threshold) {
+        triggeredRule = rule;
+        break;
       }
     }
 
-    await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
-  } else if (action === 'mute') {
+    // Default rule if no custom rules exist: Kick at 3 warnings
+    if (!triggeredRule && rules.length === 0 && userWarnings >= 3) {
+      triggeredRule = { threshold: 3, action: 'kick' };
+    }
+
+    if (triggeredRule) {
+      const ruleAction = triggeredRule.action;
+      warningMsg += `\n\n🚫 ${mention} telah mencapai batas ${triggeredRule.threshold} peringatan! Melakukan tindakan: *${ruleAction.toUpperCase()}*.`;
+      
+      await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
+
+      if (ruleAction === 'kick') {
+        await prisma.warning.deleteMany({ where: { groupId: chatId, userId } });
+        const socket = (adapter as any).sock;
+        if (socket) {
+          try {
+            await socket.groupParticipantsUpdate(chatId, [userId], 'remove');
+          } catch (err) {
+            console.error('[System Warn] Failed to kick user:', err);
+          }
+        }
+      } else if (ruleAction === 'mute') {
+        const duration = 5 * 60 * 1000;
+        mutedUsers.set(userId, Date.now() + duration);
+      }
+    } else {
+      await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
+    }
+  } else if (actualAction === 'mute') {
     const duration = 5 * 60 * 1000; // 5 minutes mute
     mutedUsers.set(userId, Date.now() + duration);
     const mention = `@${userId.split('@')[0]}`;
     await adapter.sendMessage(chatId, `🚫 ${mention} dimute selama 5 menit karena: *${reason}*.`, { mentions: [userId] });
-  } else if (action === 'kick') {
+  } else if (actualAction === 'kick') {
     const mention = `@${userId.split('@')[0]}`;
     await adapter.sendMessage(chatId, `🚫 Mengeluarkan ${mention} dari grup karena: *${reason}*.`, { mentions: [userId] });
     const socket = (adapter as any).sock;
@@ -524,7 +569,7 @@ async function executePunishment(
       }
     }
   } else {
-    // delete
+    // delete only
     const mention = `@${userId.split('@')[0]}`;
     await adapter.sendMessage(chatId, `⚠️ Pesan dari ${mention} dihapus otomatis karena: *${reason}*.`, { mentions: [userId] });
   }

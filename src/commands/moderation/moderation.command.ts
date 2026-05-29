@@ -31,33 +31,8 @@ export class ModerationSuiteCommand implements Command {
       const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
       
       try {
-        await prisma.warning.create({
-          data: {
-            groupId: ctx.chatId,
-            userId: targetJid,
-            reason,
-            warnedBy: ctx.senderId
-          }
-        });
-
-        const userWarnings = await prisma.warning.count({
-          where: { groupId: ctx.chatId, userId: targetJid }
-        });
-
-        const mentionTarget = `@${targetJid.split('@')[0]}`;
-        const mentionWarnedBy = `@${ctx.senderId.split('@')[0]}`;
-
-        let message = `⚠️ *PERINGATAN* ⚠️\n\nAdmin ${mentionWarnedBy} memberikan peringatan kepada ${mentionTarget}.\nAlasan: *${reason}*\nJumlah Peringatan: *${userWarnings}/3*`;
-
-        if (userWarnings >= 3) {
-          message += `\n\n🚫 ${mentionTarget} telah melebihi batas 3 peringatan! Melakukan tindakan blokir/keluarkan.`;
-          // Clear warnings after kick
-          await prisma.warning.deleteMany({
-            where: { groupId: ctx.chatId, userId: targetJid }
-          });
-        }
-
-        await adapter.sendMessage(ctx.chatId, message, { mentions: [ctx.senderId, targetJid] });
+        const { executePunishment } = await import('../index.js');
+        await executePunishment(ctx.chatId, targetJid, 'warn_no_delete', reason, null, adapter, ctx.senderId);
       } catch (err: any) {
         await adapter.sendMessage(ctx.chatId, `❌ Gagal memproses warning: ${err.message}`, { quotedMessageId: ctx.id });
       }

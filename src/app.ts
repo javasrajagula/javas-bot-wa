@@ -23,6 +23,7 @@ import './commands/text/text.command.js';
 import './commands/document/document.command.js';
 import './commands/moderation/moderation.command.js';
 import './commands/moderation/antispam.command.js';
+import './commands/moderation/warning-rule.command.js';
 import './commands/community/community.command.js';
 import './commands/games/games.command.js';
 import './commands/owner/owner.command.js';

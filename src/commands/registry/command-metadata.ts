@@ -1155,5 +1155,77 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     description: 'Melihat ketentuan penggunaan bot.',
     usage: '/rules',
     examples: ['/rules']
+  },
+
+  // --- MODERATION ---
+  {
+    name: 'warn',
+    aliases: [],
+    category: 'moderation',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    description: 'Memberikan peringatan kepada anggota grup.',
+    usage: '/warn @user <alasan>',
+    examples: ['/warn @user spamming']
+  },
+  {
+    name: 'warnings',
+    aliases: [],
+    category: 'moderation',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    description: 'Melihat daftar peringatan seseorang.',
+    usage: '/warnings [@user]',
+    examples: ['/warnings', '/warnings @user']
+  },
+  {
+    name: 'unwarn',
+    aliases: [],
+    category: 'moderation',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    description: 'Menghapus satu peringatan terakhir pengguna.',
+    usage: '/unwarn @user',
+    examples: ['/unwarn @user']
+  },
+  {
+    name: 'clearwarn',
+    aliases: [],
+    category: 'moderation',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    description: 'Menghapus semua peringatan pengguna.',
+    usage: '/clearwarn @user',
+    examples: ['/clearwarn @user']
+  },
+  {
+    name: 'addwarnrule',
+    aliases: [],
+    category: 'moderation',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    description: 'Menambahkan aturan tindakan untuk batas peringatan tertentu.',
+    usage: '/addwarnrule <batas> <kick/mute>',
+    examples: ['/addwarnrule 3 kick']
+  },
+  {
+    name: 'delwarnrule',
+    aliases: [],
+    category: 'moderation',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    description: 'Menghapus aturan batas peringatan.',
+    usage: '/delwarnrule <batas>',
+    examples: ['/delwarnrule 3']
+  },
+  {
+    name: 'listwarnrule',
+    aliases: [],
+    category: 'moderation',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    description: 'Melihat daftar aturan batas peringatan grup.',
+    usage: '/listwarnrule',
+    examples: ['/listwarnrule']
   }
 ];
