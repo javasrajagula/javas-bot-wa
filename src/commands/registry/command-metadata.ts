@@ -878,13 +878,53 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
   {
     name: 'remind',
     aliases: ['listremind', 'delremind'],
-    category: 'admin',
+    category: 'community',
+    plugin: 'community',
+    featureFlag: 'reminder',
+    description: 'Mengatur pengingat waktu (scheduler) pribadi.',
+    usage: '/remind 10m minum air atau /remind 20:00 sholat',
+    examples: ['/remind 10m belajar']
+  },
+  {
+    name: 'remindgroup',
+    aliases: [],
+    category: 'community',
     plugin: 'community',
     featureFlag: 'reminder',
     minRole: 'admin',
-    description: 'Mengatur pengingat waktu (scheduler) grup/privat.',
-    usage: '/remind 10m minum air atau /remind 20:00 sholat',
-    examples: ['/remind 10m belajar']
+    description: 'Mengatur pengingat waktu (scheduler) grup.',
+    usage: '/remindgroup 10m minum air atau /remindgroup 20:00 sholat',
+    examples: ['/remindgroup 10m rapat']
+  },
+  {
+    name: 'jadwal',
+    aliases: [],
+    category: 'community',
+    plugin: 'community',
+    featureFlag: 'general',
+    description: 'Mengelola jadwal mata pelajaran atau agenda kegiatan grup.',
+    usage: '/jadwal atau /jadwal add senin 07:00 Matematika atau /jadwal del <id>',
+    examples: ['/jadwal', '/jadwal add senin 07:00 Matematika']
+  },
+  {
+    name: 'tugas',
+    aliases: [],
+    category: 'community',
+    plugin: 'community',
+    featureFlag: 'general',
+    description: 'Mengelola tugas dan deadline kegiatan grup.',
+    usage: '/tugas atau /tugas add "besok 23:59" Tugas Matematika atau /tugas done <id>',
+    examples: ['/tugas', '/tugas add "besok 23:59" Tugas Matematika']
+  },
+  {
+    name: 'ultah',
+    aliases: [],
+    category: 'community',
+    plugin: 'community',
+    featureFlag: 'general',
+    description: 'Mengelola tanggal ulang tahun anggota grup.',
+    usage: '/ultah atau /ultah add @user 12-08 atau /ultah del @user',
+    examples: ['/ultah', '/ultah add @user 12-08']
   },
   {
     name: 'event',

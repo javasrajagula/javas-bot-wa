@@ -243,3 +243,30 @@ model GroupLog {
   metadataJson String @default("{}")
   createdAt   DateTime @default(now())
 }
+
+model Task {
+  id          String   @id @default(uuid())
+  groupId     String
+  userId      String
+  description String
+  deadline    DateTime?
+  status      String   @default("pending") // "pending" or "done"
+  createdAt   DateTime @default(now())
+}
+
+model Schedule {
+  id          String   @id @default(uuid())
+  groupId     String
+  dayOfWeek   Int      // 0-6 (Sunday-Saturday)
+  time        String   // "HH:MM" format
+  subject     String
+  createdAt   DateTime @default(now())
+}
+
+model Birthday {
+  id          String   @id @default(uuid())
+  groupId     String
+  userId      String
+  date        String   // "MM-DD" format
+  createdAt   DateTime @default(now())
+}

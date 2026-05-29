@@ -26,8 +26,10 @@ import './commands/moderation/antispam.command.js';
 import './commands/moderation/warning-rule.command.js';
 import './commands/moderation/group-log.command.js';
 import './commands/community/community.command.js';
+import './commands/community/schedule.command.js';
 import './commands/games/games.command.js';
 import './commands/owner/owner.command.js';
+import { startReminderWorker } from './workers/reminder.worker.js';
 
 async function bootstrap() {
   console.log('[System] Connecting to database...');
@@ -151,6 +153,8 @@ async function bootstrap() {
   });
 
   await adapter.start();
+  console.log('[System] Starting background reminder worker...');
+  startReminderWorker(adapter);
   console.log('[System] Bot is now active and ready to process commands.');
 }
 

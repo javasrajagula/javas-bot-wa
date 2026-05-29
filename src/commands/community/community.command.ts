@@ -200,71 +200,6 @@ export class CommunitySuiteCommand implements Command {
       return;
     }
 
-    // 4. Reminders: /remind, /listremind, /delremind
-    if (cmd === 'remind' || cmd === 'listremind' || cmd === 'delremind') {
-      if (cmd === 'remind') {
-        const timeStr = args[0]?.trim(); // e.g. 20:00 or 10m
-        const message = args.slice(1).join(' ').trim();
-
-        if (!timeStr || !message) {
-          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/remind 20:00 belajar` atau `/remind 10m minum air`', { quotedMessageId: ctx.id });
-          return;
-        }
-
-        let runAt = new Date();
-        if (timeStr.endsWith('m')) {
-          const mins = parseInt(timeStr.replace('m', ''), 10);
-          runAt = new Date(Date.now() + mins * 60 * 1000);
-        } else if (timeStr.includes(':')) {
-          const [hrs, mins] = timeStr.split(':').map(Number);
-          runAt.setHours(hrs, mins, 0, 0);
-          if (runAt.getTime() < Date.now()) {
-            runAt = new Date(runAt.getTime() + 24 * 60 * 60 * 1000); // tomorrow
-          }
-        }
-
-        const reminder = await prisma.reminder.create({
-          data: {
-            scope: ctx.isGroup ? 'group' : 'private',
-            groupId: ctx.isGroup ? ctx.chatId : null,
-            userId: ctx.senderId,
-            message,
-            runAt,
-            status: 'pending'
-          }
-        });
-
-        await adapter.sendMessage(ctx.chatId, `⏰ Pengingat berhasil dibuat untuk pukul *${runAt.toLocaleTimeString('id-ID')}*.\nIsi: "${message}"\nID: *${reminder.id.slice(0, 8)}*`, { quotedMessageId: ctx.id });
-      }
-
-      else if (cmd === 'listremind') {
-        const list = await prisma.reminder.findMany({
-          where: { userId: ctx.senderId, status: 'pending' }
-        });
-
-        if (list.length === 0) {
-          await adapter.sendMessage(ctx.chatId, '📭 Anda tidak memiliki pengingat pending.', { quotedMessageId: ctx.id });
-          return;
-        }
-
-        const response = `⏰ *DAFTAR PENGINGAT ANDA* ⏰\n\n` + list.map(r => `- *ID:* ${r.id.slice(0, 8)} | Waktu: ${r.runAt.toLocaleString('id-ID')} | "${r.message}"`).join('\n');
-        await adapter.sendMessage(ctx.chatId, response, { quotedMessageId: ctx.id });
-      }
-
-      else {
-        const rid = args[0]?.trim();
-        if (!rid) {
-          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/delremind <id>`', { quotedMessageId: ctx.id });
-          return;
-        }
-
-        await prisma.reminder.deleteMany({
-          where: { userId: ctx.senderId, id: { startsWith: rid } }
-        });
-        await adapter.sendMessage(ctx.chatId, `✅ Pengingat berhasil dihapus.`, { quotedMessageId: ctx.id });
-      }
-      return;
-    }
 
     // 5. Events: /event, /listevent, /delevent
     if (cmd === 'event' || cmd === 'listevent' || cmd === 'delevent') {
@@ -427,6 +362,6 @@ export class CommunitySuiteCommand implements Command {
 
 const commSuite = new CommunitySuiteCommand();
 registerCommand(
-  ['addreply', 'delreply', 'listreply', 'poll', 'vote', 'pollresult', 'closepoll', 'confess', 'menfess', 'remind', 'listremind', 'delremind', 'event', 'listevent', 'delevent', 'absen'],
+  ['addreply', 'delreply', 'listreply', 'poll', 'vote', 'pollresult', 'closepoll', 'confess', 'menfess', 'event', 'listevent', 'delevent', 'absen'],
   commSuite
 );

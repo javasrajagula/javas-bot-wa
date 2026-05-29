@@ -320,4 +320,61 @@ describe('WhatsApp Bot System Tests', () => {
       await prisma.groupSubscription.deleteMany({ where: { groupId: testGroupId } });
     });
   });
+
+  describe('Time Parser', () => {
+    it('should parse relative time strings correctly', async () => {
+      const { parseRelativeOrAbsoluteTime } = await import('../utils/time-parser.js');
+      const baseDate = new Date('2026-05-30T10:00:00Z');
+
+      // 10m
+      const tenMins = parseRelativeOrAbsoluteTime('10m', baseDate);
+      expect(tenMins?.toISOString()).toBe('2026-05-30T10:10:00.000Z');
+
+      // 2h
+      const twoHours = parseRelativeOrAbsoluteTime('2h', baseDate);
+      expect(twoHours?.toISOString()).toBe('2026-05-30T12:00:00.000Z');
+
+      // 1d
+      const oneDay = parseRelativeOrAbsoluteTime('1d', baseDate);
+      expect(oneDay?.toISOString()).toBe('2026-05-31T10:00:00.000Z');
+    });
+
+    it('should parse absolute time strings correctly', async () => {
+      const { parseRelativeOrAbsoluteTime } = await import('../utils/time-parser.js');
+      
+      const baseDateMorning = new Date('2026-05-30T08:00:00.000Z');
+      // Set to 8:00 AM local time
+      baseDateMorning.setHours(8, 0, 0, 0);
+
+      const parsedTime = parseRelativeOrAbsoluteTime('09:30', baseDateMorning);
+      expect(parsedTime?.getHours()).toBe(9);
+      expect(parsedTime?.getMinutes()).toBe(30);
+
+      const parsedPassedTime = parseRelativeOrAbsoluteTime('07:30', baseDateMorning);
+      // It should be the next day
+      const expectedTomorrow = new Date(baseDateMorning);
+      expectedTomorrow.setDate(expectedTomorrow.getDate() + 1);
+      expect(parsedPassedTime?.getDate()).toBe(expectedTomorrow.getDate());
+      expect(parsedPassedTime?.getHours()).toBe(7);
+      expect(parsedPassedTime?.getMinutes()).toBe(30);
+    });
+
+    it('should parse relative day prefixes correctly', async () => {
+      const { parseRelativeOrAbsoluteTime } = await import('../utils/time-parser.js');
+      const baseDate = new Date('2026-05-30T10:00:00.000Z');
+
+      const besok = parseRelativeOrAbsoluteTime('besok 07:00', baseDate);
+      const expectedTomorrow = new Date(baseDate);
+      expectedTomorrow.setDate(expectedTomorrow.getDate() + 1);
+      expect(besok?.getDate()).toBe(expectedTomorrow.getDate());
+      expect(besok?.getHours()).toBe(7);
+
+      const lusa = parseRelativeOrAbsoluteTime('lusa 14:30', baseDate);
+      const expectedLusa = new Date(baseDate);
+      expectedLusa.setDate(expectedLusa.getDate() + 2);
+      expect(lusa?.getDate()).toBe(expectedLusa.getDate());
+      expect(lusa?.getHours()).toBe(14);
+      expect(lusa?.getMinutes()).toBe(30);
+    });
+  });
 });
