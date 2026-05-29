@@ -106,7 +106,7 @@ export class BaileysAdapter extends WhatsAppAdapter {
     }
 
     let media: MessageMedia | undefined;
-    const mediaMessage = message.imageMessage || message.videoMessage || message.stickerMessage || message.documentMessage;
+    const mediaMessage = message.imageMessage || message.videoMessage || message.stickerMessage || message.documentMessage || message.audioMessage;
     if (mediaMessage) {
       let type: MessageMedia['type'] = 'document';
       let mimeType = (mediaMessage as any).mimetype || '';
@@ -114,12 +114,15 @@ export class BaileysAdapter extends WhatsAppAdapter {
       if (message.imageMessage) type = 'image';
       else if (message.videoMessage) type = 'video';
       else if (message.stickerMessage) type = 'sticker';
+      else if (message.audioMessage) type = 'audio';
 
       media = {
         type,
         mimeType,
+        filename: (mediaMessage as any).fileName || undefined,
         getBuffer: async () => {
-          const stream = await downloadContentFromMessage(mediaMessage as any, type === 'sticker' ? 'sticker' : type);
+          const downloadType = type === 'sticker' ? 'sticker' : type;
+          const stream = await downloadContentFromMessage(mediaMessage as any, downloadType as any);
           let buffer = Buffer.from([]);
           for await (const chunk of stream) {
             buffer = Buffer.concat([buffer, chunk]);
@@ -146,7 +149,7 @@ export class BaileysAdapter extends WhatsAppAdapter {
       }
 
       let quotedMedia: MessageMedia | undefined;
-      const quotedMediaMessage = quoted.imageMessage || quoted.videoMessage || quoted.stickerMessage || quoted.documentMessage;
+      const quotedMediaMessage = quoted.imageMessage || quoted.videoMessage || quoted.stickerMessage || quoted.documentMessage || quoted.audioMessage;
       if (quotedMediaMessage) {
         let qType: MessageMedia['type'] = 'document';
         let qMimeType = (quotedMediaMessage as any).mimetype || '';
@@ -154,12 +157,15 @@ export class BaileysAdapter extends WhatsAppAdapter {
         if (quoted.imageMessage) qType = 'image';
         else if (quoted.videoMessage) qType = 'video';
         else if (quoted.stickerMessage) qType = 'sticker';
+        else if (quoted.audioMessage) qType = 'audio';
 
         quotedMedia = {
           type: qType,
           mimeType: qMimeType,
+          filename: (quotedMediaMessage as any).fileName || undefined,
           getBuffer: async () => {
-            const stream = await downloadContentFromMessage(quotedMediaMessage as any, qType === 'sticker' ? 'sticker' : qType);
+            const downloadType = qType === 'sticker' ? 'sticker' : qType;
+            const stream = await downloadContentFromMessage(quotedMediaMessage as any, downloadType as any);
             let buffer = Buffer.from([]);
             for await (const chunk of stream) {
               buffer = Buffer.concat([buffer, chunk]);
@@ -204,6 +210,21 @@ export class BaileysAdapter extends WhatsAppAdapter {
 
   public async sendVideo(chatId: string, videoBuffer: Buffer, caption?: string, options?: SendMessageOptions): Promise<void> {
     await this.sock.sendMessage(chatId, { video: videoBuffer, caption });
+  }
+
+  public async sendAudio(chatId: string, audioBuffer: Buffer, options?: SendMessageOptions): Promise<void> {
+    const mentions = options?.mentions || [];
+    await this.sock.sendMessage(chatId, { audio: audioBuffer, mimetype: 'audio/mp4', ptt: false, mentions });
+  }
+
+  public async sendVoiceNote(chatId: string, audioBuffer: Buffer, options?: SendMessageOptions): Promise<void> {
+    const mentions = options?.mentions || [];
+    await this.sock.sendMessage(chatId, { audio: audioBuffer, mimetype: 'audio/mp4', ptt: true, mentions });
+  }
+
+  public async sendDocument(chatId: string, buffer: Buffer, fileName: string, mimeType: string, options?: SendMessageOptions): Promise<void> {
+    const mentions = options?.mentions || [];
+    await this.sock.sendMessage(chatId, { document: buffer, fileName, mimetype: mimeType, mentions });
   }
 
   public async deleteMessage(chatId: string, messageId: string, senderId?: string): Promise<void> {

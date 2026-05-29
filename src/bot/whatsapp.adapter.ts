@@ -22,5 +22,8 @@ export abstract class WhatsAppAdapter {
   public abstract sendSticker(chatId: string, stickerBuffer: Buffer, options?: SendMessageOptions): Promise<void>;
   public abstract sendImage(chatId: string, imageBuffer: Buffer, caption?: string, options?: SendMessageOptions): Promise<void>;
   public abstract sendVideo(chatId: string, videoBuffer: Buffer, caption?: string, options?: SendMessageOptions): Promise<void>;
+  public abstract sendAudio(chatId: string, audioBuffer: Buffer, options?: SendMessageOptions): Promise<void>;
+  public abstract sendVoiceNote(chatId: string, audioBuffer: Buffer, options?: SendMessageOptions): Promise<void>;
+  public abstract sendDocument(chatId: string, buffer: Buffer, fileName: string, mimeType: string, options?: SendMessageOptions): Promise<void>;
   public abstract deleteMessage(chatId: string, messageId: string, senderId?: string): Promise<void>;
 }

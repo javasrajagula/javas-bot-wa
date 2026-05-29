@@ -13,6 +13,7 @@ import './commands/setup.command.js';
 import './commands/feature.command.js';
 import './commands/downloader.command.js';
 import './commands/economy.command.js';
+import './commands/subscription.command.js';
 
 // Modular commands
 import './commands/sticker/sticker.command.js';

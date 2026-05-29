@@ -201,3 +201,45 @@ model ErrorLog {
   metadataJson String   @default("{}")
   createdAt    DateTime @default(now())
 }
+
+model GroupSubscription {
+  id          String   @id @default(uuid())
+  groupId     String   @unique
+  plan        String   @default("free")
+  expiresAt   DateTime?
+  maxDailyCmd Int?
+  featuresJson String  @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WarningRule {
+  id        String   @id @default(uuid())
+  groupId   String
+  threshold Int
+  action    String
+  duration  Int?
+  createdAt DateTime @default(now())
+}
+
+model InfractionLog {
+  id        String   @id @default(uuid())
+  groupId   String
+  userId    String
+  type      String
+  reason    String?
+  action    String?
+  createdBy String?
+  createdAt DateTime @default(now())
+}
+
+model GroupLog {
+  id          String   @id @default(uuid())
+  groupId     String
+  userId      String?
+  type        String
+  action      String?
+  message     String?
+  metadataJson String @default("{}")
+  createdAt   DateTime @default(now())
+}

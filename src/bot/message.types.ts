@@ -1,5 +1,5 @@
 export interface MessageMedia {
-  type: 'image' | 'video' | 'sticker' | 'document';
+  type: 'image' | 'video' | 'sticker' | 'document' | 'audio';
   mimeType: string;
   getBuffer: () => Promise<Buffer>;
   filename?: string;

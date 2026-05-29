@@ -223,6 +223,63 @@ export class ConsoleAdapter extends WhatsAppAdapter {
     this.rl?.prompt();
   }
 
+  public async sendAudio(chatId: string, audioBuffer: Buffer, options?: SendMessageOptions): Promise<void> {
+    console.log(`\n[Out -> ${chatId}] <Audio: ${audioBuffer.length} bytes>`);
+    if (options?.quotedMessageId) {
+      console.log(`   (Reply to: ${options.quotedMessageId})`);
+    }
+    try {
+      const outDir = path.join(process.cwd(), 'temp_outputs');
+      if (!fs.existsSync(outDir)) {
+        fs.mkdirSync(outDir, { recursive: true });
+      }
+      const outPath = path.join(outDir, `audio_${Date.now()}.mp3`);
+      fs.writeFileSync(outPath, audioBuffer);
+      console.log(`   (Saved output audio to: ${outPath})`);
+    } catch (err) {
+      console.error('   (Failed to save output audio locally)', err);
+    }
+    this.rl?.prompt();
+  }
+
+  public async sendVoiceNote(chatId: string, audioBuffer: Buffer, options?: SendMessageOptions): Promise<void> {
+    console.log(`\n[Out -> ${chatId}] <VoiceNote: ${audioBuffer.length} bytes>`);
+    if (options?.quotedMessageId) {
+      console.log(`   (Reply to: ${options.quotedMessageId})`);
+    }
+    try {
+      const outDir = path.join(process.cwd(), 'temp_outputs');
+      if (!fs.existsSync(outDir)) {
+        fs.mkdirSync(outDir, { recursive: true });
+      }
+      const outPath = path.join(outDir, `vn_${Date.now()}.mp3`);
+      fs.writeFileSync(outPath, audioBuffer);
+      console.log(`   (Saved output voice note to: ${outPath})`);
+    } catch (err) {
+      console.error('   (Failed to save output voice note locally)', err);
+    }
+    this.rl?.prompt();
+  }
+
+  public async sendDocument(chatId: string, buffer: Buffer, fileName: string, mimeType: string, options?: SendMessageOptions): Promise<void> {
+    console.log(`\n[Out -> ${chatId}] <Document: ${fileName} (${mimeType}) - ${buffer.length} bytes>`);
+    if (options?.quotedMessageId) {
+      console.log(`   (Reply to: ${options.quotedMessageId})`);
+    }
+    try {
+      const outDir = path.join(process.cwd(), 'temp_outputs');
+      if (!fs.existsSync(outDir)) {
+        fs.mkdirSync(outDir, { recursive: true });
+      }
+      const outPath = path.join(outDir, `doc_${Date.now()}_${fileName}`);
+      fs.writeFileSync(outPath, buffer);
+      console.log(`   (Saved output document to: ${outPath})`);
+    } catch (err) {
+      console.error('   (Failed to save output document locally)', err);
+    }
+    this.rl?.prompt();
+  }
+
   public async deleteMessage(chatId: string, messageId: string, senderId?: string): Promise<void> {
     console.log(`\n[System] Deleted message ${messageId} sent by ${senderId} in chat ${chatId}.`);
     this.rl?.prompt();

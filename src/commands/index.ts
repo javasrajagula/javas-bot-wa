@@ -280,6 +280,31 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
         return;
       }
     }
+
+    // Enforce group subscription plan restrictions
+    let groupPlan = 'free';
+    const sub = await prisma.groupSubscription.findUnique({
+      where: { groupId: ctx.chatId }
+    });
+    if (sub) {
+      const expired = sub.expiresAt && sub.expiresAt.getTime() < Date.now();
+      if (!expired) {
+        groupPlan = sub.plan || 'free';
+      }
+    }
+
+    const category = registeredCmd.metadata.category;
+    if (groupPlan === 'free') {
+      if (category !== 'general' && category !== 'sticker') {
+        await adapter.sendMessage(ctx.chatId, `⚠️ Grup ini menggunakan paket FREE. Fitur "${category}" tidak tersedia. Silakan gunakan paket BASIC atau PREMIUM. Ketik \`/sewa\` untuk info.`, { quotedMessageId: ctx.id });
+        return;
+      }
+    } else if (groupPlan === 'basic') {
+      if (category === 'downloader' || category === 'media' || category === 'document') {
+        await adapter.sendMessage(ctx.chatId, `⚠️ Grup ini menggunakan paket BASIC. Fitur "${category}" tidak tersedia. Silakan upgrade ke paket PREMIUM. Ketik \`/sewa\` untuk info.`, { quotedMessageId: ctx.id });
+        return;
+      }
+    }
   }
 
   // --- ROLE AND PERMISSION CHECKS ---

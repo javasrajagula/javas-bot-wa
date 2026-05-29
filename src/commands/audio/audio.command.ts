@@ -51,17 +51,7 @@ export class AudioSuiteCommand implements Command {
         // Wait, in BaileysAdapter:
         // `this.sock.sendMessage(chatId, { audio: audioBuffer, mimetype: 'audio/mp4', ptt: true })`
         // Let's send audio directly using adapter.sock if available, or fall back to sending text/saving.
-        const socket = (adapter as any).sock;
-        if (socket) {
-          await socket.sendMessage(ctx.chatId, { audio: audioBuffer, mimetype: 'audio/mp4', ptt: true });
-        } else {
-          // Console Mode simulation saves output to temp_outputs
-          const outDir = pathJoin(process.cwd(), 'temp_outputs');
-          if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-          const outPath = pathJoin(outDir, `tts_${Date.now()}.mp3`);
-          fs.writeFileSync(outPath, audioBuffer);
-          await adapter.sendMessage(ctx.chatId, `🔊 [Out Audio: ${audioBuffer.length} bytes saved to ${outPath}]`);
-        }
+        await adapter.sendVoiceNote(ctx.chatId, audioBuffer, { quotedMessageId: ctx.id });
       } catch (err: any) {
         await adapter.sendMessage(ctx.chatId, `❌ Gagal memproses TTS: ${err.message}`, { quotedMessageId: ctx.id });
       } finally {
@@ -109,12 +99,7 @@ export class AudioSuiteCommand implements Command {
           await runFfmpeg(argsList);
 
           const mp3Buffer = fs.readFileSync(tempOut);
-          const socket = (adapter as any).sock;
-          if (socket) {
-            await socket.sendMessage(ctx.chatId, { audio: mp3Buffer, mimetype: 'audio/mp4', ptt: false });
-          } else {
-            await adapter.sendMessage(ctx.chatId, `🔊 [Out Audio MP3: ${mp3Buffer.length} bytes extracted]`);
-          }
+          await adapter.sendAudio(ctx.chatId, mp3Buffer, { quotedMessageId: ctx.id });
         } finally {
           safeDelete(tempOut);
         }
@@ -164,12 +149,7 @@ export class AudioSuiteCommand implements Command {
           await runFfmpeg(argsList);
 
           const processed = fs.readFileSync(tempOut);
-          const socket = (adapter as any).sock;
-          if (socket) {
-            await socket.sendMessage(ctx.chatId, { audio: processed, mimetype: 'audio/mp4', ptt: true });
-          } else {
-            await adapter.sendMessage(ctx.chatId, `🔊 [Out Audio Effect: ${processed.length} bytes produced]`);
-          }
+          await adapter.sendVoiceNote(ctx.chatId, processed, { quotedMessageId: ctx.id });
         } finally {
           safeDelete(tempOut);
         }
@@ -218,12 +198,7 @@ export class AudioSuiteCommand implements Command {
           await runFfmpeg(argsList);
 
           const cutBuffer = fs.readFileSync(tempOut);
-          const socket = (adapter as any).sock;
-          if (socket) {
-            await socket.sendMessage(ctx.chatId, { audio: cutBuffer, mimetype: 'audio/mp4', ptt: false });
-          } else {
-            await adapter.sendMessage(ctx.chatId, `🔊 [Out Audio Cut: ${cutBuffer.length} bytes produced]`);
-          }
+          await adapter.sendAudio(ctx.chatId, cutBuffer, { quotedMessageId: ctx.id });
         } finally {
           safeDelete(tempOut);
         }
@@ -253,12 +228,7 @@ export class AudioSuiteCommand implements Command {
           await runFfmpeg(argsList);
 
           const speedBuffer = fs.readFileSync(tempOut);
-          const socket = (adapter as any).sock;
-          if (socket) {
-            await socket.sendMessage(ctx.chatId, { audio: speedBuffer, mimetype: 'audio/mp4', ptt: true });
-          } else {
-            await adapter.sendMessage(ctx.chatId, `🔊 [Out Audio Speed: ${speedBuffer.length} bytes produced]`);
-          }
+          await adapter.sendVoiceNote(ctx.chatId, speedBuffer, { quotedMessageId: ctx.id });
         } finally {
           safeDelete(tempOut);
         }

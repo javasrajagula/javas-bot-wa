@@ -2,156 +2,171 @@ import { Command, registerCommand } from './index.js';
 import { MessageContext } from '../bot/message.types.js';
 import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
 import { getUserRole } from '../bot/permission.js';
+import { commandRegistry } from './registry/command-registry.js';
+import { pluginManager } from '../config/plugins.js';
+import prisma from '../db/client.js';
 
 export class MenuCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
     const role = await getUserRole(ctx.chatId, ctx.senderId, adapter);
 
-    let menuText = `╭────── *JAVAS BOT WA* ──────╮
-│
-├─ 📝 *STICKER SUITE*
-│  • /stiker - Foto/video ke stiker WebP
-│  • /toimg - Stiker ke gambar PNG
-│  • /brat <teks> - Brat sticker (classic/grid)
-│  • /quote <teks> - Kutipan gradient stiker
-│  • /removebg - Hapus background gambar
-│  • /stikerbg - Stiker no-background
-│  • /circle - Crop gambar lingkaran
-│  • /outline [color] - Outline stiker
-│  • /meme <atas> | <bawah> - Meme generator
-│  • /emojimix 😂 + 😭 - Gabung emoji
-│  • /vstiker - Video ke stiker bergerak
-│  • /batchstiker - Batch conversion
-│
-├─ 🎥 *MEDIA TOOLS*
-│  • /hd - HD image (Lanczos3 upscaler)
-│  • /compress [low|medium|high] - Kompres
-│  • /resize [preset|dim] - Ubah resolusi
-│  • /crop [story|pp|square] - Potong rasio
-│  • /wm <teks> - Tambahkan watermark
-│  • /togif - Video ke animasi GIF
-│  • /thumb [time] - Ambil thumbnail video
-│  • /cut [start-end] - Potong durasi video
-│  • /mute - Hapus audio dari video
-│  • /reverse - Putar balik video
-│
-├─ 🎵 *AUDIO TOOLS*
-│  • /mp3 - Ekstrak video ke MP3
-│  • /transkrip - Simulasi Voice Note ke teks
-│  • /tts <teks> - Text-to-Speech (Google)
-│  • /voice [robot|chipmunk|deep] - Efek suara
-│  • /cutaudio [start-end] - Potong durasi audio
-│  • /speed [rate] / /slow [rate] - Tempo audio
-│
-├─ 📖 *TEXT & STUDY TOOLS*
-│  • /ocr - Ekstrak tulisan dari gambar
-│  • /translate [lang] - Terjemahan teks
-│  • /ringkas - Ringkas tulisan panjang
-│  • /ubah [gaya] - Rewrite gaya bahasa
-│  • /typo - Koreksi kesalahan penulisan
-│  • /balas [gaya] - AI reply generator
-│  • /jelaskan <topik> - Penjelasan belajar
-│  • /quiz [sekolah|umum|anime] - Kuis kognitif
-│
-├─ 📁 *FILE & DOKUMEN*
-│  • /img2pdf - Gambar ke dokumen PDF
-│  • /pdf2img - Halaman PDF ke gambar JPG
-│  • /mergepdf - Gabung file PDF
-│  • /compresspdf - Perkecil ukuran PDF
-│  • /scan - Scan dokumen (Contrast & Perspective)
-│  • /unzip - Ekstrak ZIP/RAR secara aman
-│  • /qr <teks|url> - Buat QR Code
-│  • /readqr - Baca isi gambar QR Code
-│
-├─ 🎮 *INTERACTIVE GAMES*
-│  • /tod - Sesi permainan Truth or Dare
-│  • /tebakkata - Game tebak kata
-│  • /tebakgambar - Kuis tebak gambar
-│  • /suit @user - Suit PvP interaktif
-│  • /ttt @user - Tic Tac Toe multipemain
-│  • /slot - Taruhan mesin slot virtual
-│  • /math - Kuis perhitungan matematika
-│  • /family100 - Kuis survei Family 100
-│  • /couple / /jodoh - Ramalan cinta
-│  • /ww [create|join|start|stop] - Werewolf
-│  • /wwrank / /wwstats - Peringkat Werewolf
-│
-├─ 💰 *ECONOMY & RPG SYSTEM*
-│  • /balance - Cek saldo, level, dan XP
-│  • /claim - Klaim uang & XP harian
-│  • /transfer @user <jumlah> - Kirim saldo
-│  • /rank - Kartu profil & level XP
-│  • /top - Papan peringkat miliarder
-│  • /shop - Toko item virtual
-│  • /buy <item> - Beli barang toko
-│  • /inventory - Tas barang belanjaan
-│  • /title set <nama> - Kustom gelar profil
-│  • /pet [adopt|feed|status|battle] - Pet system
-│  • /dungeon - Mulai turn-based RPG dungeon
-`;
-
-    // Premium features shown to Premium & Owner
-    if (role === 'premium' || role === 'owner') {
-      menuText += `│
-├─ ⭐ *PREMIUM FEATURES*
-│  • /hd 4x - HD enhancement kualitas super
-│  • /subtitle - Auto overlay subtitle video
-│  • /removebg (max 15MB) - Premium removal
-│  • /vstiker (max 10s) - Durasi video sticker
-`;
-    } else {
-      menuText += `│
-├─ ⭐ *PREMIUM FEATURES*
-│  • /hd 4x, /subtitle, /removebg 15MB, /vstiker 10s
-│    (Tersedia khusus untuk Premium User)
-`;
+    // Resolve prefix and group feature flags
+    let prefix = '/';
+    let groupFeatures: Record<string, boolean> = {};
+    if (ctx.isGroup) {
+      const config = await prisma.groupConfig.findUnique({ where: { groupId: ctx.chatId } });
+      if (config) {
+        prefix = config.prefix;
+        try {
+          groupFeatures = JSON.parse(config.featuresJson || '{}');
+        } catch {}
+      }
     }
 
-    // Admin commands shown to Admin & Owner
-    if (role === 'admin' || role === 'owner') {
-      menuText += `│
-├─ 👥 *GROUP MODERATION & COMM*
-│  • /setup - Status & petunjuk setup grup
-│  • /statusfitur - Detail feature flags
-│  • /feature <nama> <on/off> - Toggle fitur grup
-│  • /bot [on/off] - Aktifkan/matikan respon bot
-│  • /setprefix <prefix> - Ubah prefix panggilan
-│  • /setcooldown <fitur> <detik> - Limit cooldown
-│  • /warn @user <alasan> - Beri poin warning
-│  • /warnings @user - Cek warning member
-│  • /unwarn / /clearwarn - Kelola warning
-│  • /addbadword / /delbadword - Sensor kata
-│  • /listbadword - List kata diblokir
-│  • /blacklist @user - Blokir member
-│  • /unblacklist @user - Hapus blokir member
-│  • /listblacklist - Daftar hitam grup/global
-│  • /addreply <trigger> = <resp> - Auto reply
-│  • /delreply / /listreply - Kelola auto reply
-│  • /poll <tanya> | <opsi> - Buat polling
-│  • /pollresult / /closepoll - Kelola polling
-│  • /remind [waktu] [pesan] - Atur pengingat
-│  • /event <nama> <waktu> - Jadwal kegiatan
-│  • /absen [buka|list|tutup] - Absensi
-`;
+    const commandArg = args[0]?.trim().toLowerCase();
+
+    // 1. If it's a help request for a specific command:
+    const isCategory = ['sticker', 'media', 'audio', 'downloader', 'text', 'document', 'games', 'economy', 'admin', 'owner', 'all'].includes(commandArg);
+    if (commandArg && !isCategory) {
+      const cleanCmdName = commandArg.startsWith(prefix) ? commandArg.slice(prefix.length) : commandArg;
+      const cmd = commandRegistry.get(cleanCmdName);
+      if (cmd) {
+        const meta = cmd.metadata;
+        const globalEnabled = pluginManager.isPluginEnabled(meta.plugin);
+        const groupEnabled = ctx.isGroup
+          ? (groupFeatures[meta.featureFlag] !== undefined ? groupFeatures[meta.featureFlag] : true)
+          : true;
+
+        let helpMsg = `╭─── *HELP: ${prefix}${meta.name.toUpperCase()}* ───╮\n`;
+        helpMsg += `│\n`;
+        helpMsg += `├─ 📝 *Deskripsi:* ${meta.description}\n`;
+        helpMsg += `├─ ⚙️ *Penggunaan:* ${meta.usage.replace(/\//g, prefix)}\n`;
+        if (meta.aliases && meta.aliases.length > 0) {
+          helpMsg += `├─ 🔀 *Alias:* ${meta.aliases.map(a => prefix + a).join(', ')}\n`;
+        }
+        if (meta.examples && meta.examples.length > 0) {
+          helpMsg += `├─ 💡 *Contoh:* ${meta.examples.map(ex => ex.replace(/\//g, prefix)).join(', ')}\n`;
+        }
+        helpMsg += `├─ 👥 *Minimal Role:* ${meta.minRole || 'user'}\n`;
+        if (meta.premiumOnly) {
+          helpMsg += `├─ ⭐ *Premium:* Ya\n`;
+        }
+        helpMsg += `├─ 📁 *Kategori:* ${meta.category}\n`;
+        helpMsg += `├─ 🔌 *Status Global:* ${globalEnabled ? '🟢 Aktif' : '🔴 Nonaktif'}\n`;
+        if (ctx.isGroup) {
+          helpMsg += `├─ 👥 *Status Grup:* ${groupEnabled ? '🟢 Aktif' : '🔴 Nonaktif'}\n`;
+        }
+        helpMsg += `│\n`;
+        helpMsg += `╰────────────────────────╯`;
+        await adapter.sendMessage(ctx.chatId, helpMsg, { quotedMessageId: ctx.id });
+        return;
+      }
     }
 
-    // Owner commands shown only to Owner
-    if (role === 'owner') {
-      menuText += `│
-├─ 👑 *OWNER SYSTEM TOOLS*
-│  • /maintenance [on/off] - Mode pemeliharaan
-│  • /premium [add|remove] @user - Kelola premium
-│  • /broadcast <pesan> - Broadcast massal (konfirmasi)
-│  • /stats - Status server, queue & error logs
-│  • /limit - Tampilkan limit rate-limit bot
-│  • /apikey / /revokeapikey - Token API system
-│  • /plugin [list|on|off] - Plugin manager global
-`;
+    // Role hierarchies
+    const roleHierarchy: Record<string, number> = { owner: 4, admin: 3, premium: 2, user: 1 };
+    const userRoleVal = roleHierarchy[role];
+
+    const shouldDisplayCommand = (meta: any) => {
+      // 1. Min role check
+      const cmdMinRole = meta.minRole || 'user';
+      if (userRoleVal < roleHierarchy[cmdMinRole]) return false;
+      if (meta.premiumOnly && userRoleVal < 2) return false;
+
+      // 2. Global plugin enabled check
+      if (!pluginManager.isPluginEnabled(meta.plugin)) return false;
+
+      // 3. Group feature flag check
+      if (ctx.isGroup && meta.featureFlag !== 'general') {
+        const isFlagOn = groupFeatures[meta.featureFlag] !== undefined ? groupFeatures[meta.featureFlag] : true;
+        if (!isFlagOn) return false;
+      }
+
+      return true;
+    };
+
+    const allCommands = commandRegistry.getAll();
+
+    // 2. If user requests /menu all:
+    if (commandArg === 'all') {
+      let menuText = `╭────── *ALL JAVAS BOT COMMANDS* ──────╮\n│\n`;
+      const categories = ['sticker', 'media', 'audio', 'downloader', 'text', 'document', 'games', 'economy', 'admin', 'owner'];
+      for (const cat of categories) {
+        if (cat === 'admin' && userRoleVal < 3) continue;
+        if (cat === 'owner' && userRoleVal < 4) continue;
+
+        const catCmds = allCommands.filter(c => c.metadata.category === cat && shouldDisplayCommand(c.metadata));
+        if (catCmds.length === 0) continue;
+
+        menuText += `├─ 📁 *${cat.toUpperCase()}*\n`;
+        catCmds.forEach(c => {
+          menuText += `│  • ${prefix}${c.metadata.name} - ${c.metadata.description}\n`;
+        });
+        menuText += `│\n`;
+      }
+      menuText += `╰────────────────────────╯\n`;
+      menuText += `Ketik *${prefix}help <command>* untuk bantuan detail.`;
+      await adapter.sendMessage(ctx.chatId, menuText, { quotedMessageId: ctx.id });
+      return;
     }
 
-    menuText += `│
-╰────────────────────────╯
-Ketik */rules* untuk melihat ketentuan penggunaan bot.`;
+    // 3. If user requests a specific category:
+    if (commandArg && isCategory) {
+      if (commandArg === 'admin' && userRoleVal < 3) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Kategori admin khusus untuk Admin grup.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (commandArg === 'owner' && userRoleVal < 4) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Kategori owner khusus untuk Owner bot.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const catCmds = allCommands.filter(c => c.metadata.category === commandArg && shouldDisplayCommand(c.metadata));
+      if (catCmds.length === 0) {
+        await adapter.sendMessage(ctx.chatId, `⚠️ Tidak ada command aktif di kategori "${commandArg}".`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      let menuText = `╭────── *CATEGORY: ${commandArg.toUpperCase()}* ──────╮\n│\n`;
+      catCmds.forEach(c => {
+        menuText += `│  • *${prefix}${c.metadata.name}* - ${c.metadata.description}\n`;
+        if (c.metadata.aliases && c.metadata.aliases.length > 0) {
+          menuText += `│    _Alias: ${c.metadata.aliases.map(a => prefix + a).join(', ')}_\n`;
+        }
+      });
+      menuText += `│\n╰────────────────────────╯\n`;
+      menuText += `Ketik *${prefix}help <command>* untuk bantuan detail.`;
+      await adapter.sendMessage(ctx.chatId, menuText, { quotedMessageId: ctx.id });
+      return;
+    }
+
+    // 4. Default: Show categories overview
+    let menuText = `╭────── *JAVAS BOT WA MENU* ──────╮\n`;
+    menuText += `│\n`;
+    menuText += `│ Halo *${ctx.senderName}*!\n`;
+    menuText += `│ Ketik *${prefix}menu <kategori>* untuk melihat daftar command.\n`;
+    menuText += `│ Contoh: *${prefix}menu sticker*\n`;
+    menuText += `│\n`;
+    menuText += `├─ 📝 *sticker* - Stiker WhatsApp\n`;
+    menuText += `├─ 🎥 *media* - Pengolah Media Foto/Video\n`;
+    menuText += `├─ 🎵 *audio* - Pengolah Audio & VN\n`;
+    menuText += `├─ 📥 *downloader* - Pengunduh Video & Foto\n`;
+    menuText += `├─ 📖 *text* - Utilitas Teks & Belajar\n`;
+    menuText += `├─ 📁 *document* - Utilitas File/PDF/Document\n`;
+    menuText += `├─ 🎮 *games* - Game Interaktif & Werewolf\n`;
+    menuText += `├─ 💰 *economy* - Sistem Level & Ekonomi RPG\n`;
+
+    if (userRoleVal >= 3) {
+      menuText += `├─ 👥 *admin* - Moderasi & Pengaturan Grup\n`;
+    }
+    if (userRoleVal >= 4) {
+      menuText += `├─ 👑 *owner* - System Tools & Developer Commands\n`;
+    }
+
+    menuText += `│\n`;
+    menuText += `├─ ℹ️ Ketik *${prefix}menu all* untuk melihat semua.\n`;
+    menuText += `├─ ℹ️ Ketik *${prefix}rules* untuk disclaimer & aturan.\n`;
+    menuText += `╰────────────────────────╯`;
 
     await adapter.sendMessage(ctx.chatId, menuText, { quotedMessageId: ctx.id });
   }

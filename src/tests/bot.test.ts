@@ -284,4 +284,40 @@ describe('WhatsApp Bot System Tests', () => {
       await expect(runFfmpeg(['-version'])).resolves.not.toThrow();
     });
   });
+
+  describe('Group Subscription System', () => {
+    const testGroupId = 'test-subscription-group@g.us';
+
+    it('should default to free plan if not registered', async () => {
+      const sub = await prisma.groupSubscription.findUnique({
+        where: { groupId: testGroupId }
+      });
+      expect(sub).toBeNull();
+    });
+
+    it('should create and retrieve subscription correctly', async () => {
+      // Clean up first
+      await prisma.groupSubscription.deleteMany({ where: { groupId: testGroupId } });
+
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      const created = await prisma.groupSubscription.create({
+        data: {
+          groupId: testGroupId,
+          plan: 'premium',
+          expiresAt
+        }
+      });
+
+      expect(created.plan).toBe('premium');
+      expect(created.expiresAt).not.toBeNull();
+
+      const retrieved = await prisma.groupSubscription.findUnique({
+        where: { groupId: testGroupId }
+      });
+      expect(retrieved?.plan).toBe('premium');
+
+      // Clean up
+      await prisma.groupSubscription.deleteMany({ where: { groupId: testGroupId } });
+    });
+  });
 });

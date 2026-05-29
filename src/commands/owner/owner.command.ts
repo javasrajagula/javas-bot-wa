@@ -299,11 +299,123 @@ Brat: Max 10 requests / 1 minute
       await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan:\n• `/plugin list`\n• `/plugin on <name>`\n• `/plugin off <name>`', { quotedMessageId: ctx.id });
       return;
     }
+
+    // 9. /addsewa <groupId|current> <hari> <plan>
+    if (commandType === 'addsewa') {
+      let groupId = args[0];
+      const days = parseInt(args[1] || '30', 10);
+      const plan = args[2]?.toLowerCase() || 'basic';
+
+      if (!groupId && ctx.isGroup) groupId = 'current';
+      if (groupId === 'current') groupId = ctx.chatId;
+
+      if (!groupId || !['free', 'basic', 'premium'].includes(plan)) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/addsewa <groupId|current> [hari] [plan]`', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+      await prisma.groupSubscription.upsert({
+        where: { groupId },
+        create: { groupId, plan, expiresAt },
+        update: { plan, expiresAt }
+      });
+
+      await adapter.sendMessage(ctx.chatId, `✅ Sewa grup *${groupId}* berhasil ditambahkan dengan plan *${plan.toUpperCase()}* selama ${days} hari (hingga ${expiresAt.toLocaleDateString()}).`, { quotedMessageId: ctx.id });
+      return;
+    }
+
+    // 10. /delsewa <groupId|current>
+    if (commandType === 'delsewa') {
+      let groupId = args[0];
+      if (!groupId && ctx.isGroup) groupId = 'current';
+      if (groupId === 'current') groupId = ctx.chatId;
+
+      if (!groupId) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/delsewa <groupId|current>`', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      await prisma.groupSubscription.deleteMany({ where: { groupId } });
+      await adapter.sendMessage(ctx.chatId, `✅ Berhasil menghapus sewa untuk grup *${groupId}*.`, { quotedMessageId: ctx.id });
+      return;
+    }
+
+    // 11. /listsewa
+    if (commandType === 'listsewa') {
+      const subscriptions = await prisma.groupSubscription.findMany();
+      if (subscriptions.length === 0) {
+        await adapter.sendMessage(ctx.chatId, 'ℹ️ Tidak ada sewa aktif di database.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      let msg = '📋 *DAFTAR SEWA GRUP AKTIF*\n\n';
+      for (const sub of subscriptions) {
+        const expired = sub.expiresAt && sub.expiresAt.getTime() < Date.now();
+        msg += `• *ID:* ${sub.groupId}\n  *Plan:* ${sub.plan.toUpperCase()}\n  *Exp:* ${sub.expiresAt ? sub.expiresAt.toLocaleDateString() : 'Lifetime'} ${expired ? '⚠️ (EXPIRED)' : ''}\n\n`;
+      }
+      await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+      return;
+    }
+
+    // 12. /extendsewa <groupId|current> <hari>
+    if (commandType === 'extendsewa') {
+      let groupId = args[0];
+      const days = parseInt(args[1] || '30', 10);
+
+      if (!groupId && ctx.isGroup) groupId = 'current';
+      if (groupId === 'current') groupId = ctx.chatId;
+
+      if (!groupId || isNaN(days)) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/extendsewa <groupId|current> <hari>`', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const sub = await prisma.groupSubscription.findUnique({ where: { groupId } });
+      if (!sub) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Grup ini belum memiliki sewa aktif. Gunakan `/addsewa` terlebih dahulu.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const currentExp = sub.expiresAt && sub.expiresAt.getTime() > Date.now() ? sub.expiresAt.getTime() : Date.now();
+      const newExp = new Date(currentExp + days * 24 * 60 * 60 * 1000);
+
+      await prisma.groupSubscription.update({
+        where: { groupId },
+        data: { expiresAt: newExp }
+      });
+
+      await adapter.sendMessage(ctx.chatId, `✅ Sewa grup *${groupId}* diperpanjang ${days} hari (Hingga ${newExp.toLocaleDateString()}).`, { quotedMessageId: ctx.id });
+      return;
+    }
+
+    // 13. /setplan <groupId|current> <free|basic|premium>
+    if (commandType === 'setplan') {
+      let groupId = args[0];
+      const plan = args[1]?.toLowerCase();
+
+      if (!groupId && ctx.isGroup) groupId = 'current';
+      if (groupId === 'current') groupId = ctx.chatId;
+
+      if (!groupId || !['free', 'basic', 'premium'].includes(plan || '')) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/setplan <groupId|current> <free|basic|premium>`', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      await prisma.groupSubscription.upsert({
+        where: { groupId },
+        create: { groupId, plan },
+        update: { plan }
+      });
+
+      await adapter.sendMessage(ctx.chatId, `✅ Plan sewa grup *${groupId}* diubah menjadi *${plan?.toUpperCase()}*.`, { quotedMessageId: ctx.id });
+      return;
+    }
   }
 }
 
 const ownerSuite = new OwnerSuiteCommand();
 registerCommand(
-  ['maintenance', 'premium', 'broadcast', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin'],
+  ['maintenance', 'premium', 'broadcast', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan'],
   ownerSuite
 );

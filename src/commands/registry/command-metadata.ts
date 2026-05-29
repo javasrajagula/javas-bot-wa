@@ -992,6 +992,93 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     examples: ['/plugin list', '/plugin off games']
   },
 
+  // --- SEWA/SUBSCRIPTION TOOLS ---
+  {
+    name: 'addsewa',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    minRole: 'owner',
+    description: 'Menambahkan sewa grup baru.',
+    usage: '/addsewa <groupId|current> [hari] [plan]',
+    examples: ['/addsewa current 30 premium']
+  },
+  {
+    name: 'delsewa',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    minRole: 'owner',
+    description: 'Menghapus sewa grup.',
+    usage: '/delsewa <groupId|current>',
+    examples: ['/delsewa current']
+  },
+  {
+    name: 'listsewa',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    minRole: 'owner',
+    description: 'Melihat seluruh sewa grup aktif.',
+    usage: '/listsewa',
+    examples: ['/listsewa']
+  },
+  {
+    name: 'extendsewa',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    minRole: 'owner',
+    description: 'Memperpanjang masa aktif sewa grup.',
+    usage: '/extendsewa <groupId|current> <hari>',
+    examples: ['/extendsewa current 30']
+  },
+  {
+    name: 'setplan',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    minRole: 'owner',
+    description: 'Mengatur paket sewa grup.',
+    usage: '/setplan <groupId|current> <free|basic|premium>',
+    examples: ['/setplan current premium']
+  },
+  {
+    name: 'sewa',
+    aliases: [],
+    category: 'general',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    description: 'Melihat informasi harga sewa bot.',
+    usage: '/sewa',
+    examples: ['/sewa']
+  },
+  {
+    name: 'ceksewa',
+    aliases: [],
+    category: 'general',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    description: 'Memeriksa sisa masa aktif sewa grup ini.',
+    usage: '/ceksewa',
+    examples: ['/ceksewa']
+  },
+  {
+    name: 'fitursewa',
+    aliases: [],
+    category: 'general',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    description: 'Melihat perbandingan fitur antar plan sewa.',
+    usage: '/fitursewa',
+    examples: ['/fitursewa']
+  },
+
   // --- GENERAL/MISC ---
   {
     name: 'rules',
