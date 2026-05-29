@@ -2,13 +2,15 @@ import { Command, registerCommand } from '../index.js';
 import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
 import fs from 'fs';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import axios from 'axios';
 import { getTempPath, safeDelete } from '../../utils/file.util.js';
 import { isPremium } from '../../bot/permission.js';
-
-const execPromise = promisify(exec);
+import { runFfmpeg } from '../../services/ffmpeg/ffmpeg.service.js';
+import {
+  validateTimestamp,
+  parseTimeToSeconds,
+  validateSpeed
+} from '../../validators/media.validator.js';
 
 export class AudioSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
@@ -94,8 +96,17 @@ export class AudioSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⏳ Mengekstrak audio ke MP3...', { quotedMessageId: ctx.id });
         const tempOut = getTempPath('mp3');
         try {
-          const command = `ffmpeg -y -i "${tempIn}" -vn -ar 44100 -ac 2 -ab 192k -f mp3 "${tempOut}"`;
-          await execPromise(command);
+          const argsList = [
+            '-y',
+            '-i', tempIn,
+            '-vn',
+            '-ar', '44100',
+            '-ac', '2',
+            '-ab', '192k',
+            '-f', 'mp3',
+            tempOut
+          ];
+          await runFfmpeg(argsList);
 
           const mp3Buffer = fs.readFileSync(tempOut);
           const socket = (adapter as any).sock;
@@ -144,8 +155,13 @@ export class AudioSuiteCommand implements Command {
             filter = 'asetrate=44100*0.75,atempo=1.33';
           }
 
-          const command = `ffmpeg -y -i "${tempIn}" -filter:a "${filter}" "${tempOut}"`;
-          await execPromise(command);
+          const argsList = [
+            '-y',
+            '-i', tempIn,
+            '-filter:a', filter,
+            tempOut
+          ];
+          await runFfmpeg(argsList);
 
           const processed = fs.readFileSync(tempOut);
           const socket = (adapter as any).sock;
@@ -167,12 +183,39 @@ export class AudioSuiteCommand implements Command {
           return;
         }
         const [start, end] = timeRange.split('-');
+        if (!validateTimestamp(start) || !validateTimestamp(end)) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format waktu tidak valid. Gunakan format HH:MM:SS, MM:SS, atau detik.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const startSecs = parseTimeToSeconds(start);
+        const endSecs = parseTimeToSeconds(end);
+        if (startSecs >= endSecs) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Waktu mulai harus lebih kecil dari waktu selesai.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const duration = endSecs - startSecs;
+        const isPrem = await isPremium(ctx.senderId);
+        const maxDuration = isPrem ? 600 : 60; // 10 mins premium, 1 min free
+        if (duration > maxDuration) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Durasi pemotongan maksimal adalah ${maxDuration} detik.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
         await adapter.sendMessage(ctx.chatId, `⏳ Memotong audio dari ${start} sampai ${end}...`, { quotedMessageId: ctx.id });
 
         const tempOut = getTempPath('mp3');
         try {
-          const command = `ffmpeg -y -ss ${start} -to ${end} -i "${tempIn}" -c copy "${tempOut}"`;
-          await execPromise(command);
+          const argsList = [
+            '-y',
+            '-ss', start,
+            '-to', end,
+            '-i', tempIn,
+            '-c', 'copy',
+            tempOut
+          ];
+          await runFfmpeg(argsList);
 
           const cutBuffer = fs.readFileSync(tempOut);
           const socket = (adapter as any).sock;
@@ -188,18 +231,26 @@ export class AudioSuiteCommand implements Command {
 
       // 6. /speed or /slow
       else if (cmd === 'speed' || cmd === 'slow') {
-        const speedStr = args[0] || '1.5x';
+        const defaultSpeed = cmd === 'slow' ? '0.75x' : '1.5x';
+        const speedStr = args[0] || defaultSpeed;
         const speedVal = parseFloat(speedStr.replace('x', ''));
-        if (isNaN(speedVal) || speedVal < 0.5 || speedVal > 2.0) {
-          await adapter.sendMessage(ctx.chatId, '⚠️ Kecepatan tidak valid. Gunakan range 0.5x sampai 2.0x (Contoh: `/speed 1.5x`)', { quotedMessageId: ctx.id });
+        try {
+          validateSpeed(speedVal);
+        } catch (err: any) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ ${err.message}`, { quotedMessageId: ctx.id });
           return;
         }
 
         await adapter.sendMessage(ctx.chatId, `⏳ Mengubah kecepatan audio menjadi ${speedVal}x...`, { quotedMessageId: ctx.id });
         const tempOut = getTempPath('mp3');
         try {
-          const command = `ffmpeg -y -i "${tempIn}" -filter:a "atempo=${speedVal}" "${tempOut}"`;
-          await execPromise(command);
+          const argsList = [
+            '-y',
+            '-i', tempIn,
+            '-filter:a', `atempo=${speedVal}`,
+            tempOut
+          ];
+          await runFfmpeg(argsList);
 
           const speedBuffer = fs.readFileSync(tempOut);
           const socket = (adapter as any).sock;

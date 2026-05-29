@@ -3,13 +3,16 @@ import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
 import sharp from 'sharp';
 import fs from 'fs';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { getTempPath, safeDelete } from '../../utils/file.util.js';
 import { enhanceImage } from '../../services/hd/hd.service.js';
 import { isPremium } from '../../bot/permission.js';
-
-const execPromise = promisify(exec);
+import { runFfmpeg } from '../../services/ffmpeg/ffmpeg.service.js';
+import {
+  validateMediaSize,
+  validateWatermarkText,
+  validateTimestamp,
+  parseTimeToSeconds
+} from '../../validators/media.validator.js';
 
 export class MediaSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
@@ -60,6 +63,12 @@ export class MediaSuiteCommand implements Command {
     }
 
     const buffer = await media.getBuffer();
+    try {
+      await validateMediaSize(buffer.length, ctx.senderId);
+    } catch (err: any) {
+      await adapter.sendMessage(ctx.chatId, `⚠️ ${err.message}`, { quotedMessageId: ctx.id });
+      return;
+    }
 
     // 2. /compress or /kompres
     if (cmd === 'compress' || cmd === 'kompres') {
@@ -86,8 +95,16 @@ export class MediaSuiteCommand implements Command {
           if (level === 'high') crf = 35;
           if (level === 'low') crf = 22;
 
-          const command = `ffmpeg -y -i "${tempIn}" -vcodec libx264 -crf ${crf} -preset fast -acodec copy "${tempOut}"`;
-          await execPromise(command);
+          const args = [
+            '-y',
+            '-i', tempIn,
+            '-vcodec', 'libx264',
+            '-crf', String(crf),
+            '-preset', 'fast',
+            '-acodec', 'copy',
+            tempOut
+          ];
+          await runFfmpeg(args);
 
           const compressed = fs.readFileSync(tempOut);
           await adapter.sendVideo(ctx.chatId, compressed, 'Video berhasil dikompres.', { quotedMessageId: ctx.id });
@@ -156,6 +173,13 @@ export class MediaSuiteCommand implements Command {
     // 5. /wm
     if (cmd === 'wm') {
       const text = args.join(' ').trim() || 'Javas Bot';
+      const cleanText = text.replace(/[^a-zA-Z0-9\s.,!?-]/g, '');
+      try {
+        validateWatermarkText(cleanText);
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `⚠️ ${err.message}`, { quotedMessageId: ctx.id });
+        return;
+      }
       await adapter.sendMessage(ctx.chatId, '⏳ Menambahkan watermark...', { quotedMessageId: ctx.id });
 
       if (media.type === 'image') {
@@ -163,7 +187,7 @@ export class MediaSuiteCommand implements Command {
           const svg = `
             <svg width="500" height="50">
               <text x="490" y="35" font-family="Arial" font-size="24" fill="white" opacity="0.6" text-anchor="end">
-                ${text}
+                ${cleanText}
               </text>
             </svg>
           `;
@@ -180,8 +204,14 @@ export class MediaSuiteCommand implements Command {
         const tempOut = getTempPath('mp4');
         try {
           fs.writeFileSync(tempIn, buffer);
-          const command = `ffmpeg -y -i "${tempIn}" -vf "drawtext=text='${text}':x=w-tw-10:y=h-th-10:fontsize=24:fontcolor=white@0.6" -codec:a copy "${tempOut}"`;
-          await execPromise(command);
+          const args = [
+            '-y',
+            '-i', tempIn,
+            '-vf', `drawtext=text='${cleanText}':x=w-tw-10:y=h-th-10:fontsize=24:fontcolor=white@0.6`,
+            '-codec:a', 'copy',
+            tempOut
+          ];
+          await runFfmpeg(args);
 
           const wmVideo = fs.readFileSync(tempOut);
           await adapter.sendVideo(ctx.chatId, wmVideo, 'Video watermark berhasil.', { quotedMessageId: ctx.id });
@@ -213,8 +243,14 @@ export class MediaSuiteCommand implements Command {
 
         const tempOut = getTempPath('gif');
         try {
-          const command = `ffmpeg -y -i "${tempIn}" -t ${maxSecs} -vf "fps=10,scale=320:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" "${tempOut}"`;
-          await execPromise(command);
+          const argsList = [
+            '-y',
+            '-i', tempIn,
+            '-t', String(maxSecs),
+            '-vf', 'fps=10,scale=320:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse',
+            tempOut
+          ];
+          await runFfmpeg(argsList);
           const gif = fs.readFileSync(tempOut);
           await adapter.sendImage(ctx.chatId, gif, 'Video berhasil diubah ke GIF.', { quotedMessageId: ctx.id });
         } finally {
@@ -225,12 +261,24 @@ export class MediaSuiteCommand implements Command {
       // 7. /thumb
       else if (cmd === 'thumb') {
         const time = args[0] || '00:00:01';
+        if (!validateTimestamp(time)) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format waktu tidak valid. Gunakan format HH:MM:SS atau detik (e.g. 00:00:01 atau 10).', { quotedMessageId: ctx.id });
+          return;
+        }
+
         await adapter.sendMessage(ctx.chatId, `⏳ Mengambil thumbnail pada ${time}...`, { quotedMessageId: ctx.id });
 
         const tempOut = getTempPath('jpg');
         try {
-          const command = `ffmpeg -y -ss ${time} -i "${tempIn}" -vframes 1 -q:v 2 "${tempOut}"`;
-          await execPromise(command);
+          const argsList = [
+            '-y',
+            '-ss', time,
+            '-i', tempIn,
+            '-vframes', '1',
+            '-q:v', '2',
+            tempOut
+          ];
+          await runFfmpeg(argsList);
           const thumb = fs.readFileSync(tempOut);
           await adapter.sendImage(ctx.chatId, thumb, `Thumbnail pada ${time}.`, { quotedMessageId: ctx.id });
         } finally {
@@ -247,12 +295,39 @@ export class MediaSuiteCommand implements Command {
         }
 
         const [start, end] = timeRange.split('-');
+        if (!validateTimestamp(start) || !validateTimestamp(end)) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format waktu tidak valid. Gunakan format HH:MM:SS atau detik.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const startSecs = parseTimeToSeconds(start);
+        const endSecs = parseTimeToSeconds(end);
+        if (startSecs >= endSecs) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Waktu mulai harus lebih kecil dari waktu selesai.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const duration = endSecs - startSecs;
+        const isPrem = await isPremium(ctx.senderId);
+        const maxDuration = isPrem ? 600 : 60; // 10 mins premium, 1 min free
+        if (duration > maxDuration) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Durasi pemotongan maksimal adalah ${maxDuration} detik.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
         await adapter.sendMessage(ctx.chatId, `⏳ Memotong video dari ${start} sampai ${end}...`, { quotedMessageId: ctx.id });
 
         const tempOut = getTempPath('mp4');
         try {
-          const command = `ffmpeg -y -ss ${start} -to ${end} -i "${tempIn}" -c copy "${tempOut}"`;
-          await execPromise(command);
+          const argsList = [
+            '-y',
+            '-ss', start,
+            '-to', end,
+            '-i', tempIn,
+            '-c', 'copy',
+            tempOut
+          ];
+          await runFfmpeg(argsList);
           const cutVideo = fs.readFileSync(tempOut);
           await adapter.sendVideo(ctx.chatId, cutVideo, `Video berhasil dipotong.`, { quotedMessageId: ctx.id });
         } finally {
@@ -272,9 +347,14 @@ export class MediaSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⏳ Menambahkan subtitle otomatis (simulasi)...', { quotedMessageId: ctx.id });
         const tempOut = getTempPath('mp4');
         try {
-          // Simulate sub overlay drawtext
-          const command = `ffmpeg -y -i "${tempIn}" -vf "drawtext=text='[Transkrip Subtitle Javas Bot]':x=(w-tw)/2:y=h-80:fontsize=22:fontcolor=yellow:box=1:boxcolor=black@0.5" -codec:a copy "${tempOut}"`;
-          await execPromise(command);
+          const argsList = [
+            '-y',
+            '-i', tempIn,
+            '-vf', "drawtext=text='[Transkrip Subtitle Javas Bot]':x=(w-tw)/2:y=h-80:fontsize=22:fontcolor=yellow:box=1:boxcolor=black@0.5",
+            '-codec:a', 'copy',
+            tempOut
+          ];
+          await runFfmpeg(argsList);
           const subVideo = fs.readFileSync(tempOut);
           await adapter.sendVideo(ctx.chatId, subVideo, 'Video dengan subtitle berhasil diproduksi.', { quotedMessageId: ctx.id });
         } finally {
@@ -287,8 +367,14 @@ export class MediaSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⏳ Menghapus audio video...', { quotedMessageId: ctx.id });
         const tempOut = getTempPath('mp4');
         try {
-          const command = `ffmpeg -y -i "${tempIn}" -an -vcodec copy "${tempOut}"`;
-          await execPromise(command);
+          const argsList = [
+            '-y',
+            '-i', tempIn,
+            '-an',
+            '-vcodec', 'copy',
+            tempOut
+          ];
+          await runFfmpeg(argsList);
           const mutedVideo = fs.readFileSync(tempOut);
           await adapter.sendVideo(ctx.chatId, mutedVideo, 'Video berhasil dimute.', { quotedMessageId: ctx.id });
         } finally {
@@ -301,8 +387,14 @@ export class MediaSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⏳ Memutar balik video...', { quotedMessageId: ctx.id });
         const tempOut = getTempPath('mp4');
         try {
-          const command = `ffmpeg -y -i "${tempIn}" -vf reverse -af areverse "${tempOut}"`;
-          await execPromise(command);
+          const argsList = [
+            '-y',
+            '-i', tempIn,
+            '-vf', 'reverse',
+            '-af', 'areverse',
+            tempOut
+          ];
+          await runFfmpeg(argsList);
           const reversedVideo = fs.readFileSync(tempOut);
           await adapter.sendVideo(ctx.chatId, reversedVideo, 'Video berhasil diputar balik.', { quotedMessageId: ctx.id });
         } finally {

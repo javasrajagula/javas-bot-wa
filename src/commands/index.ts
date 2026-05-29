@@ -19,10 +19,13 @@ export interface Command {
 // Commands registry
 const commands: Record<string, Command> = {};
 
+import { commandRegistry } from './registry/command-registry.js';
+
 export function registerCommand(names: string[], command: Command) {
   names.forEach(name => {
     commands[name.toLowerCase()] = command;
   });
+  commandRegistry.register(names, (ctx, args, adapter) => command.execute(ctx, args, adapter));
 }
 
 /**
@@ -255,17 +258,17 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   }
 
   // Find Command Handler
-  const command = commands[commandName];
-  if (!command) return;
+  const registeredCmd = commandRegistry.get(commandName);
+  if (!registeredCmd) return;
 
   // Dynamic Plugin System Check (Global Owner Toggle)
   const { pluginManager } = await import('../config/plugins.js');
-  if (!pluginManager.isCommandEnabled(commandName)) {
+  if (!pluginManager.isPluginEnabled(registeredCmd.metadata.plugin)) {
     await adapter.sendMessage(ctx.chatId, `⚠️ Plugin untuk command "/${commandName}" sedang dinonaktifkan secara global oleh Owner.`, { quotedMessageId: ctx.id });
     return;
   }
 
-  const featureKey = getFeatureKey(commandName);
+  const featureKey = registeredCmd.metadata.featureFlag;
 
   // 4. Validate if feature is enabled in Group
   if (isGroup && groupConfig) {
@@ -279,6 +282,41 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
     }
   }
 
+  // --- ROLE AND PERMISSION CHECKS ---
+  const { getUserRole } = await import('../bot/permission.js');
+  const userRole = await getUserRole(ctx.chatId, ctx.senderId, adapter);
+
+  // Role hierarchy mapping
+  const roleHierarchy: Record<string, number> = {
+    owner: 4,
+    admin: 3,
+    premium: 2,
+    user: 1
+  };
+
+  const minRole = registeredCmd.metadata.minRole || 'user';
+  const isPremiumOnly = registeredCmd.metadata.premiumOnly || false;
+
+  if (roleHierarchy[userRole] < roleHierarchy[minRole]) {
+    if (minRole === 'owner') {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Owner.', { quotedMessageId: ctx.id });
+      return;
+    }
+    if (minRole === 'admin') {
+      if (!isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya dapat digunakan di dalam grup oleh Admin.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Admin grup.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+  }
+
+  if (isPremiumOnly && roleHierarchy[userRole] < roleHierarchy['premium']) {
+    await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Premium User.', { quotedMessageId: ctx.id });
+    return;
+  }
+
   // 5. Rate Limiting Check
   let isRateLimited = false;
   let retryAfterSeconds = 0;
@@ -287,20 +325,22 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   const bypassPrivate = process.env.PRIVATE_CHAT_BYPASS_RATE_LIMIT !== 'false';
   const isSenderOwner = isOwner(ctx.senderId);
 
+  const rateLimitFeature = registeredCmd.metadata.rateLimitKey || featureKey || 'general';
+
   if (isGroup) {
     if (!(isSenderOwner && bypassOwner)) {
-      const rateLimitKey = featureKey === 'werewolf'
+      const rateLimitKey = rateLimitFeature === 'werewolf'
         ? `group:${ctx.chatId}:werewolf`
-        : `user:${ctx.senderId}:${featureKey}`;
+        : `user:${ctx.senderId}:${rateLimitFeature}`;
 
-      const res = rateLimiter.isRateLimited(rateLimitKey, featureKey);
+      const res = rateLimiter.isRateLimited(rateLimitKey, rateLimitFeature);
       isRateLimited = res.limited;
       retryAfterSeconds = res.retryAfterSeconds;
     }
   } else {
     if (!bypassPrivate && !(isSenderOwner && bypassOwner)) {
-      const rateLimitKey = `user:${ctx.senderId}:${featureKey}`;
-      const res = rateLimiter.isRateLimited(rateLimitKey, featureKey);
+      const rateLimitKey = `user:${ctx.senderId}:${rateLimitFeature}`;
+      const res = rateLimiter.isRateLimited(rateLimitKey, rateLimitFeature);
       isRateLimited = res.limited;
       retryAfterSeconds = res.retryAfterSeconds;
     }
@@ -338,9 +378,18 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
 
   // 6. Execute Command
   try {
-    await command.execute(ctx, args, adapter);
+    await registeredCmd.execute(ctx, args, adapter);
   } catch (err: any) {
-    console.error(`Error executing command /${commandName}:`, err);
-    await adapter.sendMessage(ctx.chatId, `❌ Error: ${err.message || 'Terjadi kesalahan sistem.'}`, { quotedMessageId: ctx.id });
+    const { safeReplyError } = await import('../utils/logger.js');
+    await safeReplyError(ctx.chatId, err, adapter, {
+      quotedMessageId: ctx.id,
+      scope: 'routeMessage',
+      feature: featureKey,
+      metadata: {
+        userId: ctx.senderId,
+        command: commandName,
+        args
+      }
+    });
   }
 }

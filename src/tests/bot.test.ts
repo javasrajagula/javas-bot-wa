@@ -191,4 +191,97 @@ describe('WhatsApp Bot System Tests', () => {
       await prisma.apiKey.deleteMany({ where: { userId: testUser } });
     });
   });
+
+  describe('Command Registry', () => {
+    it('should retrieve commands and resolve aliases correctly', async () => {
+      await import('../commands/sticker/sticker.command.js');
+      const { commandRegistry } = await import('../commands/registry/command-registry.js');
+      const stikerCmd = commandRegistry.get('stiker');
+      expect(stikerCmd).toBeDefined();
+      expect(stikerCmd?.metadata.name).toBe('stiker');
+      expect(stikerCmd?.metadata.aliases).toContain('s');
+      expect(stikerCmd?.metadata.plugin).toBe('sticker');
+
+      const sCmd = commandRegistry.get('s');
+      expect(sCmd).toBeDefined();
+      expect(sCmd?.metadata.name).toBe('stiker'); // resolves alias to primary command
+    });
+  });
+
+  describe('Error Logging', () => {
+    it('should log error to database and send safe message', async () => {
+      const { safeReplyError } = await import('../utils/logger.js');
+      
+      const mockAdapter = {
+        sendMessage: async (chatId: string, text: string) => {
+          expect(text).toContain('Terjadi kesalahan sistem');
+        }
+      } as any;
+
+      const testError = new Error('Test validation error');
+      const testChatId = 'test-error-log-chat@g.us';
+
+      // Clean up first
+      await prisma.errorLog.deleteMany({ where: { message: 'Test validation error' } });
+
+      await safeReplyError(testChatId, testError, mockAdapter, {
+        scope: 'testSuite',
+        feature: 'testing'
+      });
+
+      const logs = await prisma.errorLog.findMany({
+        where: { message: 'Test validation error' }
+      });
+      expect(logs.length).toBe(1);
+      expect(logs[0].scope).toBe('testSuite');
+      expect(logs[0].feature).toBe('testing');
+      expect(logs[0].stack).not.toBeNull();
+
+      // Clean up
+      await prisma.errorLog.deleteMany({ where: { message: 'Test validation error' } });
+    });
+  });
+
+  describe('Media Validator', () => {
+    it('should validate timestamps correctly', async () => {
+      const { validateTimestamp } = await import('../validators/media.validator.js');
+      expect(validateTimestamp('00:00:01')).toBe(true);
+      expect(validateTimestamp('05:12')).toBe(true);
+      expect(validateTimestamp('15')).toBe(true);
+      expect(validateTimestamp('15.5')).toBe(true);
+      expect(validateTimestamp('abc')).toBe(false);
+      expect(validateTimestamp('00:00:00:01')).toBe(false);
+    });
+
+    it('should parse time formats to seconds correctly', async () => {
+      const { parseTimeToSeconds } = await import('../validators/media.validator.js');
+      expect(parseTimeToSeconds('00:00:01')).toBe(1);
+      expect(parseTimeToSeconds('05:12')).toBe(312);
+      expect(parseTimeToSeconds('15')).toBe(15);
+      expect(parseTimeToSeconds('15.5')).toBe(15.5);
+    });
+
+    it('should enforce watermark text limits', async () => {
+      const { validateWatermarkText } = await import('../validators/media.validator.js');
+      expect(() => validateWatermarkText('A short watermark')).not.toThrow();
+      expect(() => validateWatermarkText('A very very very very long watermark text that exceeds 30 characters')).toThrow(/terlalu panjang/);
+    });
+
+    it('should enforce speed limits', async () => {
+      const { validateSpeed } = await import('../validators/media.validator.js');
+      expect(() => validateSpeed(1.5)).not.toThrow();
+      expect(() => validateSpeed(0.5)).not.toThrow();
+      expect(() => validateSpeed(2.0)).not.toThrow();
+      expect(() => validateSpeed(0.4)).toThrow(/Harus berada di rentang/);
+      expect(() => validateSpeed(2.1)).toThrow(/Harus berada di rentang/);
+      expect(() => validateSpeed(NaN)).toThrow(/Harus berada di rentang/);
+    });
+
+    it('should run ffmpeg command successfully', async () => {
+      const { runFfmpeg } = await import('../services/ffmpeg/ffmpeg.service.js');
+      // Running ffmpeg with no args or help should output/resolve or reject safely
+      // Let's run a safe, quick flag '-version'
+      await expect(runFfmpeg(['-version'])).resolves.not.toThrow();
+    });
+  });
 });

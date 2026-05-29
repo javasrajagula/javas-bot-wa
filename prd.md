@@ -1,1959 +1,1542 @@
-# PRD Final — Javas Bot WA
+# PRD — Roadmap Fitur Javas Bot WA Non-Paid-AI
 
 ## 1. Ringkasan Produk
 
-Javas Bot WA adalah bot WhatsApp berbasis Node.js + TypeScript yang menyediakan fitur stiker, pengolahan gambar/video/audio, downloader media sosial sesuai batasan legal, game grup, ekonomi virtual, moderasi grup, AI tools, file tools, dan owner management.
+**Nama produk:** Javas Bot WA
+**Platform:** WhatsApp Bot berbasis Node.js, TypeScript, Baileys, Prisma, dan database lokal/production database.
+**Tujuan:** Mengembangkan Javas Bot WA menjadi bot WhatsApp modular untuk grup, komunitas, dan penggunaan pribadi dengan fitur moderasi, utilitas media, downloader, ekonomi, game, reminder, dashboard owner, sistem sewa, backup, dan onboarding grup.
 
-Bot harus berjalan di chat pribadi dan grup WhatsApp, tetapi wajib **silent by default**. Bot tidak boleh mengirim pesan otomatis saat masuk grup, reconnect, atau menerima pesan biasa tanpa command, kecuali fitur otomatis sudah diaktifkan admin.
+PRD ini mencakup seluruh fitur roadmap yang sudah dibahas, kecuali integrasi AI berbayar. Fitur yang membutuhkan kecerdasan otomatis harus menggunakan pendekatan non-paid-AI, yaitu rule-based, heuristic-based, open-source, self-hosted, atau offline local processing.
 
-## 2. Tujuan Utama
+---
 
-1. Membuat WhatsApp bot multifungsi untuk stiker, media tools, game, dan grup.
-2. Menyediakan sistem command yang rapi dan mudah dikembangkan.
-3. Memastikan fitur grup tidak mengganggu karena semua fitur moderasi default nonaktif.
-4. Memperbaiki bug runtime Baileys agar bot stabil saat mengirim pesan, stiker, gambar, dan video.
-5. Menambahkan fitur lanjutan secara bertahap sesuai prioritas.
-6. Menjadikan bot siap dipakai untuk grup, chat pribadi, dan pengembangan premium.
+## 2. Prinsip Produk
 
-## 3. Prinsip Wajib
+1. **Silent by Default**
+   Bot tidak mengirim pesan otomatis yang mengganggu kecuali fitur tersebut diaktifkan oleh admin grup.
 
-### 3.1 Silent by Default
+2. **Modular by Design**
+   Semua fitur harus berada dalam plugin/module yang bisa diaktifkan atau dimatikan secara global oleh owner dan secara lokal oleh admin grup.
 
-Bot tidak boleh langsung mengirim pesan saat:
+3. **Role-Based Access Control**
+   Setiap command harus punya aturan role minimal: user, premium, admin grup, atau owner.
 
-```text
-- Bot baru dimasukkan ke grup
-- Bot baru reconnect
-- Bot baru dinyalakan
-- Ada member baru masuk grup
-- Ada member keluar grup
-- Ada pesan biasa tanpa command
-- Ada link/media masuk, kecuali fitur moderasi terkait aktif
+4. **Production-Safe**
+   Semua fitur yang memproses media, link, file, command shell, atau queue harus aman dari abuse, spam, command injection, file berbahaya, dan resource exhaustion.
+
+5. **No Paid AI Dependency**
+   Tidak boleh ada dependensi wajib ke AI berbayar seperti OpenAI, Gemini berbayar, Claude, atau API komersial sejenis. Fitur OCR/STT/translate/summarize/moderation boleh memakai:
+
+   * OCR open-source,
+   * Whisper local/self-hosted,
+   * LibreTranslate self-hosted,
+   * rule-based moderation,
+   * dictionary/regex/heuristic filtering,
+   * model lokal gratis bila user menjalankan sendiri.
+
+---
+
+## 3. Target Pengguna
+
+### 3.1 Owner Bot
+
+Pengguna yang mengelola bot, premium user, plugin, broadcast, dashboard, database, backup, dan sistem sewa.
+
+### 3.2 Admin Grup
+
+Pengguna yang mengatur fitur grup seperti anti-link, warning, welcome, goodbye, reminder grup, dan setup wizard.
+
+### 3.3 User Biasa
+
+Member grup yang memakai fitur stiker, media, downloader terbatas, game, ekonomi, reminder pribadi, rank, profile, dan utilitas dokumen.
+
+### 3.4 Premium User
+
+User yang mendapat limit lebih besar, fitur media lebih berat, downloader lanjutan, rank card kustom, akses queue prioritas, dan fitur eksklusif non-paid-AI.
+
+---
+
+## 4. Scope Utama
+
+Roadmap fitur dibagi menjadi 16 epic:
+
+1. Core Stability & Security Upgrade
+2. Audio & Voice Note Support
+3. Dynamic Menu System
+4. Group Subscription / Sewa Bot
+5. Advanced Anti-Spam & Anti-Link
+6. Smart Warning & Infraction System
+7. Rule-Based / Offline Smart Moderation
+8. Group Log & Audit Trail
+9. Reminder, Scheduler, Tugas, dan Jadwal
+10. Downloader Expansion
+11. Rank Card, Profile Card, dan Leaderboard Visual
+12. Economy Expansion
+13. Achievement, Badge, dan Title System
+14. Owner Web Dashboard
+15. Backup & Restore System
+16. Group Onboarding & Setup Wizard
+17. Free/Open-Source Text, OCR, STT, Translate, dan Document Tools
+
+---
+
+# EPIC 1 — Core Stability & Security Upgrade
+
+## 1.1 Problem
+
+Bot sudah punya banyak fitur, tetapi sebelum dipakai banyak grup, fondasi teknis perlu distabilkan. Risiko utama:
+
+* FFmpeg command injection,
+* rate limiter masih in-memory,
+* queue belum persistent,
+* plugin/feature flag belum konsisten,
+* command metadata tersebar,
+* error detail bisa bocor ke user,
+* reconnect Baileys perlu lebih aman.
+
+## 1.2 Goals
+
+* Membuat bot aman untuk penggunaan multi-grup.
+* Mengurangi crash dan memory leak.
+* Menyatukan metadata command.
+* Membuat rate limit, queue, dan cooldown siap production.
+
+## 1.3 Requirements
+
+### Functional Requirements
+
+1. Semua command harus punya metadata:
+
+   * name,
+   * aliases,
+   * category,
+   * plugin,
+   * featureFlag,
+   * minRole,
+   * premiumOnly,
+   * rateLimitKey,
+   * description,
+   * usage,
+   * examples.
+
+2. Router command harus membaca metadata sebagai sumber utama.
+
+3. Plugin manager harus memakai metadata command, bukan daftar command manual.
+
+4. Feature flag grup harus membaca metadata command.
+
+5. Error ke user harus generik:
+
+   * “Terjadi kesalahan saat memproses command.”
+   * Detail stack trace masuk ke ErrorLog.
+
+6. Semua proses FFmpeg harus menggunakan `spawn` atau `execFile`, bukan string shell bebas.
+
+7. Semua input user untuk FFmpeg harus divalidasi:
+
+   * durasi,
+   * timestamp,
+   * teks watermark,
+   * filename,
+   * ekstensi file,
+   * ukuran media.
+
+8. Tambahkan graceful shutdown:
+
+   * close Prisma,
+   * close Redis,
+   * clear queue worker,
+   * save pending state.
+
+9. Tambahkan health command:
+
+   * `/ping`
+   * `/status`
+   * `/uptime`
+
+10. Tambahkan CI:
+
+* typecheck,
+* test,
+* lint,
+* build.
+
+### Non-Functional Requirements
+
+* Semua command harus tetap kompatibel dengan mode console.
+* Tidak boleh ada secrets di repo.
+* Semua file temp harus auto-cleanup.
+* Bot harus tetap jalan meskipun satu command gagal.
+
+## 1.4 Acceptance Criteria
+
+* `npm run typecheck` sukses.
+* `npm run test` sukses.
+* Semua command punya metadata.
+* Plugin off benar-benar mematikan seluruh command plugin tersebut.
+* Feature flag off benar-benar memblokir command terkait di grup.
+* FFmpeg tidak memakai raw shell string dari input user.
+* Error stack tidak dikirim ke chat user.
+
+---
+
+# EPIC 2 — Audio & Voice Note Support
+
+## 2.1 Problem
+
+Command audio sudah ada, tetapi parser media belum lengkap untuk voice note/audio WhatsApp. Akibatnya command seperti `/transkrip`, `/voice`, `/cutaudio`, `/speed`, dan `/slow` tidak akan stabil untuk pesan audio asli.
+
+## 2.2 Goals
+
+* Mendukung audioMessage dan voice note WhatsApp.
+* Menambahkan method adapter yang bersih untuk mengirim audio.
+* Membuat fitur audio bisa dipakai tanpa akses langsung ke socket internal.
+
+## 2.3 Requirements
+
+### Functional Requirements
+
+1. Tambahkan tipe media:
+
+   * image,
+   * video,
+   * sticker,
+   * document,
+   * audio.
+
+2. Parser Baileys harus membaca:
+
+   * `audioMessage`,
+   * `ptt`,
+   * mimetype audio,
+   * duration bila tersedia.
+
+3. Tambahkan method adapter:
+
+   * `sendAudio(chatId, audioBuffer, options)`
+   * `sendVoiceNote(chatId, audioBuffer, options)`
+   * `sendDocument(chatId, buffer, fileName, mimeType, options)`
+
+4. Command audio wajib mendukung:
+
+   * `/mp3`
+   * `/audio`
+   * `/transkrip`
+   * `/vntext`
+   * `/voice robot`
+   * `/voice chipmunk`
+   * `/voice deep`
+   * `/cutaudio 00:10-00:30`
+   * `/speed 1.5x`
+   * `/slow 0.75x`
+
+5. Batasi durasi audio:
+
+   * free: 2 menit,
+   * premium: 10 menit,
+   * owner: configurable.
+
+6. Batasi ukuran file:
+
+   * free: 10 MB,
+   * premium: 50 MB.
+
+7. `/transkrip` harus memakai opsi non-paid:
+
+   * mode pertama: dummy/offline placeholder yang jelas,
+   * mode production optional: Whisper local/self-hosted,
+   * tidak boleh wajib API berbayar.
+
+## 2.4 Acceptance Criteria
+
+* Bot bisa membaca voice note.
+* Bot bisa mengirim hasil audio sebagai audio atau voice note.
+* Command `/voice`, `/speed`, `/cutaudio` berjalan untuk audioMessage.
+* File audio besar ditolak dengan pesan yang jelas.
+* Tidak ada akses langsung `(adapter as any).sock` di command audio.
+
+---
+
+# EPIC 3 — Dynamic Menu System
+
+## 3.1 Problem
+
+Bot punya banyak command. User akan bingung jika semua command ditampilkan sekaligus. Menu harus menyesuaikan role, plugin, fitur aktif, premium, dan prefix grup.
+
+## 3.2 Goals
+
+* Membuat menu rapi, pendek, dan relevan.
+* Mengurangi kebingungan user.
+* Membantu admin memahami fitur yang aktif/nonaktif.
+
+## 3.3 Requirements
+
+### Commands
+
+* `/menu`
+* `/menu all`
+* `/menu stiker`
+* `/menu media`
+* `/menu audio`
+* `/menu dokumen`
+* `/menu game`
+* `/menu ekonomi`
+* `/menu admin`
+* `/menu owner`
+* `/menu premium`
+* `/help <command>`
+
+### Functional Requirements
+
+1. `/menu` default menampilkan kategori utama.
+2. `/menu <kategori>` menampilkan command dalam kategori tersebut.
+3. Menu harus menggunakan prefix grup saat ini.
+4. Menu harus menyembunyikan:
+
+   * command owner untuk user biasa,
+   * command admin untuk non-admin,
+   * command premium untuk user non-premium,
+   * command dari plugin OFF,
+   * command dari feature flag OFF di grup.
+5. `/help <command>` menampilkan:
+
+   * deskripsi,
+   * usage,
+   * contoh,
+   * role minimal,
+   * status fitur di grup,
+   * status plugin global.
+
+## 3.4 Acceptance Criteria
+
+* User biasa tidak melihat command owner.
+* Admin melihat command admin.
+* Owner melihat semua command.
+* Jika plugin game OFF, command game hilang dari menu.
+* Jika fitur economy OFF di grup, command economy tidak ditampilkan di menu grup.
+
+---
+
+# EPIC 4 — Group Subscription / Sewa Bot
+
+## 4.1 Problem
+
+Bot perlu sistem monetisasi atau kontrol akses per grup. Saat ini premium user ada, tetapi belum ada premium/sewa untuk grup.
+
+## 4.2 Goals
+
+* Membuat sistem sewa grup.
+* Membatasi fitur per paket.
+* Memudahkan owner menjual akses bot.
+
+## 4.3 Paket Awal
+
+### Free Group
+
+* Fitur dasar.
+* Limit command rendah.
+* Downloader terbatas/nonaktif.
+* Media berat nonaktif.
+
+### Basic Group
+
+* Moderasi dasar.
+* Stiker.
+* Reminder.
+* Game ringan.
+* Economy dasar.
+
+### Premium Group
+
+* Semua fitur non-paid-AI.
+* Downloader tambahan.
+* Media processing lebih besar.
+* Dashboard stats grup.
+* Rank card visual.
+* Backup config grup.
+
+## 4.4 Commands
+
+Owner:
+
+* `/addsewa <groupId|current> <hari> <plan>`
+* `/delsewa <groupId|current>`
+* `/listsewa`
+* `/extendsewa <groupId|current> <hari>`
+* `/setplan <groupId|current> <free|basic|premium>`
+
+Admin/User:
+
+* `/sewa`
+* `/ceksewa`
+* `/fitursewa`
+
+## 4.5 Data Model
+
+```prisma
+model GroupSubscription {
+  id          String   @id @default(uuid())
+  groupId     String   @unique
+  plan        String   @default("free")
+  expiresAt   DateTime?
+  maxDailyCmd Int?
+  featuresJson String  @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
 ```
 
-Bot hanya boleh membalas jika:
+## 4.6 Acceptance Criteria
 
-```text
-- User mengirim command valid
-- Admin mengaktifkan fitur tertentu
-- Fitur otomatis sudah aktif
-- Bot sedang melanjutkan proses dari command sebelumnya
-```
+* Grup tanpa sewa memakai plan free.
+* Grup expired otomatis turun ke free.
+* Admin bisa cek masa aktif sewa.
+* Owner bisa tambah, hapus, extend, dan ubah plan.
+* Feature limit mengikuti plan.
 
-### 3.2 Default Fitur Grup
+---
 
-```text
-silentOnJoin: true
-respondOnlyToCommand: true
+# EPIC 5 — Advanced Anti-Spam & Anti-Link
 
-stickerEnabled: true
-bratEnabled: true
-toImageEnabled: true
-hdEnabled: true
-werewolfEnabled: true
+## 5.1 Problem
 
-downloaderEnabled: false
-welcomeEnabled: false
-goodbyeEnabled: false
-antilinkEnabled: false
-antispamEnabled: false
-antitoxicEnabled: false
-badwordEnabled: false
-warningEnabled: false
-automuteEnabled: false
-blacklistEnabled: false
-levelingEnabled: false
-economyEnabled: false
-confessEnabled: false
-menfessEnabled: false
-autoreplyEnabled: false
-pollEnabled: false
-attendanceEnabled: false
-reminderEnabled: false
-```
+Anti-spam dasar belum cukup untuk grup ramai. Perlu deteksi spam lebih detail.
 
-### 3.3 Permission
+## 5.2 Goals
 
-Role:
+* Melindungi grup dari spam teks, link, mention, sticker, virtex, dan promosi.
+* Memberikan aksi bertingkat sesuai konfigurasi admin.
 
-```text
-USER
-PREMIUM
-GROUP_ADMIN
-OWNER
-```
+## 5.3 Commands
 
-Aturan:
+* `/antispam on|off`
+* `/antispam status`
+* `/antispam mode delete|warn|mute|kick`
+* `/antispam limit <jumlah> <durasi>`
+* `/antilink on|off`
+* `/antilink mode delete|warn|kick`
+* `/whitelistdomain add <domain>`
+* `/whitelistdomain del <domain>`
+* `/whitelistdomain list`
+* `/antivirtex on|off`
+* `/antimention on|off`
+* `/antisticker on|off`
 
-```text
-USER:
-- Fitur dasar
-- Stiker biasa
-- Brat
-- To image
-- Game basic
-- QR basic
+## 5.4 Detection Rules
 
-PREMIUM:
-- AI tools
-- HD lanjutan
-- Remove background batch
-- Video sticker
-- Downloader jika diaktifkan
-- PDF/file besar
-- Transkrip audio panjang
+Bot harus mendeteksi:
 
-GROUP_ADMIN:
-- Setup grup
-- Toggle fitur
-- Moderasi
-- Welcome/goodbye
-- Warning
-- Anti-link
-- Anti-spam
-- Auto reply
-- Polling
-- Absensi
+1. Pesan terlalu cepat.
+2. Pesan teks berulang.
+3. Emoji spam.
+4. Mention spam.
+5. Sticker spam.
+6. Link spam.
+7. Link grup WhatsApp.
+8. Shortlink mencurigakan.
+9. Pesan sangat panjang/virtex.
+10. Karakter invisible atau unicode abuse.
 
-OWNER:
-- Broadcast
-- Maintenance
-- Premium management
-- Global stats
-- Plugin system
-- API key system
-- Dashboard
-```
+## 5.5 Actions
 
-## 4. Bug Fix Wajib Sebelum Tambah Fitur
+* ignore,
+* delete,
+* warn,
+* mute internal,
+* kick,
+* blacklist group.
 
-### 4.1 Fix Baileys Import
+## 5.6 Acceptance Criteria
 
-Masalah:
+* Admin bisa mengatur mode aksi.
+* Bot tidak menghukum admin grup kecuali config mengizinkan.
+* Link whitelist tidak dihapus.
+* Spam berulang memicu action sesuai konfigurasi.
+* Semua pelanggaran masuk log grup.
 
-```text
-TypeError: import_baileys.default.default is not a function
-```
+---
 
-Perbaikan:
+# EPIC 6 — Smart Warning & Infraction System
 
-```ts
-// Salah
-this.sock = makeWASocket.default({ ... });
+## 6.1 Problem
 
-// Benar
-this.sock = makeWASocket({ ... });
-```
+Warning manual sudah berguna, tetapi perlu dibuat otomatis dan bertingkat.
 
-### 4.2 Fix Crash Saat Kirim Stiker/Pesan
+## 6.2 Goals
 
-Masalah:
+* Mengubah warning menjadi sistem infraction.
+* Menghubungkan anti-spam, anti-link, badword, dan moderation ke warning.
+* Membuat aksi otomatis berdasarkan jumlah pelanggaran.
 
-```text
-TypeError: Cannot read properties of undefined (reading 'undefined')
-at generateWAMessageFromContent
-```
+## 6.3 Commands
 
-Penyebab:
-Adapter membuat object `quoted` palsu/minimal dari `quotedMessageId`.
+* `/warn @user <alasan>`
+* `/warnings @user`
+* `/unwarn @user [jumlah]`
+* `/clearwarn @user`
+* `/setwarnaction <jumlah> <action>`
+* `/warnaction`
+* `/warnlog @user`
+* `/resetwarns`
 
-Perbaikan minimal:
+## 6.4 Rules Default
 
-```ts
-public async sendMessage(chatId: string, text: string, options?: SendMessageOptions): Promise<void> {
-  const mentions = options?.mentions || [];
-  await this.sock.sendMessage(chatId, { text, mentions });
+* 1 warning: pesan peringatan.
+* 2 warning: mute 10 menit.
+* 3 warning: kick.
+* 5 warning: blacklist grup.
+
+## 6.5 Data Model
+
+```prisma
+model WarningRule {
+  id        String   @id @default(uuid())
+  groupId   String
+  threshold Int
+  action    String
+  duration  Int?
+  createdAt DateTime @default(now())
 }
 
-public async sendSticker(chatId: string, stickerBuffer: Buffer, options?: SendMessageOptions): Promise<void> {
-  await this.sock.sendMessage(chatId, { sticker: stickerBuffer });
-}
-
-public async sendImage(chatId: string, imageBuffer: Buffer, caption?: string, options?: SendMessageOptions): Promise<void> {
-  await this.sock.sendMessage(chatId, { image: imageBuffer, caption });
-}
-
-public async sendVideo(chatId: string, videoBuffer: Buffer, caption?: string, options?: SendMessageOptions): Promise<void> {
-  await this.sock.sendMessage(chatId, { video: videoBuffer, caption });
-}
-```
-
-Catatan:
-Sistem quote/reply asli boleh dibuat nanti dengan menyimpan raw `WAMessage` atau `WAMessageKey` lengkap.
-
-### 4.3 Tambahkan `deleteMessage`
-
-```ts
-public async deleteMessage(chatId: string, messageId: string, senderId?: string): Promise<void> {
-  await this.sock.sendMessage(chatId, {
-    delete: {
-      remoteJid: chatId,
-      id: messageId,
-      participant: senderId,
-      fromMe: false
-    }
-  });
+model InfractionLog {
+  id        String   @id @default(uuid())
+  groupId   String
+  userId    String
+  type      String
+  reason    String?
+  action    String?
+  createdBy String?
+  createdAt DateTime @default(now())
 }
 ```
 
-### 4.4 Gabungkan Command `/feature`
-
-Masalah:
-Ada dua handler `/feature`.
-
-Solusi:
-Gunakan satu command `/feature` yang mendukung semua flag:
-
-```text
-/feature sticker on/off
-/feature hd on/off
-/feature downloader on/off
-/feature werewolf on/off
-/feature welcome on/off
-/feature goodbye on/off
-/feature antilink on/off
-/feature antispam on/off
-/feature antitoxic on/off
-/feature badword on/off
-/feature warning on/off
-/feature leveling on/off
-/feature economy on/off
-/feature confess on/off
-/feature menfess on/off
-/feature autoreply on/off
-/feature poll on/off
-/feature attendance on/off
-/feature reminder on/off
-```
-
-### 4.5 Downloader Default Nonaktif
-
-```text
-downloaderEnabled: false
-```
-
-Downloader hanya aktif jika admin/owner mengaktifkan.
-
-### 4.6 Premium Enforcement
-
-Fitur berikut harus cek premium jika diperlukan:
-
-```text
-/hd
-/tt
-/ig
-/avatar
-/bg
-/removebg batch
-/vstiker
-/subtitle
-/transkrip panjang
-/pdf tools besar
-```
-
-### 4.7 Validasi URL Downloader
-
-Jangan pakai:
-
-```ts
-host.includes('instagram.com')
-```
-
-Gunakan exact hostname atau subdomain resmi:
-
-```ts
-host === 'instagram.com' || host.endsWith('.instagram.com')
-host === 'tiktok.com' || host.endsWith('.tiktok.com')
-```
-
-Tolak:
-
-```text
-instagram.com.evil.com
-evil-tiktok.com
-localhost
-127.0.0.1
-private IP
-```
-
-## 5. Fitur Inti yang Harus Ada
-
-### 5.1 Sticker Basic
-
-Command:
-
-```text
-/stiker
-/s
-```
-
-Fungsi:
-Mengubah gambar menjadi stiker WebP 512x512.
-
-### 5.2 Sticker + Teks
-
-Command:
-
-```text
-/s <teks>
-/stikerteks <teks>
-```
-
-Support posisi:
-
-```text
-/s atas:teks
-/s tengah:teks
-/s bawah:teks
-```
-
-### 5.3 Sticker to Image
-
-Command:
-
-```text
-/toimg
-```
-
-Fungsi:
-Mengubah stiker WebP menjadi PNG.
-
-### 5.4 HD Image
-
-Command:
-
-```text
-/hd
-/hd 2x
-/hd 4x
-```
-
-Fungsi:
-Upscale, sharpen, dan enhance gambar.
-
-### 5.5 Downloader TikTok/Instagram
-
-Command:
-
-```text
-/tt <url>
-/tiktok <url>
-/ig <url>
-/instagram <url>
-```
-
-Aturan:
-Downloader hanya untuk konten milik sendiri, berizin, atau konten publik yang legal diunduh. Tidak mendukung akun privat, login, bypass DRM, atau pelanggaran hak cipta.
-
-### 5.6 Werewolf
-
-Command:
-
-```text
-/ww create
-/ww join
-/ww leave
-/ww start
-/ww status
-/ww stop
-/ww vote @user
-/ww kill @user
-/ww protect @user
-/ww check @user
-/ww help
-```
-
-Pemain:
-
-```text
-minimal: 5
-maksimal: 10
-```
-
-Role:
-
-```text
-Werewolf
-Seer
-Doctor
-Hunter
-Villager
-```
-
-### 5.7 Menu dan Setup
-
-Command:
-
-```text
-/menu
-/help
-/rules
-/setup
-/statusfitur
-/feature <fitur> on/off
-```
+## 6.6 Acceptance Criteria
 
-## 6. Perbaikan Final Brat Sticker
+* Warning manual tersimpan.
+* Warning otomatis tersimpan.
+* Saat threshold tercapai, action otomatis dijalankan.
+* Admin bisa melihat history warning user.
+* Admin bisa mengubah aturan threshold.
 
-### 6.1 Masalah
+---
 
-Fitur `/brat` belum sempurna. Hasilnya masih terlalu rapi dan belum mirip style referensi.
+# EPIC 7 — Rule-Based / Offline Smart Moderation
 
-### 6.2 Command
+## 7.1 Problem
 
-```text
-/brat <teks>
-/brat classic <teks>
-```
+Moderasi hanya berbasis badword sederhana mudah dilewati. Namun PRD ini tidak boleh bergantung pada AI berbayar.
 
-### 6.3 Style Wajib
-
-```text
-background: putih polos
-teks: hitam
-case: lowercase
-font: sans-serif besar
-layout: kata tersebar grid/random
-word spacing: lebar
-blur: ringan
-look: low-quality/compressed
-output: WebP sticker 512x512
-```
+## 7.2 Goals
 
-### 6.4 Mode Default — Brat Grid
+* Membuat moderation pintar tanpa paid AI.
+* Menggunakan rule, regex, scoring, dictionary, dan heuristic.
+* Bisa diperluas ke model lokal self-hosted jika owner ingin.
 
-Contoh input:
+## 7.3 Commands
 
-```text
-/brat brat and it's the same but there's three more songs so it's not
-```
+* `/modsmart on|off`
+* `/modsmart level low|medium|strict`
+* `/modsmart action delete|warn|mute`
+* `/modsmart status`
+* `/badword add <kata>`
+* `/badword del <kata>`
+* `/badword list`
+* `/toxicscore @user`
 
-Contoh layout:
-
-```text
-brat     and     it's
-the      same    but
-there's          three
-more             songs
-so       it's    not
-```
+## 7.4 Detection System
 
-### 6.5 Mode Classic
+Bot menghitung skor berdasarkan:
 
-Command:
+* kata kasar,
+* variasi alay,
+* spacing untuk menghindari filter,
+* huruf diganti angka,
+* repeated toxic phrase,
+* promosi,
+* scam keyword,
+* shortlink mencurigakan,
+* virtex pattern.
 
-```text
-/brat classic aku lagi brat
-```
+## 7.5 Non-Paid Optional Engine
 
-Mode classic memakai teks tengah seperti paragraf, tetapi tetap background putih, teks hitam, lowercase, dan blur ringan.
-
-### 6.6 Algoritma
-
-```text
-1. Ambil teks dari args.
-2. Ubah menjadi lowercase.
-3. Hapus spasi berlebih.
-4. Split menjadi kata.
-5. Tentukan font size otomatis:
-   - 1-3 kata: 86-110 px
-   - 4-8 kata: 70-86 px
-   - 9-16 kata: 56-72 px
-   - 17-30 kata: 42-58 px
-6. Susun kata dalam grid 2-3 kolom.
-7. Tambahkan random offset kecil:
-   - x: -8 sampai +8 px
-   - y: -5 sampai +5 px
-8. Tambahkan blur 0.4-1.2 px.
-9. Export WebP 512x512.
-10. Kompres jika lebih dari 100 KB.
-```
+Mode optional:
 
-### 6.7 Acceptance Criteria Brat
-
-```text
-- /brat halo dunia menghasilkan stiker brat.
-- /brat teks panjang menghasilkan layout grid/random.
-- Teks otomatis lowercase.
-- Background selalu putih.
-- Teks selalu hitam.
-- Ada blur ringan.
-- Output tidak berbentuk paragraf biasa.
-- Output tetap terbaca.
-- Output WebP 512x512.
-- Tidak crash saat teks mengandung apostrophe.
-```
+* dictionary Indonesia,
+* regex patterns,
+* local ONNX classifier,
+* self-hosted local moderation model.
 
-## 7. Fitur Sticker Lanjutan
+Tidak boleh ada API berbayar sebagai dependency wajib.
 
-### 7.1 Remove Background
+## 7.6 Acceptance Criteria
 
-Command:
+* Kata toxic sederhana terdeteksi.
+* Variasi seperti huruf disisipkan spasi tetap bisa terdeteksi pada mode strict.
+* Admin bisa memilih action.
+* False positive bisa dikurangi dengan whitelist word.
+* Semua moderation action masuk log.
 
-```text
-/removebg
-/rbg
-```
+---
 
-Output:
-PNG transparan.
+# EPIC 8 — Group Log & Audit Trail
 
-### 7.2 Nobg Sticker
+## 8.1 Problem
 
-Command:
+Admin perlu melihat apa yang dilakukan bot: pesan dihapus, user di-warning, command populer, join/leave, dan error.
 
-```text
-/stikerbg
-/nobgstick
-```
+## 8.2 Goals
 
-Flow:
+* Membuat audit log per grup.
+* Memudahkan admin mengecek aktivitas bot.
+* Memudahkan owner debugging.
 
-```text
-gambar -> remove background -> WebP sticker
-```
+## 8.3 Commands
 
-### 7.3 Outline Sticker
+* `/log`
+* `/log today`
+* `/log warn`
+* `/log link`
+* `/log spam`
+* `/log command`
+* `/log join`
+* `/log leave`
+* `/log error`
+* `/clearlog`
 
-Command:
+## 8.4 Data Model
 
-```text
-/outline
-/outline white
-/outline black
+```prisma
+model GroupLog {
+  id          String   @id @default(uuid())
+  groupId     String
+  userId      String?
+  type        String
+  action      String?
+  message     String?
+  metadataJson String @default("{}")
+  createdAt   DateTime @default(now())
+}
 ```
-
-Flow:
 
-```text
-gambar -> remove background -> outline -> sticker
-```
+## 8.5 Acceptance Criteria
 
-### 7.4 Circle Sticker
+* Setiap moderation action tercatat.
+* Setiap warning tercatat.
+* Join/leave tercatat jika fitur aktif.
+* Admin bisa filter log berdasarkan tipe.
+* Log lama bisa dibersihkan otomatis sesuai retention policy.
 
-Command:
+---
 
-```text
-/circle
-/bulat
-```
+# EPIC 9 — Reminder, Scheduler, Tugas, dan Jadwal
 
-Fungsi:
-Crop gambar menjadi lingkaran dan kirim sebagai stiker.
+## 9.1 Problem
 
-### 7.5 Meme Generator
+Reminder sudah dirancang di database, tetapi perlu worker dan command yang matang.
 
-Command:
+## 9.2 Goals
 
-```text
-/meme teks atas | teks bawah
-```
+* Membuat reminder pribadi dan grup.
+* Membuat jadwal pelajaran, tugas, deadline, dan ulang tahun.
+* Worker harus tetap jalan dan recover setelah restart.
 
-### 7.6 Quote Sticker
+## 9.3 Commands
 
-Command:
+Reminder:
 
-```text
-/quote <teks>
-```
+* `/remind 10m minum air`
+* `/remind 21:00 belajar matematika`
+* `/remind besok 07:00 bawa buku`
+* `/remindgroup besok 07:00 upacara`
+* `/listremind`
+* `/delremind <id>`
 
-### 7.7 Emoji Mix
+Jadwal:
 
-Command:
+* `/jadwal`
+* `/jadwal add senin 07:00 Matematika`
+* `/jadwal del <id>`
+* `/jadwal hariini`
+* `/jadwal besok`
 
-```text
-/emojimix 😂 + 😭
-/mix 😂 😭
-```
+Tugas:
 
-### 7.8 Video Sticker
+* `/tugas`
+* `/tugas add <deadline> <deskripsi>`
+* `/tugas done <id>`
+* `/tugas del <id>`
 
-Command:
+Ulang tahun:
 
-```text
-/vstiker
-/gifstiker
-```
+* `/ultah add @user 12-08`
+* `/ultah list`
+* `/ultah del @user`
 
-Batas:
+## 9.4 Requirements
 
-```text
-free: 5 detik
-premium: 10 detik
-```
+1. Worker mengecek reminder pending setiap 30–60 detik.
+2. Reminder tidak boleh terkirim dua kali.
+3. Timezone default Asia/Jakarta.
+4. Admin bisa membuat reminder grup.
+5. User biasa bisa membuat reminder pribadi.
+6. Reminder harus tetap ada setelah restart.
+7. Command harus mendukung format waktu sederhana.
 
-### 7.9 Batch Sticker
+## 9.5 Acceptance Criteria
 
-Command:
+* Reminder terkirim sesuai waktu.
+* Reminder tetap berjalan setelah bot restart.
+* `/listremind` menampilkan reminder aktif.
+* `/delremind` membatalkan reminder.
+* Jadwal dan tugas bisa dikelola per grup.
 
-```text
-/batchstiker
-/pack
-```
+---
 
-Batas:
+# EPIC 10 — Downloader Expansion
 
-```text
-free: 5 gambar
-premium: 30 gambar
-```
+## 10.1 Problem
 
-## 8. Media Tools
+Downloader terbatas pada TikTok dan Instagram. User biasanya butuh platform lain.
 
-### 8.1 Compress
+## 10.2 Goals
 
-```text
-/compress
-/kompres
-/compress low
-/compress medium
-/compress high
-```
+* Menambah downloader populer.
+* Tetap aman dari abuse dan masalah resource.
+* Membatasi ukuran dan durasi.
 
-### 8.2 Resize
+## 10.3 Commands
 
-```text
-/resize 1080x1080
-/resize story
-/resize profile
-```
+* `/tt <url>`
+* `/ig <url>`
+* `/ytmp3 <url>`
+* `/ytmp4 <url>`
+* `/fb <url>`
+* `/twitter <url>`
+* `/x <url>`
+* `/threads <url>`
+* `/pinterest <url>`
+* `/capcut <url>`
 
-Preset:
+## 10.4 Rules
 
-```text
-story: 1080x1920
-feed: 1080x1080
-profile: 720x720
-wallpaper: 1080x2400
-```
+1. Downloader berat hanya untuk premium atau grup sewa premium.
+2. Free user:
 
-### 8.3 Crop
+   * durasi max 3 menit,
+   * ukuran max 25 MB,
+   * cooldown lebih lama.
+3. Premium:
 
-```text
-/crop square
-/crop story
-/crop pp
-```
+   * durasi max 15 menit,
+   * ukuran max 100 MB.
+4. Semua URL harus divalidasi domain.
+5. Tidak boleh download dari private/local IP.
+6. Harus ada timeout.
+7. Semua file temp dihapus setelah dikirim.
+8. Tidak boleh mendownload konten login-only/private.
 
-### 8.4 Watermark Sendiri
+## 10.5 Acceptance Criteria
 
-```text
-/wm <teks>
-```
+* URL tidak valid ditolak.
+* File terlalu besar ditolak.
+* Queue downloader berjalan.
+* Gagal download memberi pesan jelas.
+* File temp selalu dibersihkan.
 
-Catatan:
-Fitur ini menambahkan watermark milik user, bukan menghapus watermark orang lain.
+---
 
-### 8.5 Video to GIF
+# EPIC 11 — Rank Card, Profile Card, dan Leaderboard Visual
 
-```text
-/togif
-```
+## 11.1 Problem
 
-### 8.6 Thumbnail Video
+Rank saat ini berbentuk teks. Visual card akan lebih menarik dan membuat ekonomi/leveling terasa hidup.
 
-```text
-/thumb
-/thumb 00:00:05
-```
+## 11.2 Goals
 
-### 8.7 Cut Video
+* Membuat rank/profile card berbasis gambar.
+* Menampilkan level, XP, saldo, title, badge, dan statistik.
+* Mendukung tema basic dan premium.
 
-```text
-/cut 00:05-00:15
-```
+## 11.3 Commands
 
-### 8.8 Subtitle Otomatis
+* `/rank`
+* `/profile`
+* `/card`
+* `/top`
+* `/leaderboard`
+* `/setbg`
+* `/settitle`
+* `/setbadge`
 
-```text
-/subtitle
-```
+## 11.4 Card Content
 
-Premium only.
+Card harus memuat:
 
-### 8.9 Mute Video
+* nama user,
+* nomor/user ID tersamarkan,
+* level,
+* XP bar,
+* saldo,
+* rank global,
+* rank grup,
+* title,
+* badge,
+* total command,
+* tanggal join database,
+* status premium.
 
-```text
-/mute
-```
+## 11.5 Requirements
 
-### 8.10 Reverse Video
+1. Gunakan image rendering lokal, misalnya sharp/SVG.
+2. Template default harus tersedia.
+3. Premium bisa memakai background custom.
+4. Free user hanya template default.
+5. Card harus optimal ukuran WhatsApp.
+6. Jika avatar tidak tersedia, pakai default avatar.
 
-```text
-/reverse
-```
+## 11.6 Acceptance Criteria
 
-## 9. Audio Tools
+* `/rank` mengirim gambar.
+* XP bar sesuai data user.
+* Leaderboard tetap bisa tampil teks jika image gagal.
+* Background custom hanya untuk premium.
+* Proses card tidak membuat bot freeze.
 
-### 9.1 Video to MP3
+---
 
-```text
-/mp3
-/audio
-```
+# EPIC 12 — Economy Expansion
 
-### 9.2 Voice Note to Text
+## 12.1 Problem
 
-```text
-/transkrip
-/vntext
-```
+Ekonomi sudah ada balance, claim, transfer, shop, inventory, pet, dan dungeon. Perlu aktivitas harian agar user terus kembali.
 
-### 9.3 Text to Speech
+## 12.2 Goals
 
-```text
-/tts <teks>
-```
+* Menambah aktivitas economy harian.
+* Membuat sink dan source uang virtual.
+* Mengurangi inflasi dengan pajak, cooldown, dan item.
 
-### 9.4 Voice Effect
+## 12.3 Commands
 
-```text
-/voice robot
-/voice chipmunk
-/voice deep
-```
+Income:
 
-### 9.5 Cut Audio
+* `/daily`
+* `/work`
+* `/mining`
+* `/fishing`
+* `/crime`
+* `/beg`
 
-```text
-/cutaudio 00:10-00:30
-```
+Bank:
 
-### 9.6 Speed Audio
+* `/bank`
+* `/deposit <jumlah>`
+* `/withdraw <jumlah>`
 
-```text
-/speed 1.5x
-/slow 0.75x
-```
+Social:
 
-## 10. Text, OCR, Translate, dan Study Tools
+* `/transfer @user <jumlah>`
+* `/giveaway <jumlah> <pemenang>`
+* `/redeem <kode>`
 
-### 10.1 OCR
+Risk:
 
-```text
-/ocr
-```
+* `/rob @user`
+* `/slot`
+* `/coinflip <jumlah>`
 
-Fungsi:
-Ekstrak teks dari gambar.
+Shop:
 
-### 10.2 Translate
+* `/shop`
+* `/buy <item>`
+* `/sell <item>`
+* `/inventory`
 
-```text
-/translate en
-/translate id
-/tr en
-/tr id
-```
+Pet/RPG:
 
-Input bisa teks, reply teks, atau reply gambar via OCR.
+* `/pet adopt`
+* `/pet feed`
+* `/pet train`
+* `/pet battle`
+* `/pet evolve`
+* `/dungeon`
+* `/boss`
+* `/craft`
+* `/market`
 
-### 10.3 Ringkas Teks
+## 12.4 Rules
 
-```text
-/ringkas
-/summarize
-```
+1. Semua command economy tunduk pada cooldown.
+2. Grup bisa mematikan economy.
+3. Admin bisa reset economy grup jika diperlukan.
+4. Rob/crime harus bisa dimatikan per grup.
+5. Harus ada anti-abuse untuk transfer dan giveaway.
+6. Balance tidak boleh negatif.
+7. Semua transaksi penting dicatat.
 
-### 10.4 Ubah Gaya Bahasa
-
-```text
-/ubah formal
-/ubah santai
-/ubah sopan
-/ubah lucu
-/ubah singkat
-```
+## 12.5 Data Model Tambahan
 
-### 10.5 Koreksi Typo
+```prisma
+model EconomyTransaction {
+  id        String   @id @default(uuid())
+  userId    String
+  groupId   String?
+  type      String
+  amount    Int
+  metadataJson String @default("{}")
+  createdAt DateTime @default(now())
+}
 
-```text
-/typo
-/koreksi
+model RedeemCode {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  rewardJson String
+  maxUses   Int
+  usedCount Int      @default(0)
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+}
 ```
 
-### 10.6 AI Balas Chat
-
-```text
-/balas santai
-/balas formal
-/balas lucu
-```
+## 12.6 Acceptance Criteria
 
-### 10.7 Study Tools
-
-```text
-/jelaskan <topik>
-/rangkum <topik>
-/quiz matematika
-/belajar matematika
-/belajar inggris
-/belajar ipa
-```
+* Economy command tidak bisa dipakai jika fitur economy OFF.
+* Cooldown bekerja.
+* Transaksi tercatat.
+* Rob/crime bisa dimatikan admin.
+* Giveaway memilih pemenang dengan transparan.
 
-Aturan:
-Bot membantu belajar, bukan mendorong plagiarisme atau kecurangan ujian.
+---
 
-## 11. File dan Dokumen
+# EPIC 13 — Achievement, Badge, dan Title System
 
-### 11.1 Image to PDF
+## 13.1 Problem
 
-```text
-/img2pdf
-```
+User butuh progres dan identitas. Badge/title membuat bot lebih engaging.
 
-### 11.2 PDF to Image
+## 13.2 Goals
 
-```text
-/pdf2img
-```
+* Memberi penghargaan otomatis.
+* Menghubungkan achievement dengan rank card.
+* Membuat item kosmetik untuk economy.
 
-### 11.3 Merge PDF
+## 13.3 Commands
 
-```text
-/mergepdf
-```
+* `/achievement`
+* `/achievements`
+* `/badge`
+* `/badge set <nama>`
+* `/title`
+* `/title set <nama>`
 
-### 11.4 Compress PDF
+## 13.4 Achievement Awal
 
-```text
-/compresspdf
-```
+* First Command
+* 7 Days Active
+* 30 Days Active
+* 100 Messages
+* 1000 Messages
+* Sticker Maker
+* Game Master
+* Rich User
+* Top 1 Leaderboard
+* Admin Helper
+* Anti-Spam Defender
+* Daily Streak 7
+* Daily Streak 30
 
-### 11.5 PDF to Word
+## 13.5 Requirements
 
-```text
-/pdf2word
-```
+1. Achievement bisa auto-unlock.
+2. Badge bisa dipasang di profile card.
+3. Title bisa dibeli atau didapat dari achievement.
+4. Achievement harus punya rarity:
 
-### 11.6 Word to PDF
+   * common,
+   * rare,
+   * epic,
+   * legendary.
 
-```text
-/word2pdf
-```
+## 13.6 Data Model
 
-### 11.7 Scan Dokumen
+```prisma
+model Achievement {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String
+  rarity      String
+  rewardJson  String   @default("{}")
+}
 
-```text
-/scan
+model UserAchievement {
+  id            String   @id @default(uuid())
+  userId        String
+  achievementKey String
+  unlockedAt    DateTime @default(now())
+}
 ```
 
-Fungsi:
+## 13.7 Acceptance Criteria
 
-```text
-auto crop
-perspective correction
-contrast enhancement
-output JPG/PDF
-```
+* Achievement unlock otomatis.
+* User bisa melihat daftar achievement.
+* Badge terpasang di profile card.
+* Achievement tidak bisa double unlock.
 
-### 11.8 Extract ZIP/RAR
+---
 
-```text
-/unzip
-```
+# EPIC 14 — Owner Web Dashboard
 
-Aturan:
+## 14.1 Problem
 
-```text
-jangan eksekusi file
-tolak file executable
-batasi ukuran archive
-hanya extract file aman
-```
+CLI dashboard berguna, tetapi owner lebih mudah mengelola bot lewat dashboard web.
 
-### 11.9 QR
+## 14.2 Goals
 
-```text
-/qr <teks/url>
-/readqr
-```
+* Memberi UI untuk owner.
+* Mengelola grup, user, premium, plugin, logs, queue, backup, dan subscription.
+* Mempercepat debugging.
 
-## 12. Group Moderation
+## 14.3 Pages
 
-Semua fitur di bagian ini default nonaktif.
+1. Login Owner
+2. Overview
+3. Groups
+4. Group Detail
+5. Feature Flags
+6. Plugins
+7. Premium Users
+8. Group Subscriptions
+9. Queue Monitor
+10. Usage Stats
+11. Error Logs
+12. Group Logs
+13. Broadcast Panel
+14. Backup & Restore
+15. Settings
 
-### 12.1 Anti-link
+## 14.4 Requirements
 
-```text
-/feature antilink on
-/allowlink <domain>
-/dellink <domain>
-/listlink
-```
+1. Dashboard wajib protected by login.
+2. Auth bisa memakai:
 
-### 12.2 Warning System
+   * password owner dari env,
+   * API key owner,
+   * session token.
+3. Dashboard tidak boleh menampilkan credential WhatsApp.
+4. Owner bisa toggle plugin.
+5. Owner bisa mengubah fitur grup.
+6. Owner bisa melihat error log.
+7. Owner bisa membuat broadcast dengan preview dan konfirmasi.
+8. Owner bisa download backup.
 
-```text
-/warn @user <alasan>
-/warnings @user
-/unwarn @user
-/clearwarn @user
-```
+## 14.5 Suggested Stack
 
-Default batas warning:
+* Next.js + Prisma + Tailwind
+  atau
+* Express + EJS + Prisma untuk versi ringan.
 
-```text
-3 warning
-```
+## 14.6 Acceptance Criteria
 
-### 12.3 Badword Filter
-
-```text
-/filter on
-/filter off
-/addbadword <kata>
-/delbadword <kata>
-/listbadword
-```
+* Owner bisa login.
+* Owner bisa melihat statistik bot.
+* Owner bisa toggle plugin.
+* Owner bisa melihat error terbaru.
+* Owner bisa mengelola premium dan sewa grup.
+* Broadcast butuh konfirmasi sebelum dikirim.
 
-### 12.4 Anti-toxic
+---
 
-```text
-/antitoxic on
-/antitoxic off
-```
+# EPIC 15 — Backup & Restore System
 
-### 12.5 Anti-spam
+## 15.1 Problem
 
-```text
-/antispam on
-/antispam off
-```
+Bot menyimpan banyak data penting: premium, economy, warning, subscription, group config, reminder, dan logs. Kehilangan database akan merusak kepercayaan user.
 
-Rule default:
+## 15.2 Goals
 
-```text
-lebih dari 5 pesan dalam 10 detik
-```
+* Membuat backup manual dan otomatis.
+* Memudahkan restore config.
+* Mencegah kehilangan data.
 
-### 12.6 Auto Mute
+## 15.3 Commands
 
-```text
-/automute on
-/automute off
-```
+Owner:
 
-Jika mute WhatsApp tidak didukung, bot menggunakan mode ignore sementara.
+* `/backup`
+* `/backupdb`
+* `/backupconfig`
+* `/listbackup`
+* `/restorebackup <id>`
+* `/exportconfig`
+* `/importconfig`
 
-### 12.7 Blacklist
+## 15.4 Requirements
 
-```text
-/blacklist @user
-/unblacklist @user
-/listblacklist
-```
+1. Backup database manual.
+2. Backup config grup manual.
+3. Auto backup harian.
+4. Backup diberi timestamp.
+5. Backup bisa dikirim ke owner via private chat.
+6. Backup bisa disimpan lokal.
+7. Session WhatsApp tidak boleh dibagikan sembarangan.
+8. Restore butuh konfirmasi.
+9. Backup lama dibersihkan sesuai retention.
 
-## 13. Community Tools
+## 15.5 Acceptance Criteria
 
-### 13.1 Auto Reply
+* Owner bisa membuat backup.
+* Backup bisa diunduh/dikirim ke owner.
+* Restore tidak bisa dijalankan tanpa konfirmasi.
+* Auto backup berjalan sesuai jadwal.
+* Backup tidak menyertakan `.env`.
 
-```text
-/addreply <trigger> = <response>
-/delreply <trigger>
-/listreply
-```
+---
 
-### 13.2 Polling
+# EPIC 16 — Group Onboarding & Setup Wizard
 
-```text
-/poll Pertanyaan | opsi1 | opsi2 | opsi3
-/vote <opsi>
-/pollresult
-/closepoll
-```
+## 16.1 Problem
 
-### 13.3 Confess Anonim
+Bot punya banyak fitur. Admin baru butuh setup cepat.
 
-```text
-/confess <pesan>
-```
+## 16.2 Goals
 
-Default nonaktif.
+* Membantu admin mengaktifkan fitur dengan preset.
+* Mempertahankan prinsip silent by default.
+* Mengurangi command setup manual.
 
-### 13.4 Menfess
+## 16.3 Commands
 
-```text
-/menfess @user <pesan>
-```
+* `/setup`
+* `/setupwizard`
+* `/setup basic`
+* `/setup sekolah`
+* `/setup komunitas`
+* `/setup strict`
+* `/setup game`
+* `/setup reset`
+* `/statusfitur`
 
-Default nonaktif.
+## 16.4 Preset
 
-### 13.5 Reminder
+### Basic
 
-```text
-/remind 20:00 jangan lupa belajar
-/remind 10m minum air
-/listremind
-/delremind <id>
-```
+* welcome off
+* goodbye off
+* antilink off
+* antispam on
+* badword off
+* leveling off
+* economy off
 
-### 13.6 Event Grup
+### Sekolah
 
-```text
-/event futsal Jumat 19:00
-/listevent
-/delevent <id>
-```
+* welcome on
+* goodbye on
+* antilink on
+* antispam on
+* badword on
+* reminder on
+* attendance on
+* economy off
+* miniGames off
 
-### 13.7 Absensi
+### Komunitas
 
-```text
-/absen buka
-/absen
-/absen list
-/absen tutup
-```
+* welcome on
+* goodbye on
+* antilink on
+* antispam on
+* autoreply on
+* poll on
+* leveling on
+* economy on
+* miniGames on
 
-## 14. Game Tambahan
+### Strict
 
-### 14.1 Truth or Dare
+* welcome on
+* goodbye on
+* antilink on
+* antispam on
+* badword on
+* modsmart on
+* warning on
+* automute on
+* economy off
 
-```text
-/tod
-/truth
-/dare
-```
+### Game
 
-### 14.2 Tebak Kata
+* leveling on
+* economy on
+* miniGames on
+* rpg on
+* poll on
 
-```text
-/tebakkata
-/jawab <jawaban>
-```
+## 16.5 Acceptance Criteria
 
-### 14.3 Tebak Gambar
+* Admin bisa menjalankan setup preset.
+* Bot menampilkan ringkasan fitur yang akan diubah.
+* Setup butuh konfirmasi.
+* `/statusfitur` menampilkan semua fitur aktif/nonaktif.
+* `/setup reset` mengembalikan default.
 
-```text
-/tebakgambar
-/jawab <jawaban>
-```
+---
 
-### 14.4 Suit PvP
+# EPIC 17 — Free/Open-Source Text, OCR, STT, Translate, dan Document Tools
 
-```text
-/suit @user
-/pilih batu
-/pilih gunting
-/pilih kertas
-```
+## 17.1 Problem
 
-### 14.5 Tic Tac Toe
+Beberapa command text/document masih simulasi. Fitur ini harus dibuat nyata tanpa AI berbayar.
 
-```text
-/ttt @user
-/ttt move <posisi>
-```
+## 17.2 Goals
 
-### 14.6 Slot
+* Membuat fitur utilitas nyata.
+* Memakai library lokal, gratis, atau self-hosted.
+* Tidak bergantung pada API AI berbayar.
 
-```text
-/slot
-```
+## 17.3 Commands
 
-Jika economy aktif, slot bisa memakai saldo virtual.
+Text:
 
-### 14.7 Math Game
+* `/ocr`
+* `/translate <lang>`
+* `/tr <lang>`
+* `/ringkas`
+* `/summarize`
+* `/ubah formal|santai|sopan|singkat`
+* `/typo`
+* `/koreksi`
 
-```text
-/math
-/jawab <angka>
-```
+Audio/Text:
 
-### 14.8 Quiz
+* `/transkrip`
+* `/vntext`
 
-```text
-/quiz
-/quiz umum
-/quiz sekolah
-/quiz anime
-```
+Document:
 
-### 14.9 Family 100
+* `/img2pdf`
+* `/pdf2img`
+* `/mergepdf`
+* `/compresspdf`
+* `/scan`
+* `/unzip`
+* `/qr`
+* `/readqr`
+* `/ssweb`
 
-```text
-/family100
-/jawab <jawaban>
-```
+## 17.4 Suggested Non-Paid Implementations
 
-### 14.10 Couple / Jodoh
+### OCR
 
-```text
-/couple
-/jodoh
-```
+Options:
 
-### 14.11 Tebak Lagu
+* Tesseract OCR local.
+* node-tesseract-ocr.
+* OCR engine container self-hosted.
 
-```text
-/tebaklagu
-```
+### Translate
 
-MVP menggunakan clue teks agar aman dari hak cipta.
+Options:
 
-### 14.12 Werewolf Stats
+* LibreTranslate self-hosted.
+* Dictionary/rule-based basic translation for limited use.
+* External free endpoint only if optional and configurable.
 
-```text
-/wwrank
-/wwstats
-```
+### Summarize
 
-Data:
-
-```text
-total game
-win
-lose
-role frequency
-MVP optional
-```
+Options:
 
-## 15. Economy dan RPG Lanjutan
-
-### 15.1 Balance dan Daily
-
-```text
-/balance
-/bal
-/claim
-/daily
-/transfer @user <jumlah>
-/top
-/rank
-```
+* Extractive summarization:
 
-### 15.2 Shop
+  * sentence scoring,
+  * keyword frequency,
+  * TextRank implementation.
+* No paid LLM.
 
-```text
-/shop
-/buy <item>
-```
+### Typo Correction
 
-Item awal:
-
-```text
-title
-badge
-lootbox
-pet food
-cosmetic role
-```
+Options:
 
-### 15.3 Inventory
+* dictionary-based Indonesian correction,
+* common typo map,
+* Levenshtein distance,
+* optional Hunspell dictionary.
 
-```text
-/inventory
-/inv
-```
+### STT / Voice Transcription
 
-### 15.4 Title dan Badge
+Options:
 
-```text
-/title set <nama>
-/badge set <nama>
-```
+* Whisper local/self-hosted.
+* Vosk offline.
+* Optional mode disabled if binary/model unavailable.
 
-### 15.5 Pet System
+### PDF
 
-```text
-/pet adopt
-/pet feed
-/pet status
-/pet rename <nama>
-```
+Options:
 
-### 15.6 Pet Battle
+* pdf-lib for merge/split.
+* poppler or sharp-compatible pipeline for render PDF to image.
+* Ghostscript for compression if installed.
+* zip library for safe unzip.
 
-```text
-/pet battle @user
-```
+## 17.5 Requirements
 
-### 15.7 RPG Dungeon
+1. Jika dependency lokal tidak tersedia, bot harus memberi pesan setup yang jelas.
+2. Semua file diproses di temp folder.
+3. File temp harus dihapus.
+4. File executable dari archive harus diblokir.
+5. Archive path traversal harus dicegah.
+6. PDF besar harus dibatasi.
+7. OCR dan STT harus punya limit free/premium.
 
-```text
-/dungeon
-/attack
-/heal
-/run
-```
+## 17.6 Acceptance Criteria
 
-## 16. Owner Tools
+* `/ocr` menghasilkan teks dari gambar nyata.
+* `/ringkas` menghasilkan ringkasan dari teks input tanpa paid AI.
+* `/translate` bisa memakai provider self-hosted jika dikonfigurasi.
+* `/img2pdf` menghasilkan PDF valid.
+* `/mergepdf` benar-benar menggabungkan PDF.
+* `/unzip` membaca archive secara aman.
+* `/transkrip` bekerja jika engine offline tersedia, atau menampilkan instruksi setup jika belum tersedia.
 
-### 16.1 Broadcast
+---
 
-```text
-/broadcast <pesan>
-```
+# 18. Global Non-Functional Requirements
 
-Wajib ada konfirmasi sebelum broadcast.
+## 18.1 Security
 
-### 16.2 Maintenance
+1. Tidak boleh ada raw shell execution dari input user.
+2. Semua URL harus divalidasi.
+3. Private IP, localhost, metadata IP, dan file URL harus diblokir.
+4. Semua upload file harus punya size limit.
+5. Semua archive harus dicegah dari zip slip/path traversal.
+6. Semua command owner harus diverifikasi owner.
+7. Dashboard harus punya auth.
+8. Error detail tidak dikirim ke user biasa.
 
-```text
-/maintenance on
-/maintenance off
-```
+## 18.2 Performance
 
-### 16.3 Premium
+1. Media processing berat harus lewat queue.
+2. Queue harus punya max concurrency.
+3. Tiap fitur berat punya timeout.
+4. Bot tidak boleh blocking event loop terlalu lama.
+5. Image/card rendering harus optimized.
 
-```text
-/premium add @user <hari>
-/premium remove @user
-```
+## 18.3 Reliability
 
-### 16.4 Stats
+1. Worker reminder harus recover setelah restart.
+2. Queue persistent disarankan untuk production.
+3. Database migration harus aman.
+4. Backup otomatis harus tersedia.
+5. Baileys reconnect harus memakai backoff.
 
-```text
-/stats
-```
+## 18.4 Maintainability
 
-Data:
-
-```text
-total user
-total grup
-command hari ini
-fitur paling sering dipakai
-error terakhir
-queue length
-premium user aktif
-```
+1. Command metadata menjadi single source of truth.
+2. Semua fitur punya test minimal.
+3. Semua plugin punya folder/module sendiri.
+4. Dokumentasi command harus auto-generated dari metadata.
+5. README harus sinkron dengan fitur aktual.
 
-### 16.5 Limit
+---
 
-```text
-/limit
-```
+# 19. Prioritas Implementasi
 
-### 16.6 API Key
+## Phase 0 — Stabilitas Wajib
 
-```text
-/apikey
-/revokeapikey
-```
+1. Secure FFmpeg execution.
+2. Audio/voice note support.
+3. Command metadata registry.
+4. Plugin + feature flag consistency.
+5. Error handling aman.
+6. Health check.
+7. Typecheck/test CI.
 
-API key harus di-hash di database.
+## Phase 1 — Admin & Grup
 
-### 16.7 Plugin System
+1. Dynamic menu.
+2. Setup wizard.
+3. Advanced anti-spam.
+4. Warning/infraction.
+5. Group logs.
+6. Reminder worker.
 
-```text
-/plugin list
-/plugin on <name>
-/plugin off <name>
-```
+## Phase 2 — Engagement User
 
-Plugin metadata:
-
-```text
-name
-commands
-enabled
-permission
-category
-```
+1. Rank card.
+2. Economy expansion.
+3. Achievement/badge/title.
+4. Game/economy balancing.
+5. Profile card.
 
-### 16.8 Dashboard Admin
-
-Fitur dashboard:
-
-```text
-login owner
-lihat group list
-lihat fitur aktif per grup
-toggle fitur
-lihat usage stats
-lihat premium users
-lihat warning log
-lihat queue status
-lihat error log
-```
+## Phase 3 — Monetisasi & Owner Tools
 
-## 17. Database Final
-
-### 17.1 GroupConfig
-
-```text
-id
-groupId
-prefix
-botEnabled
-featuresJson
-welcomeMessage
-goodbyeMessage
-createdAt
-updatedAt
-```
+1. Group subscription/sewa.
+2. Premium package rules.
+3. Owner dashboard.
+4. Backup/restore.
+5. Broadcast panel.
 
-### 17.2 UserProfile
-
-```text
-id
-userId
-language
-isPremium
-premiumUntil
-createdAt
-updatedAt
-```
+## Phase 4 — Utility Non-Paid-AI
 
-### 17.3 UsageLog
-
-```text
-id
-userId
-groupId
-feature
-command
-success
-createdAt
-```
+1. OCR local.
+2. STT local/self-hosted.
+3. Translate self-hosted.
+4. Extractive summarizer.
+5. Real PDF tools.
+6. Safe unzip.
 
-### 17.4 PremiumUser
+## Phase 5 — Downloader Expansion
 
-```text
-id
-userId
-expiresAt
-createdAt
-```
+1. YouTube MP3/MP4.
+2. Facebook.
+3. Twitter/X.
+4. Threads.
+5. Pinterest.
+6. CapCut.
 
-### 17.5 Warning
-
-```text
-id
-groupId
-userId
-reason
-warnedBy
-createdAt
-```
+---
 
-### 17.6 Badword
-
-```text
-id
-groupId
-word
-createdBy
-createdAt
-```
+# 20. Success Metrics
 
-### 17.7 Blacklist
-
-```text
-id
-scope
-groupId
-userId
-reason
-createdBy
-createdAt
-```
+## Product Metrics
 
-### 17.8 AutoReply
-
-```text
-id
-groupId
-trigger
-response
-matchType
-createdBy
-createdAt
-```
+1. Jumlah grup aktif.
+2. Jumlah user aktif harian.
+3. Jumlah command per hari.
+4. Retention user 7 hari.
+5. Jumlah grup sewa aktif.
+6. Jumlah premium user aktif.
 
-### 17.9 Poll
-
-```text
-id
-groupId
-question
-optionsJson
-votesJson
-status
-createdBy
-createdAt
-expiresAt
-```
+## Reliability Metrics
 
-### 17.10 Reminder
-
-```text
-id
-scope
-groupId
-userId
-message
-runAt
-timezone
-status
-createdAt
-```
+1. Error rate per command.
+2. Queue failure rate.
+3. Average command latency.
+4. Reconnect count per hari.
+5. Media processing timeout count.
 
-### 17.11 AttendanceSession
-
-```text
-id
-groupId
-title
-status
-participantsJson
-createdBy
-createdAt
-closedAt
-```
+## Moderation Metrics
 
-### 17.12 GameSession
-
-```text
-id
-groupId
-gameType
-status
-playersJson
-stateJson
-createdAt
-updatedAt
-expiresAt
-```
+1. Link spam blocked.
+2. Toxic message blocked.
+3. Warning issued.
+4. Auto-mute triggered.
+5. False positive report.
 
-### 17.13 GameStats
-
-```text
-id
-userId
-groupId
-gameType
-wins
-losses
-points
-metadataJson
-updatedAt
-```
+## Economy/Game Metrics
 
-### 17.14 UserEconomy
-
-```text
-id
-userId
-balance
-xp
-level
-lastClaim
-createdAt
-updatedAt
-```
+1. Daily claim count.
+2. Economy inflation rate.
+3. Top command game.
+4. Achievement unlock count.
+5. Rank card usage.
 
-### 17.15 ShopItem
-
-```text
-id
-name
-type
-price
-metadataJson
-enabled
-createdAt
-```
+---
 
-### 17.16 UserInventory
-
-```text
-id
-userId
-itemId
-quantity
-metadataJson
-createdAt
-```
+# 21. Out of Scope
 
-### 17.17 Pet
-
-```text
-id
-userId
-name
-type
-level
-xp
-hunger
-metadataJson
-updatedAt
-```
+Fitur berikut tidak masuk scope PRD ini:
 
-### 17.18 ApiKey
-
-```text
-id
-userId
-keyHash
-createdAt
-revokedAt
-```
+1. Integrasi AI berbayar.
+2. Chatbot AI berbasis OpenAI/Gemini/Claude API berbayar.
+3. Image generation berbayar.
+4. Moderasi AI cloud berbayar.
+5. Fitur yang melanggar aturan platform atau hukum.
+6. Download konten private/login-only.
+7. Penyimpanan credential WhatsApp di dashboard.
+8. Pengiriman spam massal tanpa konfirmasi owner.
 
-### 17.19 ErrorLog
-
-```text
-id
-scope
-feature
-message
-stack
-metadataJson
-createdAt
-```
+---
 
-## 18. Struktur Folder Final
+# 22. Rekomendasi Struktur Folder
 
-```text
+```txt
 src/
-  app.ts
-
-  config/
-    env.ts
-    feature-flags.ts
-    limits.ts
-
   bot/
-    whatsapp.adapter.ts
-    baileys.adapter.ts
-    console.adapter.ts
+    adapters/
     message.types.ts
     permission.ts
 
   commands/
-    index.ts
-    menu.command.ts
-    setup.command.ts
-    feature.command.ts
-    admin.command.ts
-
-    sticker/
-      sticker.command.ts
-      brat.command.ts
-      removebg.command.ts
-      outline.command.ts
-      circle.command.ts
-      meme.command.ts
-      quote.command.ts
-      emojimix.command.ts
-      video-sticker.command.ts
-      batch-sticker.command.ts
-
-    media/
-      hd.command.ts
-      compress.command.ts
-      resize.command.ts
-      crop.command.ts
-      watermark.command.ts
-      gif.command.ts
-      thumbnail.command.ts
-      cut-video.command.ts
-      subtitle.command.ts
-      mute.command.ts
-      reverse.command.ts
-
-    audio/
-      audio-extract.command.ts
-      transcript.command.ts
-      tts.command.ts
-      voice-effect.command.ts
-      cut-audio.command.ts
-      speed-audio.command.ts
-
-    text/
-      ocr.command.ts
-      translate.command.ts
-      summarize.command.ts
-      rewrite.command.ts
-      typo.command.ts
-      ai-reply.command.ts
-      study.command.ts
-
-    document/
-      ssweb.command.ts
-      qr.command.ts
-      img2pdf.command.ts
-      pdf2img.command.ts
-      mergepdf.command.ts
-      compresspdf.command.ts
-      pdf2word.command.ts
-      word2pdf.command.ts
-      scan.command.ts
-      unzip.command.ts
-
-    moderation/
-      warning.command.ts
-      badword.command.ts
-      antilink.command.ts
-      antitoxic.command.ts
-      antispam.command.ts
-      automute.command.ts
-      blacklist.command.ts
-
-    community/
-      autoreply.command.ts
-      poll.command.ts
-      confess.command.ts
-      menfess.command.ts
-      reminder.command.ts
-      event.command.ts
-      attendance.command.ts
-
-    games/
-      werewolf.command.ts
-      werewolf-stats.command.ts
-      tod.command.ts
-      tebak-kata.command.ts
-      tebak-gambar.command.ts
-      suit.command.ts
-      tictactoe.command.ts
-      slot.command.ts
-      math-game.command.ts
-      quiz-game.command.ts
-      family100.command.ts
-      couple.command.ts
-      tebak-lagu.command.ts
-
-    economy/
-      economy.command.ts
-      shop.command.ts
-      inventory.command.ts
-      title.command.ts
-      pet.command.ts
-      dungeon.command.ts
-
+    registry/
+      command-metadata.ts
+      command-router.ts
+    menu/
+    admin/
     owner/
-      owner.command.ts
-      stats.command.ts
-      limit.command.ts
-      api-key.command.ts
-      plugin.command.ts
-
-  services/
-    sticker/
+    moderation/
+    economy/
+    games/
     media/
     audio/
-    text/
     document/
     downloader/
+    scheduler/
+
+  services/
+    ffmpeg/
+    media/
+    audio/
+    downloader/
     moderation/
-    community/
-    games/
     economy/
-    owner/
+    scheduler/
+    backup/
+    subscription/
+    dashboard/
+    ocr/
+    stt/
+    translate/
+    summarize/
 
-  queues/
-    queue.ts
-    workers/
-      media.worker.ts
-      audio.worker.ts
-      document.worker.ts
-      ai.worker.ts
-      downloader.worker.ts
-      game.worker.ts
-
-  validators/
-    media.validator.ts
-    url.validator.ts
-    permission.validator.ts
-
-  scheduler/
-    reminder.scheduler.ts
-    cleanup.scheduler.ts
+  workers/
+    reminder.worker.ts
+    queue.worker.ts
+    cleanup.worker.ts
 
   db/
     client.ts
-    schema.prisma
 
   utils/
-    file.util.ts
-    rate-limit.util.ts
     logger.ts
-    security.util.ts
-
-  tests/
+    file.util.ts
+    url.validator.ts
+    time.util.ts
 ```
 
-## 19. Rate Limit Final
+---
 
-```text
-sticker: 10/user/menit
-brat: 10/user/menit
-removebg: 5/user/10 menit
-hd: 3/user/10 menit
-downloader: 5/user/10 menit
-media tools: 5/user/10 menit
-audio tools: 5/user/10 menit
-document tools: 5/user/10 menit
-ai tools: 3/user/hari free, 50/user/hari premium
-group command: 30/grup/menit
-game command: 40/grup/menit
-economy command: 20/user/menit
-confess: 3/user/jam
-menfess: 3/user/jam
-broadcast: 1/owner/10 menit
-```
+# 23. MVP Definition
 
-Opsional:
-Chat pribadi owner tidak terkena limit untuk testing.
+MVP dianggap selesai jika:
 
-## 20. Queue Requirement
+1. Bot stabil di minimal 3 grup aktif.
+2. Dynamic menu berjalan.
+3. Audio/voice note support berjalan.
+4. Anti-spam dan warning otomatis berjalan.
+5. Reminder worker berjalan.
+6. Rank card bisa dibuat.
+7. Economy command dasar dan tambahan utama berjalan.
+8. Owner bisa backup database.
+9. Owner bisa mengatur sewa grup.
+10. Tidak ada fitur yang mengandalkan AI berbayar.
+11. Semua command penting punya metadata dan test minimal.
+12. Semua command media berat punya limit, timeout, dan cleanup.
 
-Fitur berat wajib masuk queue:
+---
 
-```text
-removebg
-batch sticker
-video sticker
-compress video
-cut video
-subtitle
-transkrip audio
-tts
-pdf tools
-scan document
-unzip
-AI tools
-downloader
-```
+# 24. Catatan Implementasi Teknis
 
-MVP boleh pakai memory queue, tetapi production harus mendukung BullMQ + Redis.
-
-## 21. File Retention
-
-```text
-media input: hapus maksimal 15 menit
-hasil proses: hapus maksimal 15 menit
-temp downloader: hapus setelah dikirim
-temp PDF/audio/video: hapus setelah dikirim
-log teknis: maksimal 30 hari
-```
-
-Tidak boleh menyimpan permanen:
-
-```text
-foto pribadi
-video pribadi
-voice note
-dokumen user
-isi chat pribadi
-hasil download media sosial
-```
-
-## 22. Security Requirement
-
-1. Validasi MIME type.
-2. Validasi ukuran file.
-3. Validasi durasi audio/video.
-4. Validasi URL exact hostname.
-5. Blokir localhost dan private IP untuk screenshot.
-6. Jangan eksekusi file hasil unzip.
-7. Jangan meminta login TikTok/Instagram.
-8. Jangan bypass akun privat.
-9. Jangan hardcode secret.
-10. Jangan log token/cookies.
-11. Jangan kirim pesan saat join grup.
-12. Jangan aktifkan moderasi otomatis tanpa admin.
-13. Downloader hanya untuk konten milik sendiri, berizin, atau legal diunduh.
-14. Bot harus tetap berjalan walaupun satu fitur gagal.
-
-## 23. Testing Requirement
-
-Wajib test:
-
-```text
-command parser
-silent on join
-feature toggle
-permission owner/admin/premium/user
-rate limiter
-Baileys adapter sendMessage/sendSticker
-brat output 512x512
-sticker conversion
-media validator
-URL validator
-downloader invalid URL
-warning system
-badword filter
-polling
-economy transfer
-Werewolf win condition
-queue retry
-file cleanup
-```
-
-## 24. Phase Implementasi
-
-### Phase 0 — Stabilization
-
-```text
-1. Fix makeWASocket import
-2. Fix sendMessage/sendSticker crash
-3. Tambah deleteMessage
-4. Gabungkan /feature
-5. Downloader default off
-6. Premium enforcement
-7. URL validation
-8. Rate limit private/owner policy
-9. Test compile
-```
-
-### Phase 1 — Brat dan Sticker Lanjutan
-
-```text
-1. Brat grid style final
-2. Remove background
-3. Stikerbg
-4. Outline
-5. Circle
-6. Meme
-7. Quote
-8. Emoji mix
-9. Batch sticker
-10. Video sticker
-```
-
-### Phase 2 — Media, Audio, Text, File
-
-```text
-1. Compress
-2. Resize
-3. Crop
-4. Watermark
-5. Video to GIF
-6. MP3
-7. Transkrip
-8. TTS
-9. OCR
-10. Translate
-11. Ringkas
-12. Img2PDF
-13. PDF2Img
-14. Scan
-```
-
-### Phase 3 — Moderasi dan Community
-
-```text
-1. Warning
-2. Badword
-3. Anti-spam
-4. Anti-toxic
-5. Blacklist
-6. Auto reply
-7. Poll
-8. Confess
-9. Menfess
-10. Reminder
-11. Event
-12. Absensi
-```
-
-### Phase 4 — Games dan Economy Lanjutan
-
-```text
-1. TOD
-2. Tebak kata
-3. Tebak gambar
-4. Suit PvP
-5. Tic Tac Toe
-6. Slot
-7. Quiz
-8. Family 100
-9. Werewolf stats
-10. Shop
-11. Inventory
-12. Pet
-13. Dungeon
-```
-
-### Phase 5 — Owner dan Production
-
-```text
-1. Stats
-2. Limit
-3. API key
-4. Plugin system
-5. Dashboard
-6. BullMQ Redis
-7. Error logging
-8. CI testing
-9. README final
-```
-
-## 25. Acceptance Criteria Global
-
-Produk dianggap selesai jika:
-
-```text
-1. Bot tidak mengirim pesan saat masuk grup.
-2. Bot hanya membalas command valid.
-3. Semua fitur grup default nonaktif.
-4. Admin bisa mengaktifkan fitur via /feature.
-5. /feature tidak bentrok.
-6. Baileys mode tidak crash saat startup.
-7. Bot bisa mengirim teks, stiker, gambar, dan video.
-8. /brat menghasilkan style mirip referensi.
-9. Stiker dasar, stiker teks, toimg, HD, downloader, dan Werewolf berjalan.
-10. Semua fitur berat masuk queue.
-11. Semua file sementara dihapus.
-12. Semua media divalidasi.
-13. Downloader aman dan default nonaktif.
-14. Permission owner/admin/premium/user berjalan.
-15. Semua error ditangani tanpa crash.
-16. README hanya mencantumkan fitur yang benar-benar ada.
-17. Test utama lolos.
-```
-
-## 26. Definition of Done
-
-MVP final dianggap selesai jika:
-
-```text
-- npm install berhasil
-- npx prisma db push berhasil
-- npm run dev berhasil
-- ADAPTER_MODE=console bisa test command
-- ADAPTER_MODE=baileys bisa QR/connect
-- /menu berjalan
-- /setup berjalan
-- /feature berjalan
-- /s berjalan
-- /brat berjalan sesuai style final
-- /toimg berjalan
-- /hd berjalan
-- /ww basic berjalan
-- /tt dan /ig hanya berjalan jika downloader aktif
-- bot tidak spam saat masuk grup
-- tidak ada crash saat command gagal
-```
-
-## 27. Prompt Final untuk Codex
-
-Implementasikan dan perbaiki Javas Bot WA berdasarkan PRD final ini.
-
-Prioritas wajib:
-
-1. Fix Baileys startup error: gunakan `makeWASocket(...)`, bukan `makeWASocket.default(...)`.
-2. Fix crash `generateWAMessageFromContent` dengan menghapus quoted object palsu dari `sendMessage`, `sendSticker`, `sendImage`, dan `sendVideo`.
-3. Tambahkan `deleteMessage` di `BaileysAdapter`.
-4. Gabungkan semua logic `/feature` ke satu command agar tidak bentrok.
-5. Ubah downloader default menjadi nonaktif.
-6. Tambahkan premium enforcement untuk fitur berat.
-7. Perketat URL validator downloader.
-8. Pastikan bot silent saat join grup.
-9. Jangan kirim pesan otomatis tanpa command.
-10. Perbaiki `/brat` agar style-nya mirip referensi: background putih, teks hitam lowercase, layout grid/random, jarak kata lebar, blur ringan, WebP 512x512.
-11. Implementasikan fitur baru secara bertahap sesuai phase.
-12. Tambahkan test untuk bug fix, brat, feature toggle, permission, dan media validator.
-13. Update README hanya untuk fitur yang sudah benar-benar tersedia.
-
-Jangan:
-
-* Jangan mengaktifkan fitur grup secara otomatis.
-* Jangan bypass login atau akun privat.
-* Jangan hardcode token.
-* Jangan simpan media user permanen.
-* Jangan mengklaim fitur AI jika hanya filter Sharp biasa.
-* Jangan membuat command duplicate.
+1. Mulai dari command metadata registry sebelum menambah command baru.
+2. Jangan tambah fitur downloader sebelum queue dan rate limit kuat.
+3. Jangan tambah PDF/ZIP besar sebelum file size limit dan safe extraction siap.
+4. Jangan tambah dashboard sebelum auth owner aman.
+5. Jangan tambah auto-moderation ketat tanpa whitelist dan log.
+6. Jangan expose stack trace ke user.
+7. Gunakan Prisma migration untuk perubahan schema.
+8. Buat seed data untuk shop item, achievement, dan default warning rules.
+9. Pisahkan config development dan production.
+10. Update README otomatis atau semi-otomatis dari command metadata.

@@ -10,8 +10,8 @@ import axios from 'axios';
 import { getTempPath, safeDelete } from '../../utils/file.util.js';
 import { generateBratSticker } from '../../services/media/brat.service.js';
 import { requirePremium } from '../../validators/permission.validator.js';
-
-const execPromise = promisify(exec);
+import { runFfmpeg } from '../../services/ffmpeg/ffmpeg.service.js';
+import { validateMediaSize } from '../../validators/media.validator.js';
 
 // Helper to write WebP Exif metadata
 export async function addStickerMetadata(webpBuffer: Buffer, pack = 'Javas Bot', author = 'Bot WA'): Promise<Buffer> {
@@ -264,6 +264,13 @@ export class StickerSuiteCommand implements Command {
 
     // 11. /vstiker or /gifstiker
     if (cmd === 'vstiker' || cmd === 'gifstiker') {
+      try {
+        await validateMediaSize(buffer.length, ctx.senderId);
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `⚠️ ${err.message}`, { quotedMessageId: ctx.id });
+        return;
+      }
+
       const isPrem = await isPremiumUser(ctx.senderId);
       const maxSeconds = isPrem ? 10 : 5;
 
@@ -275,13 +282,26 @@ export class StickerSuiteCommand implements Command {
       try {
         fs.writeFileSync(tempIn, buffer);
 
-        // FFmpeg conversion command
-        const ffmpegCmd = `ffmpeg -y -i "${tempIn}" -t ${maxSeconds} -vf "scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000" -vcodec libwebp -lossless 0 -compression_level 4 -q:v 50 -loop 0 -an -vsync 0 "${tempOut}"`;
-        await execPromise(ffmpegCmd);
+        // FFmpeg safe conversion argument list
+        const args = [
+          '-y',
+          '-i', tempIn,
+          '-t', String(maxSeconds),
+          '-vf', 'scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000',
+          '-vcodec', 'libwebp',
+          '-lossless', '0',
+          '-compression_level', '4',
+          '-q:v', '50',
+          '-loop', '0',
+          '-an',
+          '-vsync', '0',
+          tempOut
+        ];
+        await runFfmpeg(args);
 
         const webpOut = fs.readFileSync(tempOut);
         await adapter.sendSticker(ctx.chatId, webpOut, { quotedMessageId: ctx.id });
-      } catch (err) {
+      } catch (err: any) {
         console.error('[VideoSticker] Error converting:', err);
         await adapter.sendMessage(ctx.chatId, '❌ Gagal mengonversi video ke stiker. Pastikan format video valid.', { quotedMessageId: ctx.id });
       } finally {

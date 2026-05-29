@@ -142,6 +142,11 @@ class PluginManager {
     const name = commandName.toLowerCase();
     return this.plugins.find(p => p.commands.includes(name));
   }
+
+  public isPluginEnabled(pluginName: string): boolean {
+    const plugin = this.plugins.find(p => p.name.toLowerCase() === pluginName.toLowerCase());
+    return plugin ? plugin.enabled : true;
+  }
 }
 
 export const pluginManager = new PluginManager();
