@@ -24,6 +24,7 @@ import './commands/document/document.command.js';
 import './commands/moderation/moderation.command.js';
 import './commands/moderation/antispam.command.js';
 import './commands/moderation/warning-rule.command.js';
+import './commands/moderation/group-log.command.js';
 import './commands/community/community.command.js';
 import './commands/games/games.command.js';
 import './commands/owner/owner.command.js';
@@ -73,40 +74,70 @@ async function bootstrap() {
       const features = JSON.parse(config.featuresJson || '{}');
 
       // 1. Welcome Msg
-      if (action === 'add' && features.welcome) {
-        let welcomeMsg = features.welcomeMessage || 'Selamat datang @user di grup @group!';
-        let groupName = 'grup';
-        const socket = (adapter as any).sock;
-        if (socket) {
-          try {
-            const metadata = await socket.groupMetadata(groupId);
-            groupName = metadata.subject || 'grup';
-          } catch (err) {
-            console.error('Failed to fetch group metadata for welcome:', err);
-          }
+      if (action === 'add') {
+        for (const participant of participants) {
+          // Log join event
+          await prisma.groupLog.create({
+            data: {
+              groupId,
+              userId: participant,
+              type: 'join',
+              action: 'user_joined',
+              message: 'Pengguna bergabung ke grup'
+            }
+          }).catch(err => console.error('Failed to log join event:', err));
         }
 
-        for (const participant of participants) {
-          const mention = `@${participant.split('@')[0]}`;
-          const text = welcomeMsg
-            .replace(/@user/g, mention)
-            .replace(/@group/g, groupName);
+        if (features.welcome) {
+          let welcomeMsg = features.welcomeMessage || 'Selamat datang @user di grup @group!';
+          let groupName = 'grup';
+          const socket = (adapter as any).sock;
+          if (socket) {
+            try {
+              const metadata = await socket.groupMetadata(groupId);
+              groupName = metadata.subject || 'grup';
+            } catch (err) {
+              console.error('Failed to fetch group metadata for welcome:', err);
+            }
+          }
 
-          await adapter.sendMessage(groupId, text, {
-            mentions: [participant]
-          });
+          for (const participant of participants) {
+            const mention = `@${participant.split('@')[0]}`;
+            const text = welcomeMsg
+              .replace(/@user/g, mention)
+              .replace(/@group/g, groupName);
+
+            await adapter.sendMessage(groupId, text, {
+              mentions: [participant]
+            });
+          }
         }
       }
 
       // 2. Goodbye Msg
-      if (action === 'remove' && features.goodbye) {
-        let goodbyeMsg = features.goodbyeMessage || '@user telah meninggalkan grup.';
+      if (action === 'remove') {
         for (const participant of participants) {
-          const mention = `@${participant.split('@')[0]}`;
-          const text = goodbyeMsg.replace(/@user/g, mention);
-          await adapter.sendMessage(groupId, text, {
-            mentions: [participant]
-          });
+          // Log leave event
+          await prisma.groupLog.create({
+            data: {
+              groupId,
+              userId: participant,
+              type: 'leave',
+              action: 'user_left',
+              message: 'Pengguna meninggalkan grup'
+            }
+          }).catch(err => console.error('Failed to log leave event:', err));
+        }
+
+        if (features.goodbye) {
+          let goodbyeMsg = features.goodbyeMessage || '@user telah meninggalkan grup.';
+          for (const participant of participants) {
+            const mention = `@${participant.split('@')[0]}`;
+            const text = goodbyeMsg.replace(/@user/g, mention);
+            await adapter.sendMessage(groupId, text, {
+              mentions: [participant]
+            });
+          }
         }
       }
     } catch (err) {

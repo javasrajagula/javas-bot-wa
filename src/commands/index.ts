@@ -492,6 +492,26 @@ export async function executePunishment(
     }
   }).catch(err => console.error('Failed to log infraction:', err));
 
+  // Determine group log type
+  let logType = 'moderation';
+  const rLow = reason.toLowerCase();
+  if (rLow.includes('spam') || rLow.includes('karakter') || rLow.includes('virtex')) logType = 'spam';
+  else if (rLow.includes('link')) logType = 'link';
+  else if (rLow.includes('kata kasar') || rLow.includes('badword')) logType = 'badword';
+  else if (actualAction === 'warn') logType = 'warn';
+  else if (actualAction === 'kick') logType = 'kick';
+
+  // Log group event
+  await prisma.groupLog.create({
+    data: {
+      groupId: chatId,
+      userId,
+      type: logType,
+      action: actualAction,
+      message: reason
+    }
+  }).catch(err => console.error('Failed to log group event:', err));
+
   // 2. Execute action
   if (actualAction === 'warn') {
     await prisma.warning.create({
