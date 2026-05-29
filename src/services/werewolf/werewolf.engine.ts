@@ -27,6 +27,102 @@ interface WerewolfNotificationCallbacks {
   sendPrivateMessage: (userId: string, text: string) => Promise<void>;
 }
 
+export interface WerewolfGameData {
+  id: string;
+  groupId: string;
+  gameType: string;
+  status: string;
+  playersJson: string;
+  createdAt: Date;
+  updatedAt: Date;
+  expiresAt: Date | null;
+  phase: string;
+  hostUserId: string;
+  rolesJson: string;
+  votesJson: string;
+  nightActionsJson: string;
+}
+
+function parseGameSession(session: any): WerewolfGameData | null {
+  if (!session) return null;
+  let state = {
+    phase: 'lobby',
+    hostUserId: '',
+    rolesJson: '{}',
+    votesJson: '{}',
+    nightActionsJson: '{}'
+  };
+  try {
+    state = JSON.parse(session.stateJson || '{}');
+  } catch {}
+  return {
+    id: session.id,
+    groupId: session.groupId,
+    gameType: session.gameType,
+    status: session.status,
+    playersJson: session.playersJson,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    expiresAt: session.expiresAt,
+    phase: state.phase || 'lobby',
+    hostUserId: state.hostUserId || '',
+    rolesJson: state.rolesJson || '{}',
+    votesJson: state.votesJson || '{}',
+    nightActionsJson: state.nightActionsJson || '{}'
+  };
+}
+
+async function saveGameSession(groupId: string, data: Partial<WerewolfGameData>) {
+  const existing = await prisma.gameSession.findUnique({ where: { groupId } });
+  let state = existing ? JSON.parse(existing.stateJson || '{}') : {};
+  
+  if (data.phase !== undefined) state.phase = data.phase;
+  if (data.hostUserId !== undefined) state.hostUserId = data.hostUserId;
+  if (data.rolesJson !== undefined) state.rolesJson = data.rolesJson;
+  if (data.votesJson !== undefined) state.votesJson = data.votesJson;
+  if (data.nightActionsJson !== undefined) state.nightActionsJson = data.nightActionsJson;
+
+  const updateData: any = {};
+  if (data.status !== undefined) updateData.status = data.status;
+  if (data.playersJson !== undefined) updateData.playersJson = data.playersJson;
+  if (data.expiresAt !== undefined) updateData.expiresAt = data.expiresAt;
+  updateData.stateJson = JSON.stringify(state);
+
+  return prisma.gameSession.update({
+    where: { groupId },
+    data: updateData
+  });
+}
+
+async function createGameSession(groupId: string, hostId: string, hostName: string, expiresAt: Date) {
+  const players = [{ id: hostId, name: hostName, isAlive: true, role: 'Villager' }];
+  const state = {
+    phase: 'lobby',
+    hostUserId: hostId,
+    rolesJson: '{}',
+    votesJson: '{}',
+    nightActionsJson: '{}'
+  };
+  return prisma.gameSession.upsert({
+    where: { groupId },
+    create: {
+      groupId,
+      gameType: 'werewolf',
+      status: 'lobby',
+      playersJson: JSON.stringify(players),
+      stateJson: JSON.stringify(state),
+      expiresAt
+    },
+    update: {
+      gameType: 'werewolf',
+      status: 'lobby',
+      playersJson: JSON.stringify(players),
+      stateJson: JSON.stringify(state),
+      expiresAt
+    }
+  });
+}
+
 class WerewolfEngine {
   private activeTimers: Map<string, NodeJS.Timeout> = new Map();
   private callbacks?: WerewolfNotificationCallbacks;
@@ -35,26 +131,26 @@ class WerewolfEngine {
     this.callbacks = callbacks;
   }
 
-  // Load all active games on startup to resume timers if needed
   public async boot(): Promise<void> {
-    const activeGames = await prisma.werewolfGame.findMany({
-      where: { status: { in: ['lobby', 'playing'] } }
+    const activeGames = await prisma.gameSession.findMany({
+      where: { gameType: 'werewolf', status: { in: ['lobby', 'playing'] } }
     });
 
-    for (const game of activeGames) {
-      this.setupResumeTimer(game.groupId, game.phase, game.expiresAt);
+    for (const session of activeGames) {
+      const game = parseGameSession(session);
+      if (game) {
+        this.setupResumeTimer(game.groupId, game.phase, game.expiresAt);
+      }
     }
   }
 
   private setupResumeTimer(groupId: string, phase: string, expiresAt: Date | null) {
     if (!expiresAt) return;
     
-    // Clear existing timer
     this.clearTimer(groupId);
 
     const msRemaining = expiresAt.getTime() - Date.now();
     if (msRemaining <= 0) {
-      // Trigger immediate phase transition
       this.handlePhaseTimeout(groupId);
     } else {
       const timer = setTimeout(() => {
@@ -86,15 +182,15 @@ class WerewolfEngine {
 
   private async handlePhaseTimeout(groupId: string) {
     console.log(`[Werewolf Engine] Phase timeout for group ${groupId}`);
-    const game = await prisma.werewolfGame.findUnique({
+    const session = await prisma.gameSession.findUnique({
       where: { groupId }
     });
+    const game = parseGameSession(session);
 
     if (!game || game.status === 'finished') return;
 
     if (game.phase === 'lobby') {
-      // Lobby timeout: cancel game
-      await prisma.werewolfGame.delete({ where: { groupId } });
+      await prisma.gameSession.delete({ where: { groupId } });
       this.notifyGroup(groupId, '⏰ Lobby game Werewolf telah berakhir karena batas waktu 5 menit tercapai.');
     } else if (game.phase === 'night') {
       await this.transitToDay(groupId);
@@ -106,63 +202,43 @@ class WerewolfEngine {
   }
 
   public async getGame(groupId: string) {
-    return prisma.werewolfGame.findUnique({
+    const session = await prisma.gameSession.findUnique({
       where: { groupId }
     });
+    return parseGameSession(session);
   }
 
   public async findActiveGameForPlayer(playerId: string) {
-    const activeGames = await prisma.werewolfGame.findMany({
-      where: { status: 'playing' }
+    const activeGames = await prisma.gameSession.findMany({
+      where: { gameType: 'werewolf', status: 'playing' }
     });
-    for (const game of activeGames) {
-      const players: Player[] = JSON.parse(game.playersJson);
-      if (players.some(p => p.id === playerId && p.isAlive)) {
-        return game;
+    for (const session of activeGames) {
+      const game = parseGameSession(session);
+      if (game) {
+        const players: Player[] = JSON.parse(game.playersJson);
+        if (players.some(p => p.id === playerId && p.isAlive)) {
+          return game;
+        }
       }
     }
     return null;
   }
 
   public async createLobby(groupId: string, hostId: string, hostName: string): Promise<string> {
-    const existing = await prisma.werewolfGame.findUnique({ where: { groupId } });
+    const existing = await prisma.gameSession.findUnique({ where: { groupId } });
     if (existing && existing.status !== 'finished') {
       throw new Error('Sudah ada game Werewolf yang aktif di grup ini.');
     }
 
-    const players: Player[] = [{ id: hostId, name: hostName, isAlive: true, role: 'Villager' }];
     const expiresAt = this.setTimer(groupId, 'lobby', 300); // 5 minutes lobby
-
-    await prisma.werewolfGame.upsert({
-      where: { groupId },
-      create: {
-        groupId,
-        status: 'lobby',
-        phase: 'lobby',
-        hostUserId: hostId,
-        playersJson: JSON.stringify(players),
-        rolesJson: '{}',
-        votesJson: '{}',
-        nightActionsJson: '{}',
-        expiresAt
-      },
-      update: {
-        status: 'lobby',
-        phase: 'lobby',
-        hostUserId: hostId,
-        playersJson: JSON.stringify(players),
-        rolesJson: '{}',
-        votesJson: '{}',
-        nightActionsJson: '{}',
-        expiresAt
-      }
-    });
+    await createGameSession(groupId, hostId, hostName, expiresAt);
 
     return 'Lobby Werewolf berhasil dibuat! Ketik `/ww join` untuk bergabung. Minimal 5 pemain, maksimal 10.';
   }
 
   public async joinGame(groupId: string, playerId: string, playerName: string): Promise<string> {
-    const game = await prisma.werewolfGame.findUnique({ where: { groupId } });
+    const session = await prisma.gameSession.findUnique({ where: { groupId } });
+    const game = parseGameSession(session);
     if (!game || game.status !== 'lobby') {
       throw new Error('Tidak ada lobby game Werewolf yang aktif di grup ini.');
     }
@@ -178,7 +254,7 @@ class WerewolfEngine {
 
     players.push({ id: playerId, name: playerName, isAlive: true, role: 'Villager' });
 
-    await prisma.werewolfGame.update({
+    await prisma.gameSession.update({
       where: { groupId },
       data: { playersJson: JSON.stringify(players) }
     });
@@ -187,7 +263,8 @@ class WerewolfEngine {
   }
 
   public async leaveGame(groupId: string, playerId: string): Promise<string> {
-    const game = await prisma.werewolfGame.findUnique({ where: { groupId } });
+    const session = await prisma.gameSession.findUnique({ where: { groupId } });
+    const game = parseGameSession(session);
     if (!game || game.status !== 'lobby') {
       throw new Error('Game belum dimulai. Anda hanya bisa keluar saat lobby.');
     }
@@ -202,25 +279,23 @@ class WerewolfEngine {
 
     if (players.length === 0) {
       this.clearTimer(groupId);
-      await prisma.werewolfGame.delete({ where: { groupId } });
+      await prisma.gameSession.delete({ where: { groupId } });
       return 'Lobby ditutup karena tidak ada pemain tersisa.';
     }
 
     const newHost = game.hostUserId === playerId ? players[0].id : game.hostUserId;
 
-    await prisma.werewolfGame.update({
-      where: { groupId },
-      data: {
-        playersJson: JSON.stringify(players),
-        hostUserId: newHost
-      }
+    await saveGameSession(groupId, {
+      playersJson: JSON.stringify(players),
+      hostUserId: newHost
     });
 
     return `Pemain meninggalkan lobby. Host baru: @${newHost.split('@')[0]} (Pemain: ${players.length})`;
   }
 
   public async startGame(groupId: string, requesterId: string): Promise<void> {
-    const game = await prisma.werewolfGame.findUnique({ where: { groupId } });
+    const session = await prisma.gameSession.findUnique({ where: { groupId } });
+    const game = parseGameSession(session);
     if (!game || game.status !== 'lobby') {
       throw new Error('Tidak ada game dalam lobby yang bisa dimulai.');
     }
@@ -235,13 +310,6 @@ class WerewolfEngine {
       throw new Error('Pemain kurang! Minimal 5 pemain diperlukan untuk memulai.');
     }
 
-    // Role assignment logic
-    // 5: 1 WW, 1 Seer, 1 Doc, 2 Villagers
-    // 6: 1 WW, 1 Seer, 1 Doc, 3 Villagers
-    // 7: 2 WW, 1 Seer, 1 Doc, 3 Villagers
-    // 8: 2 WW, 1 Seer, 1 Doc, 1 Hunter, 3 Villagers
-    // 9: 2 WW, 1 Seer, 1 Doc, 1 Hunter, 4 Villagers
-    // 10: 3 WW, 1 Seer, 1 Doc, 1 Hunter, 4 Villagers
     const roles: Role[] = [];
     let wwCount = count >= 10 ? 3 : (count >= 7 ? 2 : 1);
     let hasHunter = count >= 8;
@@ -254,33 +322,26 @@ class WerewolfEngine {
       roles.push('Villager');
     }
 
-    // Shuffle roles
     for (let i = roles.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [roles[i], roles[j]] = [roles[j], roles[i]];
     }
 
-    // Assign to players
     players.forEach((p, idx) => {
       p.role = roles[idx];
     });
 
     const expiresAt = this.setTimer(groupId, 'night', 90);
 
-    await prisma.werewolfGame.update({
-      where: { groupId },
-      data: {
-        status: 'playing',
-        phase: 'night',
-        playersJson: JSON.stringify(players),
-        expiresAt
-      }
+    await saveGameSession(groupId, {
+      status: 'playing',
+      phase: 'night',
+      playersJson: JSON.stringify(players),
+      expiresAt
     });
 
-    // Announce to group
     await this.notifyGroup(groupId, '🐺 Game Werewolf dimulai! Hari berganti Malam.\n\nBot telah mengirimkan peran ke Chat Pribadi masing-masing pemain.\nFase malam berlangsung selama 90 detik. Gunakan kemampuan Anda segera!');
 
-    // Send private roles
     for (const p of players) {
       let roleMsg = `ℹ️ Peran Anda dalam game di grup: *${p.role}*\n`;
       if (p.role === 'Werewolf') {
@@ -308,7 +369,8 @@ class WerewolfEngine {
     actorId: string,
     targetUsername: string
   ): Promise<string> {
-    const game = await prisma.werewolfGame.findUnique({ where: { groupId } });
+    const session = await prisma.gameSession.findUnique({ where: { groupId } });
+    const game = parseGameSession(session);
     if (!game || game.status !== 'playing' || game.phase !== 'night') {
       throw new Error('Aksi malam hanya bisa dilakukan pada fase malam hari.');
     }
@@ -320,7 +382,6 @@ class WerewolfEngine {
       throw new Error('Anda tidak berpartisipasi atau sudah mati.');
     }
 
-    // Role checks
     if (action === 'kill' && actor.role !== 'Werewolf') {
       throw new Error('Hanya Werewolf yang bisa membunuh.');
     }
@@ -331,7 +392,6 @@ class WerewolfEngine {
       throw new Error('Hanya Seer yang bisa menerawang.');
     }
 
-    // Find target
     const cleanUsername = targetUsername.replace('@', '').trim().toLowerCase();
     const target = players.find(p => {
       const parts = p.id.split('@');
@@ -356,12 +416,10 @@ class WerewolfEngine {
       actions.checkTarget = target.id;
     }
 
-    await prisma.werewolfGame.update({
-      where: { groupId },
-      data: { nightActionsJson: JSON.stringify(actions) }
+    await saveGameSession(groupId, {
+      nightActionsJson: JSON.stringify(actions)
     });
 
-    // If all active special actions are done, speed up transition
     await this.checkAllNightActionsDone(groupId, players, actions);
 
     if (action === 'check') {
@@ -388,7 +446,8 @@ class WerewolfEngine {
   }
 
   private async transitToDay(groupId: string) {
-    const game = await prisma.werewolfGame.findUnique({ where: { groupId } });
+    const session = await prisma.gameSession.findUnique({ where: { groupId } });
+    const game = parseGameSession(session);
     if (!game) return;
 
     let players: Player[] = JSON.parse(game.playersJson);
@@ -406,7 +465,6 @@ class WerewolfEngine {
       deadPlayer.isAlive = false;
       reportMsg += `☠️ Berita duka! Semalam @${deadPlayerId.split('@')[0]} (${deadPlayer.role}) telah dicabik-cabik oleh serigala.`;
       
-      // If dead player is Hunter, trigger hunter mechanics!
       if (deadPlayer.role === 'Hunter') {
         reportMsg += `\n\n🎯 @${deadPlayerId.split('@')[0]} adalah seorang *Hunter*! Dia memiliki waktu 30 detik untuk membalas menembak mati 1 pemain dengan command: \`/ww kill @username\` di grup ini.`;
       }
@@ -420,19 +478,15 @@ class WerewolfEngine {
       return;
     }
 
-    // Set day discussion timer
     const discussSeconds = deadPlayerId && players.find(p => p.id === deadPlayerId)?.role === 'Hunter' ? 30 : 180;
     const expiresAt = this.setTimer(groupId, 'day_discuss', discussSeconds);
 
-    await prisma.werewolfGame.update({
-      where: { groupId },
-      data: {
-        phase: 'day_discuss',
-        playersJson: JSON.stringify(players),
-        votesJson: '{}',
-        nightActionsJson: '{}',
-        expiresAt
-      }
+    await saveGameSession(groupId, {
+      phase: 'day_discuss',
+      playersJson: JSON.stringify(players),
+      votesJson: '{}',
+      nightActionsJson: '{}',
+      expiresAt
     });
 
     reportMsg += `\n\nDiskusi dimulai selama ${discussSeconds} detik.`;
@@ -440,7 +494,8 @@ class WerewolfEngine {
   }
 
   public async hunterKill(groupId: string, hunterId: string, targetUsername: string): Promise<string> {
-    const game = await prisma.werewolfGame.findUnique({ where: { groupId } });
+    const session = await prisma.gameSession.findUnique({ where: { groupId } });
+    const game = parseGameSession(session);
     if (!game || game.status !== 'playing' || game.phase !== 'day_discuss') {
       throw new Error('Hunter tidak bisa membalas saat ini.');
     }
@@ -448,12 +503,10 @@ class WerewolfEngine {
     let players: Player[] = JSON.parse(game.playersJson);
     const hunter = players.find(p => p.id === hunterId);
     
-    // Hunter must have just died
     if (!hunter || hunter.role !== 'Hunter' || hunter.isAlive) {
       throw new Error('Hanya Hunter yang baru saja mati yang bisa menggunakan skill ini.');
     }
 
-    // Check if hunter action already taken
     const actions: NightActions = JSON.parse(game.nightActionsJson);
     if (actions.killTarget) {
       throw new Error('Anda sudah menggunakan tembakan pembalasan.');
@@ -470,7 +523,7 @@ class WerewolfEngine {
     }
 
     target.isAlive = false;
-    actions.killTarget = target.id; // Record that hunter shot
+    actions.killTarget = target.id;
 
     const isGameOver = this.checkWinCondition(players);
     let msg = `🎯 *Tembakan Terakhir Hunter!* @${hunterId.split('@')[0]} menarik pelatuk dan menembak mati @${target.id.split('@')[0]} (${target.role}).`;
@@ -478,17 +531,13 @@ class WerewolfEngine {
     if (isGameOver) {
       await this.endGame(groupId, players, msg);
     } else {
-      // Return to normal discussion time or skip to voting
       this.clearTimer(groupId);
       const expiresAt = this.setTimer(groupId, 'day_discuss', 180);
       
-      await prisma.werewolfGame.update({
-        where: { groupId },
-        data: {
-          playersJson: JSON.stringify(players),
-          nightActionsJson: JSON.stringify(actions),
-          expiresAt
-        }
+      await saveGameSession(groupId, {
+        playersJson: JSON.stringify(players),
+        nightActionsJson: JSON.stringify(actions),
+        expiresAt
       });
       
       await this.notifyGroup(groupId, msg + '\n\nDiskusi siang dilanjutkan (180 detik).');
@@ -500,14 +549,9 @@ class WerewolfEngine {
   private async transitToVoting(groupId: string) {
     const expiresAt = this.setTimer(groupId, 'day_vote', 60);
 
-    await prisma.werewolfGame.update({
-      where: {
-        groupId
-      },
-      data: {
-        phase: 'day_vote',
-        expiresAt
-      }
+    await saveGameSession(groupId, {
+      phase: 'day_vote',
+      expiresAt
     });
 
     await this.notifyGroup(
@@ -517,7 +561,8 @@ class WerewolfEngine {
   }
 
   public async castVote(groupId: string, voterId: string, targetUsername: string): Promise<string> {
-    const game = await prisma.werewolfGame.findUnique({ where: { groupId } });
+    const session = await prisma.gameSession.findUnique({ where: { groupId } });
+    const game = parseGameSession(session);
     if (!game || game.status !== 'playing' || game.phase !== 'day_vote') {
       throw new Error('Voting hanya bisa dilakukan pada fase voting.');
     }
@@ -546,9 +591,8 @@ class WerewolfEngine {
     const votes: Record<string, string> = JSON.parse(game.votesJson);
     votes[voterId] = target.id;
 
-    await prisma.werewolfGame.update({
-      where: { groupId },
-      data: { votesJson: JSON.stringify(votes) }
+    await saveGameSession(groupId, {
+      votesJson: JSON.stringify(votes)
     });
 
     const aliveCount = players.filter(p => p.isAlive).length;
@@ -564,20 +608,19 @@ class WerewolfEngine {
   }
 
   private async resolveVoting(groupId: string) {
-    const game = await prisma.werewolfGame.findUnique({ where: { groupId } });
+    const session = await prisma.gameSession.findUnique({ where: { groupId } });
+    const game = parseGameSession(session);
     if (!game) return;
 
     let players: Player[] = JSON.parse(game.playersJson);
     const votes: Record<string, string> = JSON.parse(game.votesJson);
 
-    // Count votes
     const voteMap: Record<string, number> = {};
     for (const voterId in votes) {
       const targetId = votes[voterId];
       voteMap[targetId] = (voteMap[targetId] || 0) + 1;
     }
 
-    // Find max votes
     let maxVotes = 0;
     let targetToHangId: string | null = null;
     let isTie = false;
@@ -613,18 +656,14 @@ class WerewolfEngine {
       return;
     }
 
-    // Reset for night phase
     const expiresAt = this.setTimer(groupId, 'night', 90);
 
-    await prisma.werewolfGame.update({
-      where: { groupId },
-      data: {
-        phase: 'night',
-        playersJson: JSON.stringify(players),
-        votesJson: '{}',
-        nightActionsJson: '{}',
-        expiresAt
-      }
+    await saveGameSession(groupId, {
+      phase: 'night',
+      playersJson: JSON.stringify(players),
+      votesJson: '{}',
+      nightActionsJson: '{}',
+      expiresAt
     });
 
     resultMsg += '\n\n🌙 Malam hari telah kembali. Werewolf, Seer, dan Doctor, segera hubungi bot untuk beraksi!';
@@ -657,19 +696,17 @@ class WerewolfEngine {
       finalMsg += `- @${p.id.split('@')[0]}: ${p.role} (${p.isAlive ? '🏆 Hidup' : '💀 Mati'})\n`;
     });
 
-    await prisma.werewolfGame.update({
-      where: { groupId },
-      data: {
-        status: 'finished',
-        expiresAt: null
-      }
+    await saveGameSession(groupId, {
+      status: 'finished',
+      expiresAt: null
     });
 
     await this.notifyGroup(groupId, finalMsg);
   }
 
   public async stopGame(groupId: string, hostId: string, isAdmin = false): Promise<string> {
-    const game = await prisma.werewolfGame.findUnique({ where: { groupId } });
+    const session = await prisma.gameSession.findUnique({ where: { groupId } });
+    const game = parseGameSession(session);
     if (!game || game.status === 'finished') {
       throw new Error('Tidak ada game Werewolf aktif yang bisa dihentikan.');
     }
@@ -679,12 +716,11 @@ class WerewolfEngine {
     }
 
     this.clearTimer(groupId);
-    await prisma.werewolfGame.delete({ where: { groupId } });
+    await prisma.gameSession.delete({ where: { groupId } });
 
     return 'Permainan Werewolf berhasil dihentikan paksa.';
   }
 
-  // Utilities to send message safely
   private async notifyGroup(groupId: string, text: string) {
     if (this.callbacks) {
       await this.callbacks.sendGroupMessage(groupId, text);

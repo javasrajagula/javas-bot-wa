@@ -33,36 +33,7 @@ export class AdminCommand implements Command {
       return;
     }
 
-    // 2. /feature <fitur> <on/off>
-    if (commandType === 'feature') {
-      const feature = args[0]?.toLowerCase();
-      const status = args[1]?.toLowerCase();
 
-      if (!feature || (status !== 'on' && status !== 'off')) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/feature <sticker|hd|downloader|werewolf> <on|off>`', { quotedMessageId: ctx.id });
-        return;
-      }
-
-      const isEnabled = status === 'on';
-      const updateData: any = {};
-
-      if (feature === 'sticker') updateData.stickerEnabled = isEnabled;
-      else if (feature === 'hd') updateData.hdEnabled = isEnabled;
-      else if (feature === 'downloader') updateData.downloaderEnabled = isEnabled;
-      else if (feature === 'werewolf') updateData.werewolfEnabled = isEnabled;
-      else {
-        await adapter.sendMessage(ctx.chatId, `⚠️ Fitur "${feature}" tidak valid.`, { quotedMessageId: ctx.id });
-        return;
-      }
-
-      await prisma.groupConfig.update({
-        where: { groupId: ctx.chatId },
-        data: updateData
-      });
-
-      await adapter.sendMessage(ctx.chatId, `✅ Fitur "${feature}" berhasil diubah menjadi: *${status.toUpperCase()}*.`, { quotedMessageId: ctx.id });
-      return;
-    }
 
     // 3. /setprefix <prefix>
     if (commandType === 'setprefix') {
@@ -108,4 +79,4 @@ export class AdminCommand implements Command {
 
 // Register admin commands
 const adminCmd = new AdminCommand();
-registerCommand(['bot', 'feature', 'setprefix', 'setcooldown'], adminCmd);
+registerCommand(['bot', 'setprefix', 'setcooldown'], adminCmd);

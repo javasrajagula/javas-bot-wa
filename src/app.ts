@@ -9,18 +9,21 @@ import { startCleanupInterval } from './utils/file.util.js';
 // Dynamically import all command files to register them in the command router registry
 import './commands/menu.command.js';
 import './commands/admin.command.js';
-import './commands/sticker.command.js';
-import './commands/brat.command.js';
-import './commands/hd.command.js';
-import './commands/downloader.command.js';
-import './commands/werewolf.command.js';
 import './commands/setup.command.js';
 import './commands/feature.command.js';
-import './commands/owner.command.js';
+import './commands/downloader.command.js';
 import './commands/economy.command.js';
-import './commands/group-features.command.js';
-import './commands/ai-image.command.js';
-import './commands/file-tools.command.js';
+
+// Modular commands
+import './commands/sticker/sticker.command.js';
+import './commands/media/media.command.js';
+import './commands/audio/audio.command.js';
+import './commands/text/text.command.js';
+import './commands/document/document.command.js';
+import './commands/moderation/moderation.command.js';
+import './commands/community/community.command.js';
+import './commands/games/games.command.js';
+import './commands/owner/owner.command.js';
 
 async function bootstrap() {
   console.log('[System] Connecting to database...');

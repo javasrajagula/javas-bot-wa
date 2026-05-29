@@ -2,9 +2,15 @@ import { MessageContext } from '../bot/message.types.js';
 import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
 import prisma from '../db/client.js';
 import { rateLimiter } from '../utils/rate-limit.util.js';
+import { isOwner } from '../bot/permission.js';
+import { DEFAULT_FEATURES } from '../config/feature-flags.js';
 
 // Cooldown overrides (stored in-memory or dynamically modified by /setcooldown)
 export const cooldownOverrides: Record<string, number> = {};
+
+// In-memory trackers for spam & auto mute
+const messageTimestamps = new Map<string, number[]>();
+const mutedUsers = new Map<string, number>();
 
 export interface Command {
   execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void>;
@@ -57,6 +63,21 @@ function getFeatureKey(commandName: string): string {
 }
 
 export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter) {
+  // Blacklist check
+  const { requireNotBlacklisted } = await import('../validators/permission.validator.js');
+  try {
+    await requireNotBlacklisted(ctx.isGroup ? ctx.chatId : null, ctx.senderId);
+  } catch (err: any) {
+    // Ignore blacklisted user
+    return;
+  }
+
+  // Auto mute ignore check
+  const muteTime = mutedUsers.get(ctx.senderId) || 0;
+  if (Date.now() < muteTime) {
+    return; // Ignore muted user
+  }
+
   const isGroup = ctx.isGroup;
   
   // 1. Get Group Configuration (or default values)
@@ -76,10 +97,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
           groupId: ctx.chatId,
           prefix: '/',
           botEnabled: true,
-          stickerEnabled: true,
-          hdEnabled: true,
-          downloaderEnabled: true,
-          werewolfEnabled: true
+          featuresJson: JSON.stringify(DEFAULT_FEATURES)
         }
       });
     }
@@ -104,24 +122,99 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   if (isGroup && groupConfig) {
     const flags = JSON.parse(groupConfig.featuresJson || '{}');
 
+    // --- AUTO REPLY CHECK ---
+    if (flags.autoreply) {
+      const autoReplies = await prisma.autoReply.findMany({
+        where: { groupId: ctx.chatId }
+      });
+      const bodyLower = ctx.body.trim().toLowerCase();
+      const matched = autoReplies.find(r => {
+        const triggerLower = r.trigger.toLowerCase();
+        return r.matchType === 'exact' ? bodyLower === triggerLower : bodyLower.includes(triggerLower);
+      });
+
+      if (matched) {
+        await adapter.sendMessage(ctx.chatId, matched.response, { quotedMessageId: ctx.id });
+        return;
+      }
+    }
+
+    // --- ANTI SPAM CHECK ---
+    if (flags.antispam) {
+      const now = Date.now();
+      const timestamps = messageTimestamps.get(ctx.senderId) || [];
+      const valid = timestamps.filter(t => now - t < 10000);
+      valid.push(now);
+      messageTimestamps.set(ctx.senderId, valid);
+
+      if (valid.length > 5) {
+        mutedUsers.set(ctx.senderId, now + 5 * 60 * 1000); // 5 mins mute
+        await adapter.sendMessage(
+          ctx.chatId,
+          `🚫 @${ctx.senderId.split('@')[0]} terdeteksi melakukan spam. Anda dimute selama 5 menit.`,
+          { mentions: [ctx.senderId] }
+        );
+        try {
+          await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
+        } catch {}
+        return;
+      }
+    }
+
     // --- ANTILINK CHECK ---
     if (flags.antilink) {
       const hasLink = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi.test(ctx.body);
       if (hasLink) {
         const isSenderAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
         if (!isSenderAdmin) {
+          const whitelisted = flags.whitelistedDomains || [];
+          let isWhitelisted = false;
           try {
-            await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
-            await adapter.sendMessage(
-              ctx.chatId,
-              `⚠️ @${ctx.senderId.split('@')[0]} dilarang mengirimkan link di grup ini!`,
-              { mentions: [ctx.senderId] }
-            );
-          } catch (err) {
-            console.error('[Anti-Link] Failed to handle link deletion:', err);
+            const matches = ctx.body.match(/(https?:\/\/[^\s]+|www\.[^\s]+)/gi);
+            if (matches) {
+              isWhitelisted = matches.every(link => {
+                const cleanLink = link.startsWith('http') ? link : 'http://' + link;
+                const hostname = new URL(cleanLink).hostname.toLowerCase();
+                return whitelisted.some((domain: string) => hostname === domain || hostname.endsWith('.' + domain));
+              });
+            }
+          } catch {}
+
+          if (!isWhitelisted) {
+            try {
+              await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
+              await adapter.sendMessage(
+                ctx.chatId,
+                `⚠️ @${ctx.senderId.split('@')[0]} dilarang mengirimkan link di grup ini!`,
+                { mentions: [ctx.senderId] }
+              );
+            } catch (err) {
+              console.error('[Anti-Link] Failed to handle link deletion:', err);
+            }
+            return; // Stop processing link message
           }
-          return; // Stop processing link message
         }
+      }
+    }
+
+    // --- BADWORD FILTER & ANTI-TOXIC ---
+    if (flags.badword || flags.antitoxic) {
+      const badwords = await prisma.badword.findMany({
+        where: { groupId: ctx.chatId },
+        select: { word: true }
+      });
+      const bodyLower = ctx.body.toLowerCase();
+      const containsBadword = badwords.some(b => bodyLower.includes(b.word));
+      if (containsBadword) {
+        try {
+          await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
+          await adapter.sendMessage(
+            ctx.chatId,
+            `⚠️ @${ctx.senderId.split('@')[0]} dilarang berkata kasar/toxic! Pesan Anda dihapus.`,
+            { mentions: [ctx.senderId] }
+          );
+        } catch {}
+        return; // Stop processing
       }
     }
 
@@ -153,8 +246,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   }
 
   // Check Maintenance Mode
-  const { isMaintenanceMode } = await import('./owner.command.js');
-  const { isOwner } = await import('../bot/permission.js');
+  const { isMaintenanceMode } = await import('./owner/owner.command.js');
   if (isMaintenanceMode && !isOwner(ctx.senderId)) {
     await adapter.sendMessage(ctx.chatId, '⚠️ Bot sedang dalam mode pemeliharaan (maintenance). Harap coba beberapa saat lagi.', { quotedMessageId: ctx.id });
     return;
@@ -164,30 +256,55 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   const command = commands[commandName];
   if (!command) return;
 
+  // Dynamic Plugin System Check (Global Owner Toggle)
+  const { pluginManager } = await import('../config/plugins.js');
+  if (!pluginManager.isCommandEnabled(commandName)) {
+    await adapter.sendMessage(ctx.chatId, `⚠️ Plugin untuk command "/${commandName}" sedang dinonaktifkan secara global oleh Owner.`, { quotedMessageId: ctx.id });
+    return;
+  }
+
   const featureKey = getFeatureKey(commandName);
 
   // 4. Validate if feature is enabled in Group
   if (isGroup && groupConfig) {
-    if (featureKey === 'sticker' && !groupConfig.stickerEnabled) featureEnabled = false;
-    if (featureKey === 'brat' && !groupConfig.stickerEnabled) featureEnabled = false; // Brat is also sticker
-    if (featureKey === 'hd' && !groupConfig.hdEnabled) featureEnabled = false;
-    if (featureKey === 'downloader' && !groupConfig.downloaderEnabled) featureEnabled = false;
-    if (featureKey === 'werewolf' && !groupConfig.werewolfEnabled) featureEnabled = false;
-
-    if (!featureEnabled) {
-      await adapter.sendMessage(ctx.chatId, '⚠️ Fitur ini sedang nonaktif sementara.', { quotedMessageId: ctx.id });
-      return;
+    const flags = JSON.parse(groupConfig.featuresJson || '{}');
+    if (featureKey !== 'general') {
+      const isEnabled = flags[featureKey] !== undefined ? flags[featureKey] : DEFAULT_FEATURES[featureKey];
+      if (!isEnabled) {
+        await adapter.sendMessage(ctx.chatId, `⚠️ Fitur "${featureKey}" sedang nonaktif sementara di grup ini.`, { quotedMessageId: ctx.id });
+        return;
+      }
     }
   }
 
   // 5. Rate Limiting Check
-  // Werewolf command is rate limited per Group. Others are per User.
-  const rateLimitKey = featureKey === 'werewolf' && isGroup
-    ? `group:${ctx.chatId}:werewolf`
-    : `user:${ctx.senderId}:${featureKey}`;
+  let isRateLimited = false;
+  let retryAfterSeconds = 0;
 
-  const { limited, retryAfterSeconds } = rateLimiter.isRateLimited(rateLimitKey, featureKey);
-  if (limited) {
+  const bypassOwner = process.env.OWNER_BYPASS_RATE_LIMIT !== 'false';
+  const bypassPrivate = process.env.PRIVATE_CHAT_BYPASS_RATE_LIMIT !== 'false';
+  const isSenderOwner = isOwner(ctx.senderId);
+
+  if (isGroup) {
+    if (!(isSenderOwner && bypassOwner)) {
+      const rateLimitKey = featureKey === 'werewolf'
+        ? `group:${ctx.chatId}:werewolf`
+        : `user:${ctx.senderId}:${featureKey}`;
+
+      const res = rateLimiter.isRateLimited(rateLimitKey, featureKey);
+      isRateLimited = res.limited;
+      retryAfterSeconds = res.retryAfterSeconds;
+    }
+  } else {
+    if (!bypassPrivate && !(isSenderOwner && bypassOwner)) {
+      const rateLimitKey = `user:${ctx.senderId}:${featureKey}`;
+      const res = rateLimiter.isRateLimited(rateLimitKey, featureKey);
+      isRateLimited = res.limited;
+      retryAfterSeconds = res.retryAfterSeconds;
+    }
+  }
+
+  if (isRateLimited) {
     await adapter.sendMessage(
       ctx.chatId,
       `⏳ Anda terkena rate limit. Silakan coba lagi setelah ${retryAfterSeconds} detik.`,

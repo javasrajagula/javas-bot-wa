@@ -1,18 +1,30 @@
 import prisma from '../db/client.js';
 
 export const DEFAULT_FEATURES: Record<string, boolean> = {
+  sticker: true,
+  brat: true,
+  hd: true,
+  downloader: false, // Default downloader harus nonaktif
+  werewolf: true,
   welcome: false,
   goodbye: false,
   antilink: false,
+  antispam: false,
+  antitoxic: false,
+  badword: false,
+  warning: false,
+  automute: false,
+  blacklist: false,
   leveling: false,
   economy: false,
   confess: false,
   menfess: false,
-  cleancmd: false, // auto delete command message
-  automute: false,
-  antispam: false,
-  antitoxic: false,
-  badword: false,
+  autoreply: false,
+  poll: false,
+  attendance: false,
+  reminder: false,
+  miniGames: false,
+  rpg: false,
 };
 
 export interface GroupFeatures {

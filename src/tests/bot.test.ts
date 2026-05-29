@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { rateLimiter } from '../utils/rate-limit.util.js';
 import { isValidUrl } from '../services/downloader/downloader.service.js';
 import { werewolfEngine, Player } from '../services/werewolf/werewolf.engine.js';
+import prisma from '../db/client.js';
 
 describe('WhatsApp Bot System Tests', () => {
   
@@ -68,15 +69,11 @@ describe('WhatsApp Bot System Tests', () => {
   describe('Permissions system', () => {
     it('should identify owner correctly', async () => {
       const { isOwner } = await import('../bot/permission.js');
-      // "62899" is not in owner list usually, unless env is set.
-      // Let's assume standard behavior or mock it.
       expect(isOwner('some-non-owner-id')).toBe(false);
     });
 
     it('should identify premium users correctly', async () => {
       const { isPremium } = await import('../bot/permission.js');
-      const prisma = (await import('../db/client.js')).default;
-      
       const testUserId = 'test-premium-user@s.whatsapp.net';
       
       // Clean up first
@@ -102,8 +99,6 @@ describe('WhatsApp Bot System Tests', () => {
   describe('Feature Flags', () => {
     it('should set and parse feature flags correctly', async () => {
       const { setGroupFeature, getGroupFeatures } = await import('../config/feature-flags.js');
-      const prisma = (await import('../db/client.js')).default;
-
       const testGroupId = 'test-group-id@g.us';
 
       // Clean up first
@@ -126,9 +121,7 @@ describe('WhatsApp Bot System Tests', () => {
 
   describe('Economy and Leveling', () => {
     it('should add XP and balance and level up correctly', async () => {
-      const { addXpAndBalance, getXpNeededForNextLevel } = await import('../commands/economy.command.js');
-      const prisma = (await import('../db/client.js')).default;
-
+      const { addXpAndBalance } = await import('../commands/economy.command.js');
       const testUser = 'test-eco-user@s.whatsapp.net';
       await prisma.userEconomy.deleteMany({ where: { userId: testUser } });
 
@@ -155,6 +148,47 @@ describe('WhatsApp Bot System Tests', () => {
       expect(getXpNeededForNextLevel(1)).toBe(200);
       expect(getXpNeededForNextLevel(2)).toBe(400);
       expect(getXpNeededForNextLevel(5)).toBe(1000);
+    });
+  });
+
+  describe('Owner Tools & Plugin System', () => {
+    it('should toggle plugins correctly', async () => {
+      const { pluginManager } = await import('../config/plugins.js');
+      
+      expect(pluginManager.isCommandEnabled('stiker')).toBe(true);
+
+      pluginManager.setPluginStatus('sticker', false);
+      expect(pluginManager.isCommandEnabled('stiker')).toBe(false);
+
+      pluginManager.setPluginStatus('sticker', true);
+      expect(pluginManager.isCommandEnabled('stiker')).toBe(true);
+    });
+
+    it('should generate and hash api keys correctly', async () => {
+      const crypto = await import('crypto');
+      const testUser = 'test-api-user@s.whatsapp.net';
+      await prisma.apiKey.deleteMany({ where: { userId: testUser } });
+
+      const rawKey = 'javas_key_test_123456';
+      const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
+
+      const apiKey = await prisma.apiKey.create({
+        data: {
+          userId: testUser,
+          keyHash
+        }
+      });
+
+      expect(apiKey).toBeDefined();
+      expect(apiKey.keyHash).toBe(keyHash);
+
+      const found = await prisma.apiKey.findUnique({
+        where: { keyHash }
+      });
+      expect(found).not.toBeNull();
+      expect(found?.userId).toBe(testUser);
+
+      await prisma.apiKey.deleteMany({ where: { userId: testUser } });
     });
   });
 });

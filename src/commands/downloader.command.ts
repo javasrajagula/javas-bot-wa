@@ -8,6 +8,13 @@ import fs from 'fs';
 
 export class DownloaderCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const { isPremium } = await import('../bot/permission.js');
+    const premium = await isPremium(ctx.senderId);
+    if (!premium) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Fitur downloader (/tt, /ig) hanya dapat digunakan oleh pengguna Premium.', { quotedMessageId: ctx.id });
+      return;
+    }
+
     const url = args[0]?.trim();
     if (!url) {
       await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/tt <url>` atau `/ig <url>`', { quotedMessageId: ctx.id });

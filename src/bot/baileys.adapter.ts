@@ -2,6 +2,7 @@ import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   downloadContentFromMessage,
+  jidNormalizedUser,
   WAMessage,
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
@@ -18,12 +19,11 @@ export class BaileysAdapter extends WhatsAppAdapter {
     const sessionDir = path.join(process.cwd(), env.WA_SESSION_NAME);
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
-    this.sock = makeWASocket.default({
+    this.sock = makeWASocket({
       auth: state,
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }) as any,
     });
-
     this.sock.ev.on('connection.update', (update: any) => {
       const { connection, lastDisconnect, qr } = update;
       if (qr) {
@@ -50,7 +50,15 @@ export class BaileysAdapter extends WhatsAppAdapter {
       const { id, participants, action } = update;
       if ((action === 'add' || action === 'remove') && this.groupUpdateHandler) {
         try {
-          await this.groupUpdateHandler({ groupId: id, participants, action });
+          const selfIds = [this.sock.user?.id, this.sock.user?.lid]
+            .filter(Boolean)
+            .map((jid) => jidNormalizedUser(jid));
+          const targetParticipants = participants.filter(
+            (participant: string) => !selfIds.includes(jidNormalizedUser(participant))
+          );
+          if (targetParticipants.length === 0) return;
+
+          await this.groupUpdateHandler({ groupId: id, participants: targetParticipants, action });
         } catch (err) {
           console.error('Error handling group participants update:', err);
         }
@@ -77,32 +85,35 @@ export class BaileysAdapter extends WhatsAppAdapter {
   }
 
   private async parseMessage(msg: WAMessage): Promise<MessageContext | null> {
+    const message = msg.message;
+    if (!message) return null;
+
     const chatId = msg.key.remoteJid!;
     const isGroup = chatId.endsWith('@g.us');
     const senderId = msg.key.participant || msg.key.remoteJid!;
     const senderName = msg.pushName || senderId;
 
-    const msgType = Object.keys(msg.message!)[0];
+    const msgType = Object.keys(message)[0];
     let body = '';
     if (msgType === 'conversation') {
-      body = msg.message.conversation || '';
+      body = message.conversation || '';
     } else if (msgType === 'extendedTextMessage') {
-      body = msg.message.extendedTextMessage?.text || '';
+      body = message.extendedTextMessage?.text || '';
     } else if (msgType === 'imageMessage') {
-      body = msg.message.imageMessage?.caption || '';
+      body = message.imageMessage?.caption || '';
     } else if (msgType === 'videoMessage') {
-      body = msg.message.videoMessage?.caption || '';
+      body = message.videoMessage?.caption || '';
     }
 
     let media: MessageMedia | undefined;
-    const mediaMessage = msg.message.imageMessage || msg.message.videoMessage || msg.message.stickerMessage || msg.message.documentMessage;
+    const mediaMessage = message.imageMessage || message.videoMessage || message.stickerMessage || message.documentMessage;
     if (mediaMessage) {
       let type: MessageMedia['type'] = 'document';
       let mimeType = (mediaMessage as any).mimetype || '';
 
-      if (msg.message.imageMessage) type = 'image';
-      else if (msg.message.videoMessage) type = 'video';
-      else if (msg.message.stickerMessage) type = 'sticker';
+      if (message.imageMessage) type = 'image';
+      else if (message.videoMessage) type = 'video';
+      else if (message.stickerMessage) type = 'sticker';
 
       media = {
         type,
@@ -119,7 +130,7 @@ export class BaileysAdapter extends WhatsAppAdapter {
     }
 
     let quotedMessage: MessageContext['quotedMessage'];
-    const contextInfo = msg.message.extendedTextMessage?.contextInfo || (mediaMessage as any)?.contextInfo;
+    const contextInfo = message.extendedTextMessage?.contextInfo || (mediaMessage as any)?.contextInfo;
     if (contextInfo && contextInfo.quotedMessage) {
       const quoted = contextInfo.quotedMessage;
       const quotedMsgType = Object.keys(quoted)[0];
@@ -179,23 +190,30 @@ export class BaileysAdapter extends WhatsAppAdapter {
   }
 
   public async sendMessage(chatId: string, text: string, options?: SendMessageOptions): Promise<void> {
-    const quoted = options?.quotedMessageId ? { key: { remoteJid: chatId, id: options.quotedMessageId } } : undefined;
     const mentions = options?.mentions || [];
-    await this.sock.sendMessage(chatId, { text, mentions }, { quoted });
+    await this.sock.sendMessage(chatId, { text, mentions });
   }
 
   public async sendSticker(chatId: string, stickerBuffer: Buffer, options?: SendMessageOptions): Promise<void> {
-    const quoted = options?.quotedMessageId ? { key: { remoteJid: chatId, id: options.quotedMessageId } } : undefined;
-    await this.sock.sendMessage(chatId, { sticker: stickerBuffer }, { quoted });
+    await this.sock.sendMessage(chatId, { sticker: stickerBuffer });
   }
 
   public async sendImage(chatId: string, imageBuffer: Buffer, caption?: string, options?: SendMessageOptions): Promise<void> {
-    const quoted = options?.quotedMessageId ? { key: { remoteJid: chatId, id: options.quotedMessageId } } : undefined;
-    await this.sock.sendMessage(chatId, { image: imageBuffer, caption }, { quoted });
+    await this.sock.sendMessage(chatId, { image: imageBuffer, caption });
   }
 
   public async sendVideo(chatId: string, videoBuffer: Buffer, caption?: string, options?: SendMessageOptions): Promise<void> {
-    const quoted = options?.quotedMessageId ? { key: { remoteJid: chatId, id: options.quotedMessageId } } : undefined;
-    await this.sock.sendMessage(chatId, { video: videoBuffer, caption }, { quoted });
+    await this.sock.sendMessage(chatId, { video: videoBuffer, caption });
+  }
+
+  public async deleteMessage(chatId: string, messageId: string, senderId?: string): Promise<void> {
+    await this.sock.sendMessage(chatId, {
+      delete: {
+        remoteJid: chatId,
+        id: messageId,
+        participant: senderId,
+        fromMe: false
+      }
+    });
   }
 }

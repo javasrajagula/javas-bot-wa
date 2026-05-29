@@ -10,15 +10,12 @@ export interface DownloadResult {
   files: { path: string; mimeType: string }[];
 }
 
+import { isAllowedTikTokUrl, isAllowedInstagramUrl, isSafePublicUrl } from '../../validators/url.validator.js';
+
 export function isValidUrl(url: string): boolean {
   try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase();
-    return (
-      host.includes('tiktok.com') ||
-      host.includes('instagram.com') ||
-      host.includes('instagr.am')
-    );
+    if (!isSafePublicUrl(url)) return false;
+    return isAllowedTikTokUrl(url) || isAllowedInstagramUrl(url);
   } catch {
     return false;
   }

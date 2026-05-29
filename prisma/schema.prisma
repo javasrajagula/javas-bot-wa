@@ -8,17 +8,25 @@ generator client {
 }
 
 model GroupConfig {
-  id                String   @id @default(uuid())
-  groupId           String   @unique
-  prefix            String   @default("/")
-  botEnabled        Boolean  @default(true)
-  stickerEnabled    Boolean  @default(true)
-  hdEnabled         Boolean  @default(true)
-  downloaderEnabled Boolean  @default(true)
-  werewolfEnabled   Boolean  @default(true)
-  featuresJson      String   @default("{}")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id             String   @id @default(uuid())
+  groupId        String   @unique
+  prefix         String   @default("/")
+  botEnabled     Boolean  @default(true)
+  featuresJson   String   @default("{}")
+  welcomeMessage String?
+  goodbyeMessage String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model UserProfile {
+  id           String    @id @default(uuid())
+  userId       String    @unique
+  language     String    @default("id")
+  isPremium    Boolean   @default(false)
+  premiumUntil DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 model UsageLog {
@@ -26,22 +34,9 @@ model UsageLog {
   userId    String
   groupId   String?
   feature   String
+  command   String?
+  success   Boolean  @default(true)
   createdAt DateTime @default(now())
-}
-
-model WerewolfGame {
-  id               String    @id @default(uuid())
-  groupId          String    @unique
-  status           String    // "lobby", "playing", "finished"
-  phase            String    @default("lobby") // "lobby", "night", "day_discuss", "day_vote"
-  hostUserId       String
-  playersJson      String    // JSON string for players list
-  rolesJson        String    // JSON string for role mapping
-  votesJson        String    // JSON string for voting details
-  nightActionsJson String    // JSON string for night actions
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  expiresAt        DateTime?
 }
 
 model PremiumUser {
@@ -51,13 +46,158 @@ model PremiumUser {
   createdAt DateTime @default(now())
 }
 
+model Warning {
+  id        String   @id @default(uuid())
+  groupId   String
+  userId    String
+  reason    String?
+  warnedBy  String?
+  createdAt DateTime @default(now())
+}
+
+model Badword {
+  id        String   @id @default(uuid())
+  groupId   String
+  word      String
+  createdBy String?
+  createdAt DateTime @default(now())
+}
+
+model Blacklist {
+  id        String   @id @default(uuid())
+  scope     String   @default("group") // "group" or "global"
+  groupId   String?
+  userId    String
+  reason    String?
+  createdBy String?
+  createdAt DateTime @default(now())
+}
+
+model AutoReply {
+  id        String   @id @default(uuid())
+  groupId   String
+  trigger   String
+  response  String
+  matchType String   @default("exact") // "exact" or "contains"
+  createdBy String?
+  createdAt DateTime @default(now())
+}
+
+model Poll {
+  id          String    @id @default(uuid())
+  groupId     String
+  question    String
+  optionsJson String
+  votesJson   String
+  status      String    @default("active") // "active" or "closed"
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+}
+
+model Reminder {
+  id        String   @id @default(uuid())
+  scope     String   @default("private") // "private" or "group"
+  groupId   String?
+  userId    String
+  message   String
+  runAt     DateTime
+  timezone  String   @default("Asia/Jakarta")
+  status    String   @default("pending") // "pending" or "sent"
+  createdAt DateTime @default(now())
+}
+
+model AttendanceSession {
+  id               String    @id @default(uuid())
+  groupId          String
+  title            String
+  status           String    @default("open") // "open" or "closed"
+  participantsJson String    @default("[]")
+  createdBy        String?
+  createdAt        DateTime  @default(now())
+  closedAt         DateTime?
+}
+
+model GameSession {
+  id          String    @id @default(uuid())
+  groupId     String    @unique
+  gameType    String
+  status      String    // "lobby", "playing", "finished"
+  playersJson String
+  stateJson   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  expiresAt   DateTime?
+}
+
+model GameStats {
+  id           String   @id @default(uuid())
+  userId       String
+  groupId      String?
+  gameType     String
+  wins         Int      @default(0)
+  losses       Int      @default(0)
+  points       Int      @default(0)
+  metadataJson String   @default("{}")
+  updatedAt    DateTime @updatedAt
+}
+
 model UserEconomy {
   id        String    @id @default(uuid())
   userId    String    @unique
   balance   Int       @default(0)
-  lastClaim DateTime?
   xp        Int       @default(0)
   level     Int       @default(1)
+  lastClaim DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+}
+
+model ShopItem {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  type         String
+  price        Int
+  metadataJson String   @default("{}")
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
+model UserInventory {
+  id           String   @id @default(uuid())
+  userId       String
+  itemId       String
+  quantity     Int      @default(1)
+  metadataJson String   @default("{}")
+  createdAt    DateTime @default(now())
+}
+
+model Pet {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  name         String
+  type         String
+  level        Int      @default(1)
+  xp           Int      @default(0)
+  hunger       Int      @default(100)
+  metadataJson String   @default("{}")
+  updatedAt    DateTime @updatedAt
+}
+
+model ApiKey {
+  id        String    @id @default(uuid())
+  userId    String
+  keyHash   String    @unique
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+}
+
+model ErrorLog {
+  id           String   @id @default(uuid())
+  scope        String?
+  feature      String?
+  message      String
+  stack        String?
+  metadataJson String   @default("{}")
+  createdAt    DateTime @default(now())
 }

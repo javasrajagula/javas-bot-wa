@@ -19,11 +19,7 @@ export async function localUpscale(imageBuffer: Buffer, scale: 2 | 4 = 2): Promi
     .resize(targetWidth, targetHeight, {
       kernel: 'lanczos3'
     })
-    .sharpen({
-      sigma: 1.2,
-      flat: 1.0,
-      jagged: 1.5
-    })
+    .sharpen(1.2, 1.0, 1.5)
     .jpeg({ quality: 90 })
     .toBuffer();
 }
@@ -33,7 +29,7 @@ export async function localUpscale(imageBuffer: Buffer, scale: 2 | 4 = 2): Promi
  */
 async function uploadToTempStorage(buffer: Buffer): Promise<string> {
   const formData = new FormData();
-  const blob = new Blob([buffer], { type: 'image/png' });
+  const blob = new Blob([new Uint8Array(buffer)], { type: 'image/png' });
   formData.append('file', blob, 'image.png');
 
   const response = await fetch('https://tmpfiles.org/api/v1/upload', {
