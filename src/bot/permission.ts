@@ -2,16 +2,42 @@ import { env } from '../config/env.js';
 import prisma from '../db/client.js';
 import { WhatsAppAdapter } from './whatsapp.adapter.js';
 
-const ownerList = (env as any).OWNER_IDS 
-  ? (env as any).OWNER_IDS.split(',').map((id: string) => id.trim().toLowerCase())
+function normalizePhone(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .split('@')[0]
+    .split(':')[0]
+    .replace(/\D/g, '');
+}
+
+const ownerList = env.OWNER_IDS
+  ? env.OWNER_IDS
+      .split(',')
+      .map((id: string) => normalizePhone(id))
+      .filter(Boolean)
   : [];
+
+console.log('[OWNER CONFIG]', {
+  raw: env.OWNER_IDS,
+  ownerList
+});
 
 /**
  * Checks if a user is an owner of the bot based on phone number list in environment.
  */
 export function isOwner(userId: string): boolean {
-  const number = userId.split('@')[0];
-  return ownerList.includes(number) || ownerList.includes(userId.toLowerCase());
+  const number = normalizePhone(userId);
+  const result = ownerList.includes(number);
+
+  console.log('[OWNER CHECK]', {
+    userId,
+    number,
+    ownerList,
+    result
+  });
+
+  return result;
 }
 
 /**

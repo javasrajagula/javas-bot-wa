@@ -1,6 +1,6 @@
 import prisma from '../db/client.js';
 
-export const DEFAULT_FEATURES: Record<string, boolean> = {
+export const DEFAULT_FEATURES: Record<string, any> = {
   sticker: true,
   brat: true,
   hd: true,
@@ -25,10 +25,22 @@ export const DEFAULT_FEATURES: Record<string, boolean> = {
   reminder: false,
   miniGames: false,
   rpg: false,
+  
+  // Advanced Moderation Configurations
+  antispamMode: 'warn', // delete, warn, mute, kick
+  antispamLimit: 5,     // requests
+  antispamDuration: 10, // seconds
+  antilinkMode: 'delete', // delete, warn, kick
+  whitelistedDomains: [], // string[]
+  antivirtex: false,
+  antimention: false,
+  antisticker: false,
+  antimentionLimit: 5,   // max mentions per message
+  antivirtexLimit: 4000,  // max characters per message
 };
 
 export interface GroupFeatures {
-  [key: string]: boolean;
+  [key: string]: any;
 }
 
 /**
@@ -74,7 +86,7 @@ export async function getGroupFeatures(groupId: string): Promise<GroupFeatures> 
 export async function setGroupFeature(
   groupId: string,
   featureName: string,
-  value: boolean
+  value: any
 ): Promise<GroupFeatures> {
   const currentFeatures = await getGroupFeatures(groupId);
 

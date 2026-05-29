@@ -785,6 +785,72 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     usage: '/addbadword <kata> / /delbadword <kata> / /listbadword',
     examples: ['/addbadword toxicword']
   },
+  {
+    name: 'antispam',
+    aliases: [],
+    category: 'admin',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    minRole: 'admin',
+    description: 'Mengatur fitur Anti-Spam dan cooldown kecepatan pesan grup.',
+    usage: '/antispam [on|off|status|mode|limit]',
+    examples: ['/antispam on', '/antispam mode warn', '/antispam limit 5 10']
+  },
+  {
+    name: 'antilink',
+    aliases: [],
+    category: 'admin',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    minRole: 'admin',
+    description: 'Mengatur fitur Anti-Link untuk menghapus tautan otomatis.',
+    usage: '/antilink [on|off|status|mode]',
+    examples: ['/antilink on', '/antilink mode delete']
+  },
+  {
+    name: 'whitelistdomain',
+    aliases: [],
+    category: 'admin',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    minRole: 'admin',
+    description: 'Mengelola domain tautan yang diizinkan (whitelist).',
+    usage: '/whitelistdomain [add|del|list] [domain]',
+    examples: ['/whitelistdomain add google.com', '/whitelistdomain list']
+  },
+  {
+    name: 'antivirtex',
+    aliases: [],
+    category: 'admin',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    minRole: 'admin',
+    description: 'Mengatur pencegahan pesan sangat panjang/virtex.',
+    usage: '/antivirtex [on|off]',
+    examples: ['/antivirtex on']
+  },
+  {
+    name: 'antimention',
+    aliases: [],
+    category: 'admin',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    minRole: 'admin',
+    description: 'Mengatur pencegahan spam mention massal dalam satu pesan.',
+    usage: '/antimention [on|off]',
+    examples: ['/antimention on']
+  },
+  {
+    name: 'antisticker',
+    aliases: [],
+    category: 'admin',
+    plugin: 'moderation',
+    featureFlag: 'general',
+    minRole: 'admin',
+    description: 'Mengatur pencegahan spam stiker beruntun.',
+    usage: '/antisticker [on|off]',
+    examples: ['/antisticker on']
+  },
 
   // --- COMMUNITY ---
   {

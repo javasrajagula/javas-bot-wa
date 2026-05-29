@@ -11,6 +11,8 @@ export const cooldownOverrides: Record<string, number> = {};
 // In-memory trackers for spam & auto mute
 const messageTimestamps = new Map<string, number[]>();
 const mutedUsers = new Map<string, number>();
+const lastMessages = new Map<string, { body: string; count: number }>();
+const stickerTimestamps = new Map<string, number[]>();
 
 export interface Command {
   execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void>;
@@ -144,34 +146,86 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
       }
     }
 
-    // --- ANTI SPAM CHECK ---
-    if (flags.antispam) {
-      const now = Date.now();
-      const timestamps = messageTimestamps.get(ctx.senderId) || [];
-      const valid = timestamps.filter(t => now - t < 10000);
-      valid.push(now);
-      messageTimestamps.set(ctx.senderId, valid);
-
-      if (valid.length > 5) {
-        mutedUsers.set(ctx.senderId, now + 5 * 60 * 1000); // 5 mins mute
-        await adapter.sendMessage(
-          ctx.chatId,
-          `🚫 @${ctx.senderId.split('@')[0]} terdeteksi melakukan spam. Anda dimute selama 5 menit.`,
-          { mentions: [ctx.senderId] }
-        );
-        try {
-          await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
-        } catch {}
-        return;
+    // --- ADVANCED MODERATION CHECKS (EPIC 5 & 7) ---
+    const isSenderAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+    if (!isSenderAdmin) {
+      // 1. Anti-Virtex & Unicode Abuse
+      if (flags.antivirtex) {
+        const textLimit = flags.antivirtexLimit || 4000;
+        const invisibleChars = /[\u200B-\u200D\uFEFF\u202E]/g;
+        if (ctx.body) {
+          if (ctx.body.length > textLimit) {
+            await executePunishment(ctx.chatId, ctx.senderId, flags.antispamMode || 'delete', 'Mengirimkan pesan melebihi batas karakter (Virtex)', ctx, adapter);
+            return;
+          }
+          if (invisibleChars.test(ctx.body)) {
+            await executePunishment(ctx.chatId, ctx.senderId, flags.antispamMode || 'delete', 'Karakter invisible / Unicode abuse', ctx, adapter);
+            return;
+          }
+        }
       }
-    }
 
-    // --- ANTILINK CHECK ---
-    if (flags.antilink) {
-      const hasLink = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi.test(ctx.body);
-      if (hasLink) {
-        const isSenderAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
-        if (!isSenderAdmin) {
+      // 2. Anti-Mention Spam
+      if (flags.antimention && ctx.body) {
+        const matches = ctx.body.match(/@\d+/g) || [];
+        const totalMentions = matches.length + (ctx.quotedMessage ? 1 : 0);
+        const mentionLimit = flags.antimentionLimit || 5;
+        if (totalMentions > mentionLimit) {
+          await executePunishment(ctx.chatId, ctx.senderId, flags.antispamMode || 'delete', `Spam mentions (${totalMentions} mention)`, ctx, adapter);
+          return;
+        }
+      }
+
+      // 3. Anti-Sticker Spam
+      if (flags.antisticker && ctx.media?.type === 'sticker') {
+        const now = Date.now();
+        const timestamps = stickerTimestamps.get(ctx.senderId) || [];
+        const valid = timestamps.filter(t => now - t < 10000);
+        valid.push(now);
+        stickerTimestamps.set(ctx.senderId, valid);
+
+        if (valid.length > 3) {
+          await executePunishment(ctx.chatId, ctx.senderId, flags.antispamMode || 'delete', 'Spam stiker beruntun', ctx, adapter);
+          return;
+        }
+      }
+
+      // 4. Anti-Spam Message Frequency (Rate & Cooldown)
+      if (flags.antispam) {
+        const now = Date.now();
+        
+        // Repeated identical message check
+        if (ctx.body) {
+          const lastMsg = lastMessages.get(ctx.senderId);
+          if (lastMsg && lastMsg.body === ctx.body) {
+            lastMsg.count++;
+            if (lastMsg.count >= 3) {
+              await executePunishment(ctx.chatId, ctx.senderId, flags.antispamMode || 'delete', 'Spam pesan berulang', ctx, adapter);
+              return;
+            }
+          } else {
+            lastMessages.set(ctx.senderId, { body: ctx.body, count: 1 });
+          }
+        }
+
+        // Message speed frequency
+        const timestamps = messageTimestamps.get(ctx.senderId) || [];
+        const duration = (flags.antispamDuration || 10) * 1000;
+        const valid = timestamps.filter(t => now - t < duration);
+        valid.push(now);
+        messageTimestamps.set(ctx.senderId, valid);
+
+        const limit = flags.antispamLimit || 5;
+        if (valid.length > limit) {
+          await executePunishment(ctx.chatId, ctx.senderId, flags.antispamMode || 'delete', `Spam frekuensi pesan (${valid.length} pesan dalam ${flags.antispamDuration || 10} detik)`, ctx, adapter);
+          return;
+        }
+      }
+
+      // 5. Anti-Link Check
+      if (flags.antilink && ctx.body) {
+        const hasLink = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi.test(ctx.body);
+        if (hasLink) {
           const whitelisted = flags.whitelistedDomains || [];
           let isWhitelisted = false;
           try {
@@ -186,40 +240,26 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
           } catch {}
 
           if (!isWhitelisted) {
-            try {
-              await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
-              await adapter.sendMessage(
-                ctx.chatId,
-                `⚠️ @${ctx.senderId.split('@')[0]} dilarang mengirimkan link di grup ini!`,
-                { mentions: [ctx.senderId] }
-              );
-            } catch (err) {
-              console.error('[Anti-Link] Failed to handle link deletion:', err);
-            }
-            return; // Stop processing link message
+            await executePunishment(ctx.chatId, ctx.senderId, flags.antilinkMode || 'delete', 'Mengirimkan link dilarang', ctx, adapter);
+            return;
           }
         }
       }
-    }
 
-    // --- BADWORD FILTER & ANTI-TOXIC ---
-    if (flags.badword || flags.antitoxic) {
-      const badwords = await prisma.badword.findMany({
-        where: { groupId: ctx.chatId },
-        select: { word: true }
-      });
-      const bodyLower = ctx.body.toLowerCase();
-      const containsBadword = badwords.some(b => bodyLower.includes(b.word));
-      if (containsBadword) {
-        try {
-          await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
-          await adapter.sendMessage(
-            ctx.chatId,
-            `⚠️ @${ctx.senderId.split('@')[0]} dilarang berkata kasar/toxic! Pesan Anda dihapus.`,
-            { mentions: [ctx.senderId] }
-          );
-        } catch {}
-        return; // Stop processing
+      // 6. Badword / Toxic Word Check (EPIC 7)
+      if (flags.badword || flags.antitoxic) {
+        const badwords = await prisma.badword.findMany({
+          where: { groupId: ctx.chatId },
+          select: { word: true }
+        });
+        if (ctx.body) {
+          const bodyLower = ctx.body.toLowerCase();
+          const containsBadword = badwords.some(b => bodyLower.includes(b.word));
+          if (containsBadword) {
+            await executePunishment(ctx.chatId, ctx.senderId, 'delete', 'Menggunakan kata kasar/toxic', ctx, adapter);
+            return;
+          }
+        }
       }
     }
 
@@ -416,5 +456,76 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
         args
       }
     });
+  }
+}
+
+async function executePunishment(
+  chatId: string,
+  userId: string,
+  action: string,
+  reason: string,
+  ctx: MessageContext,
+  adapter: WhatsAppAdapter
+) {
+  const isSenderAdmin = await checkIfAdmin(chatId, userId, adapter);
+  if (isSenderAdmin) return;
+
+  // 1. Delete message
+  try {
+    await adapter.deleteMessage(chatId, ctx.id, userId);
+  } catch {}
+
+  // 2. Execute action
+  if (action === 'warn') {
+    await prisma.warning.create({
+      data: {
+        groupId: chatId,
+        userId,
+        reason,
+        warnedBy: 'system'
+      }
+    });
+
+    const userWarnings = await prisma.warning.count({
+      where: { groupId: chatId, userId }
+    });
+
+    const mention = `@${userId.split('@')[0]}`;
+    let warningMsg = `⚠️ *PERINGATAN SISTEM* ⚠️\n\n${mention} mendapatkan peringatan otomatis.\nAlasan: *${reason}*\nJumlah Peringatan: *${userWarnings}/3*`;
+
+    if (userWarnings >= 3) {
+      warningMsg += `\n\n🚫 ${mention} telah mencapai batas 3 peringatan! Melakukan tindakan mengeluarkan dari grup.`;
+      await prisma.warning.deleteMany({ where: { groupId: chatId, userId } });
+      const socket = (adapter as any).sock;
+      if (socket) {
+        try {
+          await socket.groupParticipantsUpdate(chatId, [userId], 'remove');
+        } catch (err) {
+          console.error('[System Warn] Failed to kick user:', err);
+        }
+      }
+    }
+
+    await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
+  } else if (action === 'mute') {
+    const duration = 5 * 60 * 1000; // 5 minutes mute
+    mutedUsers.set(userId, Date.now() + duration);
+    const mention = `@${userId.split('@')[0]}`;
+    await adapter.sendMessage(chatId, `🚫 ${mention} dimute selama 5 menit karena: *${reason}*.`, { mentions: [userId] });
+  } else if (action === 'kick') {
+    const mention = `@${userId.split('@')[0]}`;
+    await adapter.sendMessage(chatId, `🚫 Mengeluarkan ${mention} dari grup karena: *${reason}*.`, { mentions: [userId] });
+    const socket = (adapter as any).sock;
+    if (socket) {
+      try {
+        await socket.groupParticipantsUpdate(chatId, [userId], 'remove');
+      } catch (err) {
+        console.error('[System Kick] Failed to kick user:', err);
+      }
+    }
+  } else {
+    // delete
+    const mention = `@${userId.split('@')[0]}`;
+    await adapter.sendMessage(chatId, `⚠️ Pesan dari ${mention} dihapus otomatis karena: *${reason}*.`, { mentions: [userId] });
   }
 }
