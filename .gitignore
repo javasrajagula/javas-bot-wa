@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+dist/
+
+# Local configuration and credentials
+.env
+auth_session/
+
+# Temp files and outputs
+temp/
+temp_outputs/
+
+# Database files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal

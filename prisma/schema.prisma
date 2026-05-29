@@ -1,0 +1,63 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model GroupConfig {
+  id                String   @id @default(uuid())
+  groupId           String   @unique
+  prefix            String   @default("/")
+  botEnabled        Boolean  @default(true)
+  stickerEnabled    Boolean  @default(true)
+  hdEnabled         Boolean  @default(true)
+  downloaderEnabled Boolean  @default(true)
+  werewolfEnabled   Boolean  @default(true)
+  featuresJson      String   @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model UsageLog {
+  id        String   @id @default(uuid())
+  userId    String
+  groupId   String?
+  feature   String
+  createdAt DateTime @default(now())
+}
+
+model WerewolfGame {
+  id               String    @id @default(uuid())
+  groupId          String    @unique
+  status           String    // "lobby", "playing", "finished"
+  phase            String    @default("lobby") // "lobby", "night", "day_discuss", "day_vote"
+  hostUserId       String
+  playersJson      String    // JSON string for players list
+  rolesJson        String    // JSON string for role mapping
+  votesJson        String    // JSON string for voting details
+  nightActionsJson String    // JSON string for night actions
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  expiresAt        DateTime?
+}
+
+model PremiumUser {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model UserEconomy {
+  id        String    @id @default(uuid())
+  userId    String    @unique
+  balance   Int       @default(0)
+  lastClaim DateTime?
+  xp        Int       @default(0)
+  level     Int       @default(1)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}

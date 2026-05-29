@@ -1,0 +1,123 @@
+import { env } from './config/env.js';
+import prisma from './db/client.js';
+import { ConsoleAdapter } from './bot/console.adapter.js';
+import { BaileysAdapter } from './bot/baileys.adapter.js';
+import { routeMessage } from './commands/index.js';
+import { werewolfEngine } from './services/werewolf/werewolf.engine.js';
+import { startCleanupInterval } from './utils/file.util.js';
+
+// Dynamically import all command files to register them in the command router registry
+import './commands/menu.command.js';
+import './commands/admin.command.js';
+import './commands/sticker.command.js';
+import './commands/brat.command.js';
+import './commands/hd.command.js';
+import './commands/downloader.command.js';
+import './commands/werewolf.command.js';
+import './commands/setup.command.js';
+import './commands/feature.command.js';
+import './commands/owner.command.js';
+import './commands/economy.command.js';
+import './commands/group-features.command.js';
+import './commands/ai-image.command.js';
+import './commands/file-tools.command.js';
+
+async function bootstrap() {
+  console.log('[System] Connecting to database...');
+  await prisma.$connect();
+  console.log('[System] Database connected successfully.');
+
+  console.log('[System] Initializing Werewolf Game Engine...');
+  await werewolfEngine.boot();
+  console.log('[System] Werewolf Game Engine initialized.');
+
+  // Set up cleanup cron-like interval to sweep old temp files
+  startCleanupInterval();
+  console.log('[System] Temp files auto-cleanup scheduler started.');
+
+  // Pick WhatsApp connection adapter based on config
+  let adapter;
+  if (env.ADAPTER_MODE === 'baileys') {
+    console.log('[System] Starting in WhatsApp Baileys mode...');
+    adapter = new BaileysAdapter();
+  } else {
+    console.log('[System] Starting in Console simulation mode...');
+    adapter = new ConsoleAdapter();
+  }
+
+  // Register werewolf callbacks for adaptive messaging (group and private DMs)
+  werewolfEngine.setNotificationCallbacks({
+    sendGroupMessage: async (groupId, text) => {
+      await adapter.sendMessage(groupId, text);
+    },
+    sendPrivateMessage: async (userId, text) => {
+      await adapter.sendMessage(userId, text);
+    }
+  });
+
+  // Register group participant updates for welcome/goodbye
+  adapter.onGroupUpdate(async (update) => {
+    const { groupId, participants, action } = update;
+    try {
+      const config = await prisma.groupConfig.findUnique({
+        where: { groupId }
+      });
+      if (!config) return;
+
+      const features = JSON.parse(config.featuresJson || '{}');
+
+      // 1. Welcome Msg
+      if (action === 'add' && features.welcome) {
+        let welcomeMsg = features.welcomeMessage || 'Selamat datang @user di grup @group!';
+        let groupName = 'grup';
+        const socket = (adapter as any).sock;
+        if (socket) {
+          try {
+            const metadata = await socket.groupMetadata(groupId);
+            groupName = metadata.subject || 'grup';
+          } catch (err) {
+            console.error('Failed to fetch group metadata for welcome:', err);
+          }
+        }
+
+        for (const participant of participants) {
+          const mention = `@${participant.split('@')[0]}`;
+          const text = welcomeMsg
+            .replace(/@user/g, mention)
+            .replace(/@group/g, groupName);
+
+          await adapter.sendMessage(groupId, text, {
+            mentions: [participant]
+          });
+        }
+      }
+
+      // 2. Goodbye Msg
+      if (action === 'remove' && features.goodbye) {
+        let goodbyeMsg = features.goodbyeMessage || '@user telah meninggalkan grup.';
+        for (const participant of participants) {
+          const mention = `@${participant.split('@')[0]}`;
+          const text = goodbyeMsg.replace(/@user/g, mention);
+          await adapter.sendMessage(groupId, text, {
+            mentions: [participant]
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[GroupUpdate] Error processing welcome/goodbye:', err);
+    }
+  });
+
+  // Bind message event to routing
+  adapter.onMessage(async (ctx) => {
+    await routeMessage(ctx, adapter);
+  });
+
+  await adapter.start();
+  console.log('[System] Bot is now active and ready to process commands.');
+}
+
+bootstrap().catch(err => {
+  console.error('[System] Critical error during bootstrap:', err);
+  process.exit(1);
+});
