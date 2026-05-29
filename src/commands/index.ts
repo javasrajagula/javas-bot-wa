@@ -36,6 +36,8 @@ export async function checkIfAdmin(chatId: string, senderId: string, adapter: Wh
     return true;
   }
 
+  if (!chatId || !chatId.endsWith('@g.us')) return false;
+
   const socket = (adapter as any).sock;
   if (!socket) return false;
 

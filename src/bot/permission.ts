@@ -37,7 +37,7 @@ export async function isGroupAdmin(
   userId: string,
   adapter: WhatsAppAdapter
 ): Promise<boolean> {
-  if (!chatId) return false;
+  if (!chatId || !chatId.endsWith('@g.us')) return false;
 
   // Owners are implicitly admin everywhere
   if (isOwner(userId)) return true;
