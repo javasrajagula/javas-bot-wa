@@ -80,49 +80,144 @@ export class OwnerSuiteCommand implements Command {
       return;
     }
 
-    // 3. /broadcast <pesan> with confirmation
-    if (commandType === 'broadcast') {
-      const action = args[0]?.toLowerCase();
+    // 3. /broadcast <pesan> or /broadcast template <name>
+    if (commandType === 'broadcast' || commandType === 'bcaddtemplate' || commandType === 'bcdeltemplate' || commandType === 'bclisttemplate') {
+      
+      // bcaddtemplate
+      if (commandType === 'bcaddtemplate') {
+        const fullText = args.join(' ');
+        const parts = fullText.split('=');
+        if (parts.length < 2) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/bcaddtemplate <nama> = <pesan>`', { quotedMessageId: ctx.id });
+          return;
+        }
+        const name = parts[0].trim().toLowerCase();
+        const body = parts.slice(1).join('=').trim();
+        if (!name || !body) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Nama atau isi template tidak boleh kosong.', { quotedMessageId: ctx.id });
+          return;
+        }
 
-      if (action === 'confirm') {
+        await prisma.broadcastTemplate.upsert({
+          where: { name },
+          create: { name, body, createdBy: ctx.senderId },
+          update: { body, createdBy: ctx.senderId }
+        });
+        await adapter.sendMessage(ctx.chatId, `✅ Template broadcast *"${name}"* berhasil disimpan.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // bcdeltemplate
+      if (commandType === 'bcdeltemplate') {
+        const name = args[0]?.trim().toLowerCase();
+        if (!name) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/bcdeltemplate <nama>`', { quotedMessageId: ctx.id });
+          return;
+        }
+        const deleted = await prisma.broadcastTemplate.deleteMany({
+          where: { name }
+        });
+        if (deleted.count > 0) {
+          await adapter.sendMessage(ctx.chatId, `✅ Template broadcast *"${name}"* berhasil dihapus.`, { quotedMessageId: ctx.id });
+        } else {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Template broadcast *"${name}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+        }
+        return;
+      }
+
+      // bclisttemplate
+      if (commandType === 'bclisttemplate') {
+        const list = await prisma.broadcastTemplate.findMany();
+        if (list.length === 0) {
+          await adapter.sendMessage(ctx.chatId, 'ℹ️ Tidak ada template broadcast terdaftar.', { quotedMessageId: ctx.id });
+          return;
+        }
+        const textList = list.map((t, i) => `${i + 1}. *${t.name}*\n   ${t.body.slice(0, 100)}${t.body.length > 100 ? '...' : ''}`).join('\n\n');
+        await adapter.sendMessage(ctx.chatId, `📋 *DAFTAR TEMPLATE BROADCAST*\n\n${textList}`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /broadcast template <name>
+      let text = args.join(' ').trim();
+      if (args[0]?.toLowerCase() === 'template') {
+        const templateName = args[1]?.trim().toLowerCase();
+        if (!templateName) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/broadcast template <nama>`', { quotedMessageId: ctx.id });
+          return;
+        }
+        const template = await prisma.broadcastTemplate.findUnique({
+          where: { name: templateName }
+        });
+        if (!template) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Template broadcast *"${templateName}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+        text = template.body;
+      }
+
+      if (!text) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/broadcast <pesan>` atau `/broadcast template <nama>`', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      if (args[0]?.toLowerCase() === 'confirm') {
         const now = Date.now();
         if (!pendingBroadcast || pendingBroadcast.senderId !== ctx.senderId || now - pendingBroadcast.timestamp > 30000) {
           await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada broadcast yang menunggu konfirmasi atau konfirmasi kedaluwarsa (maks 30 detik).', { quotedMessageId: ctx.id });
           return;
         }
 
-        const text = pendingBroadcast.text;
-        pendingBroadcast = null; // clear
+        const bText = pendingBroadcast.text;
+        pendingBroadcast = null;
+
+        if (ctx.isGroup) {
+          const config = await prisma.groupConfig.findUnique({ where: { groupId: ctx.chatId } });
+          const features = config ? JSON.parse(config.featuresJson || '{}') : {};
+          if (features.approvalBroadcast) {
+            const approvalId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            const { stateStore } = await import('../../services/state/state-store.js');
+            await stateStore.set(`approval:request:${approvalId}`, {
+              id: approvalId,
+              groupId: ctx.chatId,
+              action: 'broadcast',
+              target: 'all groups',
+              actorId: ctx.senderId,
+              data: { text: bText },
+              expiresAt: Date.now() + 15 * 60 * 1000
+            }, 900);
+
+            await adapter.sendMessage(
+              ctx.chatId,
+              `⏳ *MEMINTA PERSETUJUAN BROADCAST* ⏳\n\n` +
+              `Tindakan *BROADCAST* oleh @${ctx.senderId.split('@')[0]} membutuhkan persetujuan Admin/Owner lain.\n\n` +
+              `Ketik:\n` +
+              `👉 */approve ${approvalId}* (Setujui)\n` +
+              `👉 */reject ${approvalId}* (Tolak)`,
+              { mentions: [ctx.senderId] }
+            );
+            return;
+          }
+        }
 
         await adapter.sendMessage(ctx.chatId, '📣 Memulai pengiriman broadcast ke semua grup...', { quotedMessageId: ctx.id });
 
         try {
-          const configs = await prisma.groupConfig.findMany({
-            select: { groupId: true }
-          });
-
+          const configs = await prisma.groupConfig.findMany({ select: { groupId: true } });
           let successCount = 0;
           for (const config of configs) {
             try {
-              await adapter.sendMessage(config.groupId, `📢 *BROADCAST OWNER*\n\n${text}`);
+              await adapter.sendMessage(config.groupId, `📢 *SIARAN RESMI OWNER*\n\n${bText}`);
               successCount++;
-              await new Promise(resolve => setTimeout(resolve, 1000)); // Rate limit 1s
+              await new Promise(resolve => setTimeout(resolve, 1000));
             } catch (err) {
               console.error(`Failed to send broadcast to group ${config.groupId}:`, err);
             }
           }
-
           await adapter.sendMessage(ctx.chatId, `✅ Broadcast selesai dikirim ke ${successCount}/${configs.length} grup.`, { quotedMessageId: ctx.id });
         } catch (err: any) {
           await logError('OwnerCommand', 'broadcast', err);
           await adapter.sendMessage(ctx.chatId, `❌ Gagal mengirim broadcast: ${err.message}`, { quotedMessageId: ctx.id });
         }
-        return;
-      }
-
-      const text = args.join(' ').trim();
-      if (!text) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/broadcast <pesan>`', { quotedMessageId: ctx.id });
         return;
       }
 
@@ -504,6 +599,6 @@ Brat: Max 10 requests / 1 minute
 
 const ownerSuite = new OwnerSuiteCommand();
 registerCommand(
-  ['maintenance', 'premium', 'broadcast', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan', 'backup', 'backupdb', 'backupconfig', 'listbackup', 'restorebackup', 'exportconfig', 'importconfig'],
+  ['maintenance', 'premium', 'broadcast', 'bcaddtemplate', 'bcdeltemplate', 'bclisttemplate', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan', 'backup', 'backupdb', 'backupconfig', 'listbackup', 'restorebackup', 'exportconfig', 'importconfig'],
   ownerSuite
 );

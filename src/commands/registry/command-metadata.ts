@@ -538,9 +538,29 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     category: 'document',
     plugin: 'document',
     featureFlag: 'general',
-    description: 'Membaca isi teks dari QR Code gambar.',
-    usage: 'Reply gambar QR Code dengan command /readqr.',
-    examples: ['/readqr']
+    description: 'Membaca isi teks dari QR Code dan memvalidasi keamanannya.',
+    usage: 'Reply gambar QR Code dengan command /readqr [safe].',
+    examples: ['/readqr', '/readqr safe']
+  },
+  {
+    name: 'checklink',
+    aliases: [],
+    category: 'document',
+    plugin: 'document',
+    featureFlag: 'general',
+    description: 'Memeriksa keamanan URL terhadap ancaman SSRF/loop-redirect.',
+    usage: '/checklink <url>',
+    examples: ['/checklink https://google.com']
+  },
+  {
+    name: 'cekpenipuan',
+    aliases: ['scamcheck'],
+    category: 'document',
+    plugin: 'document',
+    featureFlag: 'general',
+    description: 'Menganalisis potensi penipuan (scam) dari teks percakapan atau gambar screenshot.',
+    usage: '/cekpenipuan [teks] atau reply gambar/teks screenshot.',
+    examples: ['/cekpenipuan info promo shopee gratis saldo', '/cekpenipuan']
   },
 
   // --- INTERACTIVE GAMES ---
@@ -1411,5 +1431,419 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     description: 'Melihat daftar aturan batas peringatan grup.',
     usage: '/listwarnrule',
     examples: ['/listwarnrule']
+  },
+  {
+    name: 'sewa',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    description: 'Menampilkan informasi paket harga sewa bot.',
+    usage: '/sewa',
+    examples: ['/sewa']
+  },
+  {
+    name: 'ceksewa',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    description: 'Mengecek sisa masa aktif sewa grup saat ini.',
+    usage: '/ceksewa',
+    examples: ['/ceksewa']
+  },
+  {
+    name: 'invoice',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    description: 'Membuat invoice tagihan pembayaran sewa bot / premium user.',
+    usage: '/invoice <basic/premium> <jumlah_bulan>',
+    examples: ['/invoice premium 3']
+  },
+  {
+    name: 'trial',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    description: 'Mengklaim masa uji coba (trial) gratis Paket Basic selama 3 hari untuk grup.',
+    usage: '/trial',
+    examples: ['/trial']
+  },
+  {
+    name: 'quota',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Melihat kuota penggunaan perintah harian untuk grup atau chat pribadi.',
+    usage: '/quota',
+    examples: ['/quota']
+  },
+  {
+    name: 'credit',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Melihat saldo koin kredit premium Anda.',
+    usage: '/credit',
+    examples: ['/credit']
+  },
+  {
+    name: 'buycredit',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Membeli koin kredit menggunakan saldo balance RPG Anda.',
+    usage: '/buycredit <jumlah>',
+    examples: ['/buycredit 10']
+  },
+  {
+    name: 'usage',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Melihat statistik detail pemanggilan fitur bot Anda.',
+    usage: '/usage',
+    examples: ['/usage']
+  },
+  {
+    name: 'addreseller',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    description: 'Mengaktifkan status partner reseller untuk pengguna target.',
+    usage: '/addreseller <@user> [saldo_awal]',
+    examples: ['/addreseller @user 100000']
+  },
+  {
+    name: 'reseller',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    description: 'Panel menu kemitraan reseller bot (balance, order, panel).',
+    usage: '/reseller <balance/order/panel>',
+    examples: ['/reseller balance', '/reseller order premium 123@g.us 3', '/reseller panel']
+  },
+  // --- BUSINESS / JUAL-BELI SUITE ---
+  {
+    name: 'jual',
+    aliases: ['produk'],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Mendaftarkan barang jualan baru di dalam grup (Business Catalog).',
+    usage: '/jual [nama_barang] | [harga] | [deskripsi]',
+    examples: ['/jual Laptop Asus | 15000000 | Bekas mulus']
+  },
+  {
+    name: 'listjual',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Melihat seluruh katalog barang jualan aktif di grup ini.',
+    usage: '/listjual',
+    examples: ['/listjual']
+  },
+  {
+    name: 'cariitem',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Mencari barang jualan aktif di grup menggunakan kata kunci.',
+    usage: '/cariitem [keyword]',
+    examples: ['/cariitem asus']
+  },
+  {
+    name: 'sold',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Menandai barang jualan milik Anda telah sukses terjual.',
+    usage: '/sold [ID_Barang]',
+    examples: ['/sold A3F4E2']
+  },
+  {
+    name: 'hapusjual',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Menghapus barang jualan dari katalog grup (hanya penjual/admin).',
+    usage: '/hapusjual [ID_Barang]',
+    examples: ['/hapusjual A3F4E2']
+  },
+  {
+    name: 'formatjual',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Mendapatkan template teks format promosi jualan yang siap disalin.',
+    usage: '/formatjual [nama] | [harga] | [kondisi]',
+    examples: ['/formatjual HP Xiaomi | 2000000 | Mulus']
+  },
+  // --- FINANCE SUITE (KAS, SPLIT BILL, PERSONAL FINANCE) ---
+  {
+    name: 'kas',
+    aliases: ['iuran'],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Mengelola uang kas / iuran kelompok di grup (masuk, keluar, saldo, laporan, export).',
+    usage: '/kas <masuk/keluar/saldo/laporan/export> [opsi]',
+    examples: ['/kas saldo', '/kas masuk 50000 @user', '/kas keluar 100000 Konsumsi']
+  },
+  {
+    name: 'split',
+    aliases: ['splitadd', 'splitdone', 'splitstatus'],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Membuat dan memantau pembagian tagihan rata (Split Bill) di grup.',
+    usage: '/split [nominal] @user1 @user2 @user3',
+    examples: ['/split 90000 @user1 @user2', '/splitstatus', '/splitdone @user1']
+  },
+  {
+    name: 'catat',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Mencatat riwayat pengeluaran keuangan pribadi Anda.',
+    usage: '/catat [nominal] [kategori]',
+    examples: ['/catat 15000 Makan Siang']
+  },
+  {
+    name: 'pengeluaran',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Melihat ringkasan total pengeluaran pribadi Anda (hariini/bulanini).',
+    usage: '/pengeluaran <hariini/bulanini>',
+    examples: ['/pengeluaran hariini', '/pengeluaran bulanini']
+  },
+  {
+    name: 'budget',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Menetapkan dan memantau limit budget pengeluaran bulanan per kategori.',
+    usage: '/budget <add/status> [kategori] [nominal]',
+    examples: ['/budget status', '/budget add Makan 500000']
+  },
+  {
+    name: 'tagihan',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Mengelola tagihan iuran personal kepada anggota grup (add, list, done, remind).',
+    usage: '/tagihan <add/list/done/remind> [opsi]',
+    examples: ['/tagihan list', '/tagihan add @user Iuran Kas | 20000']
+  },
+  {
+    name: 'arisan',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Fitur arisan kelompok di dalam grup (join, list, undi).',
+    usage: '/arisan <join/list/undi> [opsi]',
+    examples: ['/arisan list', '/arisan join 50000', '/arisan undi']
+  },
+  {
+    name: 'escrow',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Rekening Bersama (simulasi Escrow) untuk transaksi aman di grup.',
+    usage: '/escrow <create/paid/release/dispute> [opsi]',
+    examples: ['/escrow create @seller @buyer 200000', '/escrow paid ESC-ABC']
+  },
+  {
+    name: 'kontrak',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Mendapatkan draf template kontrak kesepakatan (jualbeli, jasa, sewa).',
+    usage: '/kontrak <jualbeli/jasa/sewa>',
+    examples: ['/kontrak jualbeli']
+  },
+  {
+    name: 'customer',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Mendaftarkan data customer baru di CRM Anda.',
+    usage: '/customer add @user',
+    examples: ['/customer add @user']
+  },
+  {
+    name: 'order',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'general',
+    description: 'Mengelola pesanan/order CRM pelanggan Anda.',
+    usage: '/order <add/status> [opsi]',
+    examples: ['/order status', '/order add @user Jasa Web | 1000000']
+  },
+  // --- PRIVACY & DATA RETENTION SUITE ---
+  {
+    name: 'privacymode',
+    aliases: [],
+    category: 'privacy',
+    plugin: 'privacy',
+    featureFlag: 'general',
+    description: 'Mengatur mode privasi grup (strict/balanced/off) untuk mengontrol penyimpanan data.',
+    usage: '/privacymode <strict|balanced|off>',
+    examples: ['/privacymode strict', '/privacymode balanced', '/privacymode off']
+  },
+  {
+    name: 'retention',
+    aliases: [],
+    category: 'privacy',
+    plugin: 'privacy',
+    featureFlag: 'general',
+    description: 'Mengatur kebijakan retensi (penyimpanan) data grup (logs/messages/media).',
+    usage: '/retention <logs|messages|media> <1h|7d|30d|90d|off>',
+    examples: ['/retention logs 30d', '/retention messages 7d', '/retention media off']
+  },
+  {
+    name: 'cleandb',
+    aliases: [],
+    category: 'privacy',
+    plugin: 'privacy',
+    featureFlag: 'general',
+    description: 'Membersihkan data lama dari database (logs/temp/usage). Hanya Owner.',
+    usage: '/cleandb <logs|temp|usage> [durasi]',
+    examples: ['/cleandb logs 30d', '/cleandb temp', '/cleandb usage 90d']
+  },
+  {
+    name: 'mydata',
+    aliases: [],
+    category: 'privacy',
+    plugin: 'privacy',
+    featureFlag: 'general',
+    description: 'Melihat semua data personal Anda yang tersimpan di bot.',
+    usage: '/mydata',
+    examples: ['/mydata']
+  },
+  {
+    name: 'deletemydata',
+    aliases: [],
+    category: 'privacy',
+    plugin: 'privacy',
+    featureFlag: 'general',
+    description: 'Menghapus data personal Anda dari bot (profil, ekonomi, log).',
+    usage: '/deletemydata [konfirmasi]',
+    examples: ['/deletemydata', '/deletemydata konfirmasi']
+  },
+  {
+    name: 'consent',
+    aliases: [],
+    category: 'privacy',
+    plugin: 'privacy',
+    featureFlag: 'general',
+    description: 'Mengatur persetujuan (consent) Anda untuk fitur AI, auto-summary, dan analitik.',
+    usage: '/consent <autosummary|ai|analytics> <on|off>',
+    examples: ['/consent ai off', '/consent autosummary on', '/consent analytics off']
+  },
+  {
+    name: 'generaterules',
+    aliases: [],
+    category: 'privacy',
+    plugin: 'privacy',
+    featureFlag: 'general',
+    description: 'Membuat peraturan grup otomatis dari template (sekolah/jualbeli/komunitas).',
+    usage: '/generaterules <sekolah|jualbeli|komunitas>',
+    examples: ['/generaterules sekolah', '/generaterules jualbeli', '/generaterules komunitas']
+  },
+  {
+    name: 'rules',
+    aliases: [],
+    category: 'privacy',
+    plugin: 'privacy',
+    featureFlag: 'general',
+    description: 'Melihat, menambah, dan mengelola versi peraturan grup aktif.',
+    usage: '/rules [edit|version|rollback] [teks]',
+    examples: ['/rules', '/rules edit 6. Dilarang spam.', '/rules version', '/rules rollback']
+  },
+  {
+    name: 'ruleslog',
+    aliases: [],
+    category: 'privacy',
+    plugin: 'privacy',
+    featureFlag: 'general',
+    description: 'Melihat log persetujuan anggota terhadap peraturan grup.',
+    usage: '/ruleslog',
+    examples: ['/ruleslog']
+  },
+  {
+    name: 'setuju',
+    aliases: [],
+    category: 'privacy',
+    plugin: 'privacy',
+    featureFlag: 'general',
+    description: 'Menyetujui peraturan grup yang aktif.',
+    usage: '/setuju',
+    examples: ['/setuju']
+  },
+  // --- WEBHOOK & ANNOUNCEMENTS SUITE ---
+  {
+    name: 'webhook',
+    aliases: [],
+    category: 'developer',
+    plugin: 'webhook',
+    featureFlag: 'general',
+    description: 'Mengelola URL webhook untuk notifikasi event bot ke server eksternal.',
+    usage: '/webhook <set|test|off|list> [url]',
+    examples: ['/webhook set https://example.com/hook', '/webhook test', '/webhook off', '/webhook list']
+  },
+  {
+    name: 'announce',
+    aliases: [],
+    category: 'community',
+    plugin: 'announce',
+    featureFlag: 'general',
+    description: 'Membuat pengumuman resmi bergaya format otomatis di grup.',
+    usage: '/announce <pesan>',
+    examples: ['/announce Rapat besok jam 10 pagi di aula utama.']
+  },
+  {
+    name: 'announcements',
+    aliases: [],
+    category: 'community',
+    plugin: 'announce',
+    featureFlag: 'general',
+    description: 'Menampilkan riwayat 10 pengumuman terakhir di grup.',
+    usage: '/announcements',
+    examples: ['/announcements']
+  },
+  {
+    name: 'announcement',
+    aliases: [],
+    category: 'community',
+    plugin: 'announce',
+    featureFlag: 'general',
+    description: 'Melihat detail satu pengumuman berdasarkan ID-nya.',
+    usage: '/announcement <id>',
+    examples: ['/announcement ANN-1234567890']
   }
 ];

@@ -12,32 +12,25 @@ function normalizePhone(value: string): string {
     .replace(/\D/g, '');
 }
 
-const ownerList = env.OWNER_IDS
-  ? env.OWNER_IDS
-      .split(',')
-      .map((id: string) => normalizePhone(id))
-      .filter(Boolean)
-  : [];
-
-if (env.LOG_LEVEL === 'debug') {
-  console.log('[OWNER CONFIG]', {
-    raw: redactSensitive(env.OWNER_IDS),
-    ownerList: ownerList.map(maskPhone)
-  });
-}
-
 /**
  * Checks if a user is an owner of the bot based on phone number list in environment.
  */
 export function isOwner(userId: string): boolean {
+  const currentOwnerList = env.OWNER_IDS
+    ? env.OWNER_IDS
+        .split(',')
+        .map((id: string) => normalizePhone(id))
+        .filter(Boolean)
+    : [];
+  
   const number = normalizePhone(userId);
-  const result = ownerList.includes(number);
+  const result = currentOwnerList.includes(number);
 
   if (env.LOG_LEVEL === 'debug') {
     console.log('[OWNER CHECK]', {
       userId: maskPhone(userId),
       number: maskPhone(number),
-      ownerList: ownerList.map(maskPhone),
+      ownerList: currentOwnerList.map(maskPhone),
       result
     });
   }
@@ -86,9 +79,17 @@ export async function isGroupAdmin(
     const participant = groupMetadata.participants.find((p: any) => p.id === userId);
     return participant && (participant.admin === 'admin' || participant.admin === 'superadmin');
   } catch (err) {
-    console.error(`[Permission] Failed to check admin status for user ${userId} in chat ${chatId}:`, err);
+    console.error(`[Permission] Failed to check admin status for user ${maskPhone(userId)} in chat ${chatId}:`, err);
     return false;
   }
+}
+
+export async function checkIfAdmin(
+  chatId: string | null,
+  userId: string,
+  adapter: WhatsAppAdapter
+): Promise<boolean> {
+  return isGroupAdmin(chatId, userId, adapter);
 }
 
 export type UserRole = 'owner' | 'admin' | 'premium' | 'user';

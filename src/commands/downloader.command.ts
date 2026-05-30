@@ -95,7 +95,7 @@ export class DownloaderCommand implements Command {
 
     await downloaderQueue.add({
       id: jobId,
-      data: { url },
+      data: { url, userId: ctx.senderId },
       process: async () => {
         const result = await downloadMedia(url, type, maxBytes);
         

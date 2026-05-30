@@ -18,7 +18,7 @@ const sessions = new Map<string, SessionData>();
 const pendingBroadcasts = new Map<string, { text: string; createdAt: number }>();
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-const BODY_LIMIT_BYTES = 32 * 1024;
+const BODY_LIMIT_BYTES = 1024 * 1024;
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -76,6 +76,7 @@ function renderPage(title: string, body: string): string {
     ['Group Logs', '/group-logs'],
     ['Broadcast', '/broadcast'],
     ['Backup', '/backup'],
+    ['Security', '/dashboard/security'],
     ['Settings', '/settings']
   ].map(([label, href]) => `<a href="${href}">${label}</a>`).join('');
 
@@ -128,15 +129,16 @@ function isLoginLimited(req: IncomingMessage): boolean {
   const now = Date.now();
   const current = loginAttempts.get(ip);
   if (!current || current.resetAt <= now) {
-    loginAttempts.set(ip, { count: 1, resetAt: now + 10 * 60_000 });
+    loginAttempts.set(ip, { count: 1, resetAt: now + 15 * 60_000 });
     return false;
   }
   current.count++;
-  return current.count > 10;
+  return current.count > 5;
 }
 
 function sessionCookie(token: string, req: IncomingMessage): string {
-  const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+  const isSecure = req.headers['x-forwarded-proto'] === 'https' || (req.socket as any).encrypted;
+  const secure = isSecure ? '; Secure' : '';
   return `dashboard_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`;
 }
 
@@ -271,6 +273,43 @@ async function renderSettings() {
     <p>Backup retention days: ${escapeHtml(env.BACKUP_RETENTION_DAYS)}</p>
     <p class="muted">Credential WhatsApp dan .env tidak ditampilkan di dashboard.</p>
   </div>`);
+}
+
+async function renderSecurity() {
+  const auditLogs = await prisma.auditLog.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 50
+  });
+
+  const logRows = auditLogs.map(log => `<tr>
+    <td>${escapeHtml(log.createdAt.toISOString())}</td>
+    <td>${escapeHtml(log.actorId || '-')}</td>
+    <td>${escapeHtml(log.action)}</td>
+    <td>${escapeHtml(log.target || '-')}</td>
+    <td>${escapeHtml(log.metadataJson)}</td>
+  </tr>`).join('') || '<tr><td colspan="5" style="text-align:center">Belum ada audit log.</td></tr>';
+
+  return renderPage('Security Hardening & Audit Logs', `
+    <div class="card">
+      <h3>Security Status</h3>
+      <p>🛡️ <strong>CSRF Protection:</strong> Enabled (POST routes verified)</p>
+      <p>⏳ <strong>Login Rate Limit:</strong> Max 5 attempts / 15 minutes</p>
+      <p>🍪 <strong>Session Lifetime:</strong> 12 hours (Max-Age, HttpOnly, SameSite=Lax)</p>
+      <p>📦 <strong>Request Limit:</strong> 1MB body limit</p>
+    </div>
+    <br>
+    <h3>Dashboard Audit Logs (Recent 50)</h3>
+    <table>
+      <tr>
+        <th>Time</th>
+        <th>Actor</th>
+        <th>Action</th>
+        <th>Target</th>
+        <th>Metadata</th>
+      </tr>
+      ${logRows}
+    </table>
+  `);
 }
 
 export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | null {
@@ -437,23 +476,51 @@ export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | n
             const flags = parseFeatureFlags(group.featuresJson);
             flags[feature] = value;
             await prisma.groupConfig.update({ where: { groupId }, data: { featuresJson: JSON.stringify(flags) } });
+            await prisma.auditLog.create({
+              data: {
+                actorId: 'dashboard_owner',
+                groupId,
+                action: 'feature_toggle',
+                target: feature,
+                metadataJson: JSON.stringify({ value })
+              }
+            }).catch(() => {});
           }
           redirect(res, `/groups?id=${encodeURIComponent(groupId)}`);
           return;
         }
         if (url.pathname === '/plugins/toggle') {
-          pluginManager.setPluginStatus(String(form.get('name') || ''), form.get('enabled') === 'true');
+          const name = String(form.get('name') || '');
+          const enabled = form.get('enabled') === 'true';
+          pluginManager.setPluginStatus(name, enabled);
+          await prisma.auditLog.create({
+            data: {
+              actorId: 'dashboard_owner',
+              action: 'plugin_toggle',
+              target: name,
+              metadataJson: JSON.stringify({ enabled })
+            }
+          }).catch(() => {});
           redirect(res, '/plugins');
           return;
         }
         if (url.pathname === '/premium/add') {
           const userId = String(form.get('userId') || '');
           const days = Number(form.get('days') || 30);
+          const expiresAt = new Date(Date.now() + days * 86400000);
           await prisma.premiumUser.upsert({
             where: { userId },
-            create: { userId, expiresAt: new Date(Date.now() + days * 86400000) },
-            update: { expiresAt: new Date(Date.now() + days * 86400000) }
+            create: { userId, expiresAt },
+            update: { expiresAt }
           });
+          await prisma.auditLog.create({
+            data: {
+              actorId: 'dashboard_owner',
+              action: 'premium_add',
+              target: userId,
+              metadataJson: JSON.stringify({ days, expiresAt })
+            }
+          }).catch(() => {});
           redirect(res, '/premium');
           return;
         }
@@ -461,11 +528,21 @@ export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | n
           const groupId = String(form.get('groupId') || '');
           const plan = String(form.get('plan') || 'free');
           const days = Number(form.get('days') || 0);
+          const expiresAt = days > 0 ? new Date(Date.now() + days * 86400000) : null;
           await prisma.groupSubscription.upsert({
             where: { groupId },
-            create: { groupId, plan, expiresAt: days > 0 ? new Date(Date.now() + days * 86400000) : null },
-            update: { plan, expiresAt: days > 0 ? new Date(Date.now() + days * 86400000) : null }
+            create: { groupId, plan, expiresAt },
+            update: { plan, expiresAt }
           });
+          await prisma.auditLog.create({
+            data: {
+              actorId: 'dashboard_owner',
+              groupId,
+              action: 'subscription_save',
+              target: plan,
+              metadataJson: JSON.stringify({ days, expiresAt })
+            }
+          }).catch(() => {});
           redirect(res, '/subscriptions');
           return;
         }
@@ -492,6 +569,13 @@ export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | n
                 message: `Dashboard broadcast confirmed. Sent ${sent}/${groups.length}.`
               }
             }).catch(() => undefined);
+            await prisma.auditLog.create({
+              data: {
+                actorId: 'dashboard_owner',
+                action: 'broadcast_confirm',
+                metadataJson: JSON.stringify({ textLength: pending.text.length, sentCount: sent })
+              }
+            }).catch(() => {});
             pendingBroadcasts.delete(sessionId!);
           }
           redirect(res, '/broadcast');
@@ -499,6 +583,12 @@ export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | n
         }
         if (url.pathname === '/backup/create') {
           await backupService.createFullBackup();
+          await prisma.auditLog.create({
+            data: {
+              actorId: 'dashboard_owner',
+              action: 'backup_create'
+            }
+          }).catch(() => {});
           redirect(res, '/backup');
           return;
         }
@@ -517,7 +607,8 @@ export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | n
       else if (url.pathname === '/group-logs') html = await renderGroupLogs();
       else if (url.pathname === '/broadcast') html = await renderBroadcast(sessionId!);
       else if (url.pathname === '/backup') html = await renderBackup();
-      else if (url.pathname === '/settings' || url.pathname === '/dashboard/security') html = await renderSettings();
+      else if (url.pathname === '/settings') html = await renderSettings();
+      else if (url.pathname === '/dashboard/security') html = await renderSecurity();
       else html = renderPage('Not Found', '<p>Halaman tidak ditemukan.</p>');
 
       if (session) html = injectCsrf(html, session.csrfToken);
@@ -530,8 +621,9 @@ export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | n
     }
   });
 
-  server.listen(env.DASHBOARD_PORT, env.DASHBOARD_HOST, () => {
-    console.log(`[Dashboard] Owner dashboard listening on http://${env.DASHBOARD_HOST}:${env.DASHBOARD_PORT}`);
+  const host = env.NODE_ENV === 'production' ? '127.0.0.1' : (env.DASHBOARD_HOST || '127.0.0.1');
+  server.listen(env.DASHBOARD_PORT, host, () => {
+    console.log(`[Dashboard] Owner dashboard listening on http://${host}:${env.DASHBOARD_PORT}`);
   });
   return server;
 }

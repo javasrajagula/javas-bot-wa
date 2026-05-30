@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import prisma from '../db/client.js';
 
 export interface PluginMetadata {
   name: string;
@@ -42,7 +43,7 @@ const INITIAL_PLUGINS: PluginMetadata[] = [
   },
   {
     name: 'document',
-    commands: ['img2pdf', 'pdf2img', 'mergepdf', 'compresspdf', 'scan', 'unzip', 'qr', 'readqr', 'ssweb'],
+    commands: ['img2pdf', 'pdf2img', 'mergepdf', 'compresspdf', 'scan', 'unzip', 'qr', 'readqr', 'ssweb', 'checklink', 'cekpenipuan', 'scamcheck'],
     enabled: true,
     permission: 'USER',
     category: 'Documents'
@@ -70,14 +71,14 @@ const INITIAL_PLUGINS: PluginMetadata[] = [
   },
   {
     name: 'economy',
-    commands: ['balance', 'bal', 'claim', 'daily', 'transfer', 'top', 'rank', 'shop', 'buy', 'inventory', 'inv', 'title', 'badge', 'pet', 'dungeon', 'attack', 'heal', 'run'],
+    commands: ['balance', 'bal', 'claim', 'daily', 'transfer', 'top', 'rank', 'shop', 'buy', 'inventory', 'inv', 'title', 'badge', 'pet', 'dungeon', 'attack', 'heal', 'run', 'quota', 'credit', 'buycredit', 'usage'],
     enabled: true,
     permission: 'USER',
     category: 'Economy'
   },
   {
     name: 'owner',
-    commands: ['maintenance', 'premium', 'broadcast', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan', 'backup', 'backupdb', 'backupconfig', 'listbackup', 'restorebackup', 'exportconfig', 'importconfig'],
+    commands: ['maintenance', 'premium', 'broadcast', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan', 'backup', 'backupdb', 'backupconfig', 'listbackup', 'restorebackup', 'exportconfig', 'importconfig', 'addreseller', 'reseller'],
     enabled: true,
     permission: 'OWNER',
     category: 'Owner'
@@ -105,7 +106,7 @@ class PluginManager {
         });
       } else {
         this.plugins = [...INITIAL_PLUGINS];
-        this.saveState();
+        this.saveStateToFile();
       }
     } catch (err) {
       console.error('Failed to load plugin state:', err);
@@ -113,13 +114,43 @@ class PluginManager {
     }
   }
 
-  private saveState() {
+  private saveStateToFile() {
     try {
       fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
       const stateToSave = this.plugins.map(p => ({ name: p.name, enabled: p.enabled }));
       fs.writeFileSync(STATE_FILE, JSON.stringify(stateToSave, null, 2), 'utf-8');
     } catch (err) {
-      console.error('Failed to save plugin state:', err);
+      console.error('Failed to save plugin state to file:', err);
+    }
+  }
+
+  public async syncWithDatabase(): Promise<void> {
+    try {
+      const dbStates = await prisma.pluginState.findMany();
+
+      if (dbStates.length > 0) {
+        console.log('[Plugins] Loaded states from database.');
+        this.plugins = INITIAL_PLUGINS.map(p => {
+          const dbState = dbStates.find((s: { name: string; enabled: boolean }) => s.name === p.name);
+          return {
+            ...p,
+            enabled: dbState ? dbState.enabled : p.enabled
+          };
+        });
+        this.saveStateToFile();
+      } else {
+        console.log('[Plugins] Migrating local plugin states to database...');
+        for (const p of this.plugins) {
+          await prisma.pluginState.upsert({
+            where: { name: p.name },
+            create: { name: p.name, enabled: p.enabled },
+            update: { enabled: p.enabled }
+          });
+        }
+        console.log('[Plugins] Migration to database completed.');
+      }
+    } catch (err) {
+      console.warn('[Plugins] Failed to sync with database, falling back to local file state:', err);
     }
   }
 
@@ -131,7 +162,12 @@ class PluginManager {
     const plugin = this.plugins.find(p => p.name.toLowerCase() === name.toLowerCase());
     if (plugin) {
       plugin.enabled = enabled;
-      this.saveState();
+      this.saveStateToFile();
+      prisma.pluginState.upsert({
+        where: { name: plugin.name },
+        create: { name: plugin.name, enabled },
+        update: { enabled }
+      }).catch((err: unknown) => console.error('[Plugins] Failed to save state to database:', err));
       return true;
     }
     return false;

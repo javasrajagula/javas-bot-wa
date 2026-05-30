@@ -449,8 +449,19 @@ export class ProfileCommand implements Command {
       }
     }
 
+    let targetUserId = ctx.senderId;
+    let targetName = ctx.senderName || ctx.senderId.split('@')[0];
+
+    const rawUser = args[0];
+    if (rawUser) {
+      targetUserId = rawUser.includes('@')
+        ? rawUser.replace(/[@\s]/g, '').trim() + '@s.whatsapp.net'
+        : rawUser.trim() + '@s.whatsapp.net';
+      targetName = targetUserId.split('@')[0];
+    }
+
     const economy = await prisma.userEconomy.findUnique({
-      where: { userId: ctx.senderId },
+      where: { userId: targetUserId },
     });
 
     const level = economy?.level ?? 1;
@@ -461,7 +472,7 @@ export class ProfileCommand implements Command {
     const allUsers = await prisma.userEconomy.findMany({
       orderBy: [{ level: 'desc' }, { xp: 'desc' }],
     });
-    const rankGlobal = allUsers.findIndex(u => u.userId === ctx.senderId) + 1 || allUsers.length + 1;
+    const rankGlobal = allUsers.findIndex(u => u.userId === targetUserId) + 1 || allUsers.length + 1;
 
     let rankGrup: number | string = 'N/A';
     const socket = (adapter as any).sock;
@@ -473,7 +484,7 @@ export class ProfileCommand implements Command {
           where: { userId: { in: participantIds } },
           orderBy: [{ level: 'desc' }, { xp: 'desc' }]
         });
-        const idx = groupEconomies.findIndex(u => u.userId === ctx.senderId);
+        const idx = groupEconomies.findIndex(u => u.userId === targetUserId);
         if (idx !== -1) {
           rankGrup = idx + 1;
         }
@@ -481,14 +492,14 @@ export class ProfileCommand implements Command {
     }
 
     const profile = await prisma.userProfile.findUnique({
-      where: { userId: ctx.senderId }
+      where: { userId: targetUserId }
     });
     const title = profile?.title || 'Warga Biasa';
     const badges = JSON.parse(profile?.badgesJson || '[]');
-    const isUserPrem = await isPremium(ctx.senderId);
+    const isUserPrem = await isPremium(targetUserId);
 
     const totalCommands = await prisma.usageLog.count({
-      where: { userId: ctx.senderId }
+      where: { userId: targetUserId }
     });
 
     const createdDate = profile?.createdAt || economy?.createdAt || new Date();
@@ -497,7 +508,7 @@ export class ProfileCommand implements Command {
     let avatarBuffer: Buffer | undefined = undefined;
     if (socket) {
       try {
-        const avatarUrl = await socket.profilePictureUrl(ctx.senderId, 'image');
+        const avatarUrl = await socket.profilePictureUrl(targetUserId, 'image');
         if (avatarUrl) {
           avatarBuffer = await downloadToBuffer(avatarUrl);
         }
@@ -513,8 +524,8 @@ export class ProfileCommand implements Command {
 
     try {
       const buffer = await renderProfileCard({
-        username: ctx.senderName || ctx.senderId.split('@')[0],
-        userId: ctx.senderId,
+        username: targetName,
+        userId: targetUserId,
         level,
         xp,
         xpNeeded,
@@ -529,16 +540,16 @@ export class ProfileCommand implements Command {
         avatarBuffer,
         bgBuffer
       });
-      await adapter.sendImage(ctx.chatId, buffer, `👤 *PROFIL WARGA* 👤\n\n- Nama: *${ctx.senderName}*\n- Level: *${level}*\n- Title: *${title}*`, {
+      await adapter.sendImage(ctx.chatId, buffer, `👤 *PROFIL WARGA* 👤\n\n- Nama: *${targetName}*\n- Level: *${level}*\n- Title: *${title}*`, {
         quotedMessageId: ctx.id,
-        mentions: [ctx.senderId]
+        mentions: [targetUserId]
       });
     } catch (err: any) {
       console.error('[ProfileCommand] Failed to render profile card:', err);
-      const textResponse = `👤 *PROFIL WARGA* 👤\n\n👤 *Nama:* ${ctx.senderName}\n📊 *Level:* ${level} (XP: ${xp}/${xpNeeded})\n💰 *Saldo:* Rp ${balance.toLocaleString('id-ID')}\n🏆 *Rank:* Global #${rankGlobal} | Grup #${rankGrup}\n🏆 *Title:* ${title}\n💬 *Total Command:* ${totalCommands}\n📅 *Gabung:* ${joinDate}\n🛡️ *Premium:* ${isUserPrem ? 'Ya' : 'Tidak'}`;
+      const textResponse = `👤 *PROFIL WARGA* 👤\n\n👤 *Nama:* ${targetName}\n📊 *Level:* ${level} (XP: ${xp}/${xpNeeded})\n💰 *Saldo:* Rp ${balance.toLocaleString('id-ID')}\n🏆 *Rank:* Global #${rankGlobal} | Grup #${rankGrup}\n🏆 *Title:* ${title}\n💬 *Total Command:* ${totalCommands}\n📅 *Gabung:* ${joinDate}\n🛡️ *Premium:* ${isUserPrem ? 'Ya' : 'Tidak'}`;
       await adapter.sendMessage(ctx.chatId, textResponse, {
         quotedMessageId: ctx.id,
-        mentions: [ctx.senderId]
+        mentions: [targetUserId]
       });
     }
   }

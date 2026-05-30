@@ -6,6 +6,11 @@ export interface StateStore {
   set<T>(key: string, value: T, ttlSeconds?: number): Promise<void>;
   delete(key: string): Promise<void>;
   keys(prefix?: string): Promise<string[]>;
+  incr(key: string): Promise<number>;
+  ttl(key: string): Promise<number>;
+  listPush(key: string, value: string): Promise<void>;
+  listRange(key: string, start: number, stop: number): Promise<string[]>;
+  setex(key: string, ttlSeconds: number, value: string): Promise<void>;
 }
 
 interface StoredValue {
@@ -40,6 +45,41 @@ export class MemoryStateStore implements StateStore {
   async keys(prefix = ''): Promise<string[]> {
     const allKeys = [...this.values.keys()];
     return prefix ? allKeys.filter((key) => key.startsWith(prefix)) : allKeys;
+  }
+
+  async incr(key: string): Promise<number> {
+    const current = await this.get<number>(key);
+    const nextVal = (typeof current === 'number' ? current : 0) + 1;
+    await this.set(key, nextVal);
+    return nextVal;
+  }
+
+  async ttl(key: string): Promise<number> {
+    const item = this.values.get(key);
+    if (!item) return -2;
+    if (item.expiresAt && item.expiresAt <= Date.now()) {
+      this.values.delete(key);
+      return -2;
+    }
+    if (!item.expiresAt) return -1;
+    return Math.max(0, Math.ceil((item.expiresAt - Date.now()) / 1000));
+  }
+
+  async listPush(key: string, value: string): Promise<void> {
+    const current = await this.get<string[]>(key) || [];
+    current.push(value);
+    await this.set(key, current);
+  }
+
+  async listRange(key: string, start: number, stop: number): Promise<string[]> {
+    const current = await this.get<string[]>(key) || [];
+    const normalizedStart = start < 0 ? current.length + start : start;
+    const normalizedStop = stop < 0 ? current.length + stop : stop;
+    return current.slice(normalizedStart, normalizedStop + 1);
+  }
+
+  async setex(key: string, ttlSeconds: number, value: string): Promise<void> {
+    await this.set(key, value, ttlSeconds);
   }
 }
 

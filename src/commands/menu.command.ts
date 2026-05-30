@@ -150,8 +150,9 @@ export class MenuCommand implements Command {
     const roleValue = ROLE_LEVEL[role];
 
     const { prefix, groupFeatures, groupPlan } = await this.getMenuContext(ctx);
-    const rawArg = args[0]?.trim();
-    const commandArg = normalizeCategory(rawArg);
+    
+    // Determine command type from trigger
+    const commandType = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
 
     const allCommands = commandRegistry.getAll();
     const visibleCommands = allCommands.filter(cmd =>
@@ -163,6 +164,97 @@ export class MenuCommand implements Command {
         groupPlan
       })
     );
+
+    // 1. Handle /start
+    if (commandType === 'start') {
+      const startText = [
+        `🤖 *Selamat Datang di Javas Bot WA!* 👋`,
+        ``,
+        `Halo *${ctx.senderName || 'User'}*, saya adalah bot WhatsApp asisten serbaguna yang siap membantu kebutuhan harian Anda.`,
+        ``,
+        `💡 *Cara Memulai:*`,
+        `• Ketik *${prefix}menu* untuk menampilkan menu utama.`,
+        `• Ketik *${prefix}rules* untuk melihat aturan penggunaan bot.`,
+        `• Ketik *${prefix}ping* untuk mengecek kecepatan respon bot.`,
+        ``,
+        `Semoga bermanfaat!`
+      ].join('\n');
+      await adapter.sendMessage(ctx.chatId, startText, { quotedMessageId: ctx.id });
+      return;
+    }
+
+    // 2. Handle /premiumguide
+    if (commandType === 'premiumguide') {
+      const guideText = [
+        `⭐ *Panduan Fitur Premium Javas Bot WA* ⭐`,
+        ``,
+        `Pengguna Premium mendapatkan akses eksklusif ke fitur-fitur kelas atas bot:`,
+        ``,
+        `🚀 *Keuntungan Premium:*`,
+        `1. *Media & Downloader*: Tanpa batasan limit/durasi video.`,
+        `2. *HD Upscaling*: Hasil upscaling resolusi gambar lebih tajam (hingga 4x).`,
+        `3. *Kecepatan Prioritas*: Pemrosesan antrian media lebih diprioritaskan.`,
+        `4. *Command Tanpa Batas*: Bebas cooldown penggunaan command.`,
+        ``,
+        `💰 *Cara Mendapatkan Premium:*`,
+        `Silakan hubungi Owner bot dengan mengetik *${prefix}owner* untuk informasi harga dan aktivasi.`,
+        `Anda juga dapat memeriksa status sewa grup dengan command *${prefix}ceksewa*.`
+      ].join('\n');
+      await adapter.sendMessage(ctx.chatId, guideText, { quotedMessageId: ctx.id });
+      return;
+    }
+
+    // 3. Handle /cari or /cmd or /menu search <keyword>
+    if (commandType === 'cari' || commandType === 'cmd' || (args[0]?.toLowerCase() === 'search' && args.length > 1)) {
+      const keyword = (commandType === 'cari' || commandType === 'cmd') 
+        ? args.join(' ').trim().toLowerCase()
+        : args.slice(1).join(' ').trim().toLowerCase();
+
+      if (!keyword) {
+        await adapter.sendMessage(ctx.chatId, `⚠️ Masukkan keyword pencarian.\nContoh: *${prefix}cari stiker* atau *${prefix}cmd brat*`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const matches = visibleCommands.filter(cmd => {
+        const name = cmd.metadata.name.toLowerCase();
+        const desc = (cmd.metadata.description || '').toLowerCase();
+        const aliases = (cmd.metadata.aliases || []).map((a: string) => a.toLowerCase());
+        return name.includes(keyword) || desc.includes(keyword) || aliases.some((a: string) => a.includes(keyword));
+      });
+
+      if (matches.length === 0) {
+        await adapter.sendMessage(ctx.chatId, `🔍 Pencarian untuk *"${keyword}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      let searchText = `🔍 *Hasil Pencarian: "${keyword}"*\n\n`;
+      matches.forEach((m, index) => {
+        searchText += `*${index + 1}. ${prefix}${m.metadata.name}*\n`;
+        searchText += `   ${m.metadata.description}\n`;
+        if (m.metadata.aliases?.length) {
+          searchText += `   Alias: ${m.metadata.aliases.map((a: string) => `*${prefix}${a}*`).join(', ')}\n`;
+        }
+        searchText += `\n`;
+      });
+      await adapter.sendMessage(ctx.chatId, searchText, { quotedMessageId: ctx.id });
+      return;
+    }
+
+    // 4. Handle /menu saya
+    if (args[0]?.toLowerCase() === 'saya') {
+      let filtered = visibleCommands;
+      if (role === 'premium') {
+        filtered = visibleCommands.filter(cmd => cmd.metadata.premiumOnly || cmd.metadata.minRole === 'premium' || cmd.metadata.minRole === 'user' || !cmd.metadata.minRole);
+      } else if (role === 'user') {
+        filtered = visibleCommands.filter(cmd => !cmd.metadata.premiumOnly && (!cmd.metadata.minRole || cmd.metadata.minRole === 'user'));
+      }
+      // Show custom menu for user
+      await this.sendAllMenu(ctx, adapter, filtered, prefix, role, groupPlan);
+      return;
+    }
+
+    const rawArg = args[0]?.trim();
+    const commandArg = normalizeCategory(rawArg);
 
     if (commandArg && commandArg !== 'all' && commandArg !== 'premium') {
       const knownCategories = [...CATEGORY_ORDER, 'general'];
@@ -185,7 +277,7 @@ export class MenuCommand implements Command {
 
         await adapter.sendMessage(
           ctx.chatId,
-          `⚠️ Menu atau command *${rawArg}* tidak ditemukan.\n\nCoba ketik:\n• *${prefix}menu*\n• *${prefix}menu sticker*\n• *${prefix}help brat*`,
+          `⚠️ Menu atau command *${rawArg}* tidak ditemukan.\n\nCoba ketik:\n• *${prefix}menu*\n• *${prefix}menu sticker*\n• *${prefix}help brat*\n• *${prefix}cari stiker*`,
           { quotedMessageId: ctx.id }
         );
         return;
@@ -574,7 +666,7 @@ export class RulesCommand implements Command {
 
 // Register commands
 const menuCmd = new MenuCommand();
-registerCommand(['menu', 'help'], menuCmd);
+registerCommand(['menu', 'help', 'cmd', 'cari', 'premiumguide', 'start'], menuCmd);
 
 const rulesCmd = new RulesCommand();
 registerCommand(['rules'], rulesCmd);

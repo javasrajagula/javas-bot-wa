@@ -1,6 +1,7 @@
 import { URL } from 'url';
 import { lookup } from 'dns/promises';
 import net from 'net';
+import axios from 'axios';
 
 export function normalizeUrl(url: string): string {
   let cleanUrl = url.trim();
@@ -55,6 +56,13 @@ function isPrivateIpv4(host: string): boolean {
   );
 }
 
+function isMulticastIpv4(host: string): boolean {
+  const parts = host.split('.').map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) return false;
+  const [a] = parts;
+  return a >= 224 && a <= 239;
+}
+
 function isPrivateIpv6(host: string): boolean {
   const normalized = host.replace(/^\[|\]$/g, '').toLowerCase();
   return (
@@ -70,14 +78,29 @@ function isPrivateIpv6(host: string): boolean {
   );
 }
 
+function isMulticastIpv6(host: string): boolean {
+  const normalized = host.replace(/^\[|\]$/g, '').toLowerCase();
+  return normalized.startsWith('ff');
+}
+
 export function blockUnsafeIp(hostname: string): void {
   const host = hostname.toLowerCase().trim().replace(/^\[|\]$/g, '');
   const family = net.isIP(host);
-  if (family === 4 && isPrivateIpv4(host)) {
-    throw new Error('Akses ke IP privat tidak diperbolehkan.');
+  if (family === 4) {
+    if (isPrivateIpv4(host)) {
+      throw new Error('Akses ke IP privat tidak diperbolehkan.');
+    }
+    if (isMulticastIpv4(host)) {
+      throw new Error('Akses ke IP multicast tidak diperbolehkan.');
+    }
   }
-  if (family === 6 && isPrivateIpv6(host)) {
-    throw new Error('Akses ke IPv6 privat/link-local tidak diperbolehkan.');
+  if (family === 6) {
+    if (isPrivateIpv6(host)) {
+      throw new Error('Akses ke IPv6 privat/link-local tidak diperbolehkan.');
+    }
+    if (isMulticastIpv6(host)) {
+      throw new Error('Akses ke IPv6 multicast tidak diperbolehkan.');
+    }
   }
 }
 
@@ -208,5 +231,100 @@ export function isAllowedCapCutUrl(url: string): boolean {
     return host === 'capcut.com' || host.endsWith('.capcut.com') || host === 'capcut.net' || host.endsWith('.capcut.net');
   } catch {
     return false;
+  }
+}
+
+export async function validateUrlRedirects(url: string, maxRedirects = 5): Promise<string> {
+  let currentUrl = url;
+  let redirectsCount = 0;
+
+  while (redirectsCount <= maxRedirects) {
+    const safeUrl = await assertSafePublicUrl(currentUrl);
+
+    try {
+      const response = await axios.head(safeUrl, {
+        maxRedirects: 0,
+        validateStatus: (status) => status >= 200 && status < 400,
+        timeout: 5000,
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.location;
+        if (!location) {
+          return safeUrl;
+        }
+        const resolved = new URL(location, safeUrl).toString();
+        currentUrl = resolved;
+        redirectsCount++;
+      } else {
+        return safeUrl;
+      }
+    } catch (err: any) {
+      try {
+        const response = await axios.get(safeUrl, {
+          maxRedirects: 0,
+          validateStatus: (status) => status >= 200 && status < 400,
+          timeout: 5000,
+          headers: { 'User-Agent': 'Mozilla/5.0', 'Range': 'bytes=0-1024' }
+        });
+
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.location;
+          if (!location) {
+            return safeUrl;
+          }
+          const resolved = new URL(location, safeUrl).toString();
+          currentUrl = resolved;
+          redirectsCount++;
+        } else {
+          return safeUrl;
+        }
+      } catch (getErr: any) {
+        return safeUrl;
+      }
+    }
+  }
+
+  throw new Error(`Terlalu banyak redirect (maksimal ${maxRedirects}).`);
+}
+
+export async function validateUrlMetadata(
+  url: string,
+  allowedTypes?: string[],
+  maxLengthBytes?: number
+): Promise<{ contentType: string; contentLength: number }> {
+  const safeUrl = await assertSafePublicUrl(url);
+
+  const checkHeaders = (headers: any) => {
+    const contentType = headers['content-type'] || '';
+    const contentLength = parseInt(headers['content-length'] || '0', 10);
+
+    if (allowedTypes && allowedTypes.length > 0) {
+      const typeMatched = allowedTypes.some((t) => contentType.toLowerCase().includes(t.toLowerCase()));
+      if (!typeMatched) {
+        throw new Error(`Content-Type tidak diperbolehkan: ${contentType}`);
+      }
+    }
+
+    if (maxLengthBytes && contentLength > maxLengthBytes) {
+      throw new Error(`Ukuran content (${contentLength} bytes) melebihi batas (${maxLengthBytes} bytes).`);
+    }
+
+    return { contentType, contentLength };
+  };
+
+  try {
+    const response = await axios.head(safeUrl, {
+      timeout: 5000,
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    return checkHeaders(response.headers);
+  } catch (err: any) {
+    const response = await axios.get(safeUrl, {
+      timeout: 5000,
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Range': 'bytes=0-1024' }
+    });
+    return checkHeaders(response.headers);
   }
 }

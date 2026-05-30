@@ -351,6 +351,10 @@ function unlockStickerMaker(ctx: MessageContext, adapter: WhatsAppAdapter) {
     adapter,
     ctx.isGroup ? ctx.chatId : undefined
   ).catch(err => console.error('[Achievement Sticker Hook Failed]', err));
+
+  import('../games/mission.command.js')
+    .then(mod => mod.updateDailyMissionStickerCount(ctx.senderId))
+    .catch(err => console.error('[Mission Sticker Fail]', err));
 }
 
 function escapeXml(unsafe: string): string {

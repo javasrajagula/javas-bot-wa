@@ -2,18 +2,37 @@ import { MessageContext } from '../bot/message.types.js';
 import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
 import prisma from '../db/client.js';
 import { rateLimiter } from '../utils/rate-limit.util.js';
-import { isOwner } from '../bot/permission.js';
+import { isOwner, isPremium } from '../bot/permission.js';
 import { DEFAULT_FEATURES } from '../config/feature-flags.js';
 import { achievementService } from '../services/achievement/achievement.service.js';
+import { env } from '../config/env.js';
+import { permissionService } from '../services/system/permission.service.js';
 
 // Cooldown overrides (stored in-memory or dynamically modified by /setcooldown)
 export const cooldownOverrides: Record<string, number> = {};
 
-// In-memory trackers for spam & auto mute
+// In-memory trackers for spam & auto mute (keys are scoped as "groupId:userId" or "private:userId")
 const messageTimestamps = new Map<string, number[]>();
-const mutedUsers = new Map<string, number>();
 const lastMessages = new Map<string, { body: string; count: number }>();
 const stickerTimestamps = new Map<string, number[]>();
+const lastSuggestionTime = new Map<string, number>();
+
+function getLevenshteinDistance(a: string, b: string): number {
+  const tmp = [];
+  let i, j;
+  for (i = 0; i <= a.length; i++) tmp.push([i]);
+  for (j = 1; j <= b.length; j++) tmp[0].push(j);
+  for (i = 1; i <= a.length; i++) {
+    for (j = 1; j <= b.length; j++) {
+      tmp[i][j] = Math.min(
+        tmp[i - 1][j] + 1,
+        tmp[i][j - 1] + 1,
+        tmp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+  }
+  return tmp[a.length][b.length];
+}
 
 export interface Command {
   execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void>;
@@ -33,28 +52,10 @@ export function registerCommand(names: string[], command: Command) {
 
 /**
  * Checks if a sender is an admin of a group.
- * For ConsoleAdapter, senderId starting with "admin" or being the game host is allowed.
- * For BaileysAdapter, queries the group metadata participant roles.
+ * Delegated to central PermissionService.
  */
-export async function checkIfAdmin(chatId: string, senderId: string, adapter: WhatsAppAdapter): Promise<boolean> {
-  // If console adapter, simulate admins
-  if (senderId.includes('admin') || senderId === 'host' || senderId === 'user1') {
-    return true;
-  }
-
-  if (!chatId || !chatId.endsWith('@g.us')) return false;
-
-  const socket = (adapter as any).sock;
-  if (!socket) return false;
-
-  try {
-    const groupMetadata = await socket.groupMetadata(chatId);
-    const participant = groupMetadata.participants.find((p: any) => p.id === senderId);
-    return participant && (participant.admin === 'admin' || participant.admin === 'superadmin');
-  } catch (err) {
-    console.error('Failed to check admin status:', err);
-    return false;
-  }
+export async function checkIfAdmin(chatId: string | null, senderId: string, adapter: WhatsAppAdapter): Promise<boolean> {
+  return permissionService.checkIfAdmin(chatId, senderId, adapter);
 }
 
 /**
@@ -81,12 +82,23 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   }
 
   // Auto mute ignore check
-  const muteTime = mutedUsers.get(ctx.senderId) || 0;
-  if (Date.now() < muteTime) {
+  const { stateStore } = await import('../services/state/state-store.js');
+  const scopeKey = `${ctx.chatId}:${ctx.senderId}`;
+  const isMuted = await stateStore.get(`mute:${scopeKey}`);
+  if (isMuted) {
     return; // Ignore muted user
   }
 
   const isGroup = ctx.isGroup;
+
+  if (isGroup) {
+    const { updateGroupUserStats } = await import('./community/stats.command.js');
+    updateGroupUserStats(ctx.chatId, ctx.senderId).catch(err => console.error('[Stats Log Fail]', err));
+  }
+
+  // Update daily mission message count
+  const { updateDailyMissionMsgCount } = await import('./games/mission.command.js');
+  updateDailyMissionMsgCount(ctx.senderId).catch(err => console.error('[Mission Msg Fail]', err));
   
   // 1. Get Group Configuration (or default values)
   let prefix = '/';
@@ -118,8 +130,27 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   const body = ctx.body.trim();
   const isCommand = body.startsWith(prefix);
   const parts = isCommand ? body.slice(prefix.length).trim().split(/\s+/) : [];
-  const commandName = parts[0]?.toLowerCase() || '';
+  let commandName = parts[0]?.toLowerCase() || '';
   const args = parts.slice(1);
+
+  // Resolve group-specific command alias
+  if (isCommand && isGroup && commandName) {
+    try {
+      const aliasRecord = await prisma.commandAlias.findUnique({
+        where: {
+          groupId_alias: {
+            groupId: ctx.chatId,
+            alias: commandName
+          }
+        }
+      });
+      if (aliasRecord) {
+        commandName = aliasRecord.command.toLowerCase();
+      }
+    } catch (err) {
+      console.error('[Alias] Failed to resolve command alias:', err);
+    }
+  }
 
   const isBotOnCommand = isCommand && commandName === 'bot' && args[0] === 'on';
 
@@ -180,10 +211,10 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
       // 3. Anti-Sticker Spam
       if (flags.antisticker && ctx.media?.type === 'sticker') {
         const now = Date.now();
-        const timestamps = stickerTimestamps.get(ctx.senderId) || [];
+        const timestamps = stickerTimestamps.get(scopeKey) || [];
         const valid = timestamps.filter(t => now - t < 10000);
         valid.push(now);
-        stickerTimestamps.set(ctx.senderId, valid);
+        stickerTimestamps.set(scopeKey, valid);
 
         if (valid.length > 3) {
           await executePunishment(ctx.chatId, ctx.senderId, flags.antispamMode || 'delete', 'Spam stiker beruntun', ctx, adapter);
@@ -197,7 +228,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
         
         // Repeated identical message check
         if (ctx.body) {
-          const lastMsg = lastMessages.get(ctx.senderId);
+          const lastMsg = lastMessages.get(scopeKey);
           if (lastMsg && lastMsg.body === ctx.body) {
             lastMsg.count++;
             if (lastMsg.count >= 3) {
@@ -205,16 +236,16 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
               return;
             }
           } else {
-            lastMessages.set(ctx.senderId, { body: ctx.body, count: 1 });
+            lastMessages.set(scopeKey, { body: ctx.body, count: 1 });
           }
         }
 
         // Message speed frequency
-        const timestamps = messageTimestamps.get(ctx.senderId) || [];
+        const timestamps = messageTimestamps.get(scopeKey) || [];
         const duration = (flags.antispamDuration || 10) * 1000;
         const valid = timestamps.filter(t => now - t < duration);
         valid.push(now);
-        messageTimestamps.set(ctx.senderId, valid);
+        messageTimestamps.set(scopeKey, valid);
 
         const limit = flags.antispamLimit || 5;
         if (valid.length > limit) {
@@ -269,8 +300,45 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
     handleChatXp(ctx, adapter).catch(err => console.error('[Leveling] Failed to handle chat XP:', err));
   }
 
-  // If it's not a command, we are done
-  if (!isCommand) return;
+  // Intercept Setup Wizard inputs
+  const { handleWizardInput } = await import('./setup.command.js');
+  const wasWizardInput = await handleWizardInput(ctx, adapter);
+  if (wasWizardInput) return;
+
+  // Intercept Captcha inputs
+  if (isGroup) {
+    const { captchaSessions } = await import('./community/welcome.command.js');
+    const captchaKey = `${ctx.chatId}:${ctx.senderId}`;
+    const captcha = captchaSessions.get(captchaKey);
+    if (captcha) {
+      if (ctx.body.trim() === captcha.answer) {
+        captchaSessions.delete(captchaKey);
+        await adapter.sendMessage(ctx.chatId, `✅ *Verifikasi Berhasil!* Selamat bergabung @${ctx.senderId.split('@')[0]}.`, { mentions: [ctx.senderId] });
+        if (captcha.welcomeText) {
+          await adapter.sendMessage(ctx.chatId, captcha.welcomeText, { mentions: [ctx.senderId] });
+        }
+      } else {
+        await adapter.sendMessage(ctx.chatId, `❌ Jawaban salah. Silakan coba lagi.`, { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+  }
+
+  // If it's not a command, check if Chat Mode is enabled in this chat
+  if (!isCommand) {
+    const scopeKey = isGroup ? `chatmode:${ctx.chatId}` : `chatmode:${ctx.senderId}`;
+    const isChatmode = await stateStore.get(scopeKey);
+    if (isChatmode && ctx.body.trim()) {
+      try {
+        const { aiProviderService } = await import('../services/ai/ai-provider.service.js');
+        const response = await aiProviderService.generateText(ctx.body.trim());
+        await adapter.sendMessage(ctx.chatId, response, { quotedMessageId: ctx.id });
+      } catch (err) {
+        console.error('[ChatMode] Failed to reply:', err);
+      }
+    }
+    return;
+  }
 
   // 3. Handle Admin Controls: /bot on (needs to work even if bot is turned off)
   if (isBotOnCommand) {
@@ -300,7 +368,43 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
 
   // Find Command Handler
   const registeredCmd = commandRegistry.get(commandName);
-  if (!registeredCmd) return;
+  if (!registeredCmd) {
+    const now = Date.now();
+    const lastTime = lastSuggestionTime.get(ctx.senderId) || 0;
+    if (now - lastTime > 15000) {
+      lastSuggestionTime.set(ctx.senderId, now);
+
+      const allRegistered = commandRegistry.getAll();
+      let bestMatch: any = null;
+      let minDistance = 999;
+
+      for (const cmd of allRegistered) {
+        const primary = cmd.metadata.name.toLowerCase();
+        const dist = getLevenshteinDistance(commandName, primary);
+        if (dist < minDistance) {
+          minDistance = dist;
+          bestMatch = cmd.metadata;
+        }
+        for (const alias of cmd.metadata.aliases || []) {
+          const aliasDist = getLevenshteinDistance(commandName, alias.toLowerCase());
+          if (aliasDist < minDistance) {
+            minDistance = aliasDist;
+            bestMatch = cmd.metadata;
+          }
+        }
+      }
+
+      const threshold = commandName.length <= 4 ? 1 : 2;
+      if (bestMatch && minDistance <= threshold) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⚠️ Command *${prefix}${commandName}* tidak ditemukan.\nMaksud kamu *${prefix}${bestMatch.name}*?\n\n📝 *Deskripsi:* ${bestMatch.description}\n💡 *Cara pakai:* \`${bestMatch.usage.replace(/\//g, prefix)}\``,
+          { quotedMessageId: ctx.id }
+        );
+      }
+    }
+    return;
+  }
 
   // Dynamic Plugin System Check (Global Owner Toggle)
   const { pluginManager } = await import('../config/plugins.js');
@@ -387,8 +491,8 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   let isRateLimited = false;
   let retryAfterSeconds = 0;
 
-  const bypassOwner = process.env.OWNER_BYPASS_RATE_LIMIT !== 'false';
-  const bypassPrivate = process.env.PRIVATE_CHAT_BYPASS_RATE_LIMIT !== 'false';
+  const bypassOwner = env.OWNER_BYPASS_RATE_LIMIT;
+  const bypassPrivate = env.PRIVATE_CHAT_BYPASS_RATE_LIMIT;
   const isSenderOwner = isOwner(ctx.senderId);
 
   const rateLimitFeature = registeredCmd.metadata.rateLimitKey || featureKey || 'general';
@@ -421,6 +525,62 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
     return;
   }
 
+  // 5b. Quota Limit Check
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  if (isGroup) {
+    let groupPlan = 'free';
+    const sub = await prisma.groupSubscription.findUnique({
+      where: { groupId: ctx.chatId }
+    });
+    if (sub) {
+      const expired = sub.expiresAt && sub.expiresAt.getTime() < Date.now();
+      if (!expired) {
+        groupPlan = sub.plan || 'free';
+      }
+    }
+
+    const maxCmd = groupPlan === 'free' ? 50 : groupPlan === 'basic' ? 200 : 999999;
+    if (groupPlan !== 'premium') {
+      const usageCount = await prisma.usageLog.count({
+        where: {
+          groupId: ctx.chatId,
+          createdAt: { gte: startOfDay }
+        }
+      });
+      if (usageCount >= maxCmd) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⚠️ *KUOTA HARIAN GRUP HABIS!* ⚠️\n\nGrup ini telah mencapai batas kuota harian *${maxCmd}* perintah (Paket ${groupPlan.toUpperCase()}).\nSewa paket PREMIUM untuk mendapatkan kuota tak terbatas! Ketik \`/sewa\` untuk informasi sewa.`,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+    }
+  } else {
+    // Private chat quota check
+    const isSenderPremium = await isPremium(ctx.senderId);
+    if (!isSenderPremium && !isSenderOwner) {
+      const maxCmd = 20; // Default quota for free user in private chat
+      const usageCount = await prisma.usageLog.count({
+        where: {
+          userId: ctx.senderId,
+          groupId: null,
+          createdAt: { gte: startOfDay }
+        }
+      });
+      if (usageCount >= maxCmd) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⚠️ *KUOTA HARIAN ANDA HABIS!* ⚠️\n\nAnda telah mencapai batas kuota harian *${maxCmd}* perintah untuk chat pribadi.\nJadilah user PREMIUM untuk mendapatkan kuota tak terbatas! Ketik \`/invoice premium 1\` untuk membeli premium.`,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+    }
+  }
+
   // Log usage in Database asynchronously
   prisma.usageLog.create({
     data: {
@@ -446,6 +606,9 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
 
   // 6. Execute Command
   try {
+    const { updateDailyMissionCmdCount } = await import('./games/mission.command.js');
+    updateDailyMissionCmdCount(ctx.senderId).catch(err => console.error('[Mission Cmd Fail]', err));
+
     await registeredCmd.execute(ctx, args, adapter);
     achievementService.checkEconomyAchievements(
       ctx.senderId,
@@ -574,15 +737,15 @@ export async function executePunishment(
           }
         }
       } else if (ruleAction === 'mute') {
-        const duration = 5 * 60 * 1000;
-        mutedUsers.set(userId, Date.now() + duration);
+        const { stateStore } = await import('../services/state/state-store.js');
+        await stateStore.set(`mute:${chatId}:${userId}`, true, 300);
       }
     } else {
       await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
     }
   } else if (actualAction === 'mute') {
-    const duration = 5 * 60 * 1000; // 5 minutes mute
-    mutedUsers.set(userId, Date.now() + duration);
+    const { stateStore } = await import('../services/state/state-store.js');
+    await stateStore.set(`mute:${chatId}:${userId}`, true, 300);
     const mention = `@${userId.split('@')[0]}`;
     await adapter.sendMessage(chatId, `🚫 ${mention} dimute selama 5 menit karena: *${reason}*.`, { mentions: [userId] });
   } else if (actualAction === 'kick') {

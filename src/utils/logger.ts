@@ -2,6 +2,64 @@ import prisma from '../db/client.js';
 import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
 import { createErrorId, rememberError } from './error-id.util.js';
 import { redactSensitive } from './mask.util.js';
+import { env } from '../config/env.js';
+
+export enum LogLevel {
+  SILENT = 0,
+  ERROR = 1,
+  WARN = 2,
+  INFO = 3,
+  DEBUG = 4,
+}
+
+const LEVEL_VALUES: Record<string, number> = {
+  silent: 0,
+  error: 1,
+  warn: 2,
+  info: 3,
+  debug: 4,
+};
+
+function shouldLog(level: string): boolean {
+  const configured = env.LOG_LEVEL || 'info';
+  const configuredVal = LEVEL_VALUES[configured] ?? 3;
+  const targetVal = LEVEL_VALUES[level] ?? 3;
+  return configuredVal >= targetVal;
+}
+
+export function logInfo(message: string, ...args: any[]): void {
+  if (shouldLog('info')) {
+    console.log(`[Info] ${message}`, ...args);
+  }
+}
+
+export function logDebug(message: string, ...args: any[]): void {
+  if (shouldLog('debug')) {
+    console.debug(`[Debug] ${message}`, ...args);
+  }
+}
+
+export function logWarn(message: string, ...args: any[]): void {
+  if (shouldLog('warn')) {
+    console.warn(`[Warn] ${message}`, ...args);
+  }
+}
+
+export function logSecure(message: string, data: any, level: 'info' | 'debug' | 'warn' | 'error' = 'info'): void {
+  if (shouldLog(level)) {
+    const redacted = redactSensitive(data);
+    const formatted = typeof redacted === 'object' ? JSON.stringify(redacted) : String(redacted);
+    if (level === 'error') {
+      console.error(`[Secure-Error] ${message}:`, formatted);
+    } else if (level === 'warn') {
+      console.warn(`[Secure-Warn] ${message}:`, formatted);
+    } else if (level === 'debug') {
+      console.debug(`[Secure-Debug] ${message}:`, formatted);
+    } else {
+      console.log(`[Secure-Info] ${message}:`, formatted);
+    }
+  }
+}
 
 export async function logError(
   scope: string,

@@ -60,5 +60,14 @@ export function parseEnv(raw: NodeJS.ProcessEnv = process.env): Env {
   const value = parsed.data as Env;
   value.OWNER_DASHBOARD_PASSWORD = value.OWNER_DASHBOARD_PASSWORD || value.OWNER_PASSWORD || '';
   value.USE_REDIS = value.USE_REDIS || value.REDIS_ENABLED;
+
+  if (value.DASHBOARD_ENABLED && !value.OWNER_DASHBOARD_PASSWORD) {
+    throw new Error("Konfigurasi environment tidak valid: OWNER_DASHBOARD_PASSWORD wajib diisi saat DASHBOARD_ENABLED bernilai true.");
+  }
+
+  if (!value.OWNER_IDS || value.OWNER_IDS.trim() === '') {
+    console.warn("[WARNING] OWNER_IDS kosong. Beberapa command administrator/owner mungkin tidak dapat diakses.");
+  }
+
   return value;
 }

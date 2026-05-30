@@ -27,6 +27,8 @@ export const DEFAULT_FEATURES: Record<string, any> = {
   rpg: false,
   crime: true,
   rob: true,
+  language: 'id',
+  persona: 'formal',
   
   // Advanced Moderation Configurations
   antispamMode: 'warn', // delete, warn, mute, kick

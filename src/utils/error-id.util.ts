@@ -36,3 +36,24 @@ export function listRecentErrors(): RecentErrorRecord[] {
 export function clearRecentErrors(): void {
   recentErrors.clear();
 }
+
+export function getErrorStats(): {
+  total: number;
+  byScope: Record<string, number>;
+  byFeature: Record<string, number>;
+} {
+  const records = [...recentErrors.values()];
+  const byScope: Record<string, number> = {};
+  const byFeature: Record<string, number> = {};
+
+  for (const record of records) {
+    byScope[record.scope] = (byScope[record.scope] || 0) + 1;
+    byFeature[record.feature] = (byFeature[record.feature] || 0) + 1;
+  }
+
+  return {
+    total: records.length,
+    byScope,
+    byFeature
+  };
+}
