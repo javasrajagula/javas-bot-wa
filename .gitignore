@@ -9,6 +9,7 @@ auth_session/
 # Temp files and outputs
 temp/
 temp_outputs/
+backups/
 
 # Database files
 *.db

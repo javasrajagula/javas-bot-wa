@@ -67,6 +67,25 @@ Untuk mengelola grup, fitur, premium user, queue, dan memantau log error langsun
 npm run dashboard
 ```
 
+### 7. Owner Web Dashboard
+Dashboard web tersedia secara opsional dan hanya aktif jika login owner dikonfigurasi:
+```env
+DASHBOARD_ENABLED="true"
+DASHBOARD_PORT="8787"
+OWNER_DASHBOARD_PASSWORD="ganti-password-kuat"
+```
+
+Jalankan bot seperti biasa, lalu buka `http://localhost:8787`. Dashboard mencakup overview, groups, feature flags, plugins, premium users, subscriptions, queue monitor, usage stats, error logs, group logs, broadcast dengan preview/konfirmasi, backup/restore, dan settings. Credential WhatsApp dan `.env` tidak ditampilkan.
+
+### 8. Backup, Restore, dan Utility Offline
+Owner dapat memakai `/backup`, `/backupdb`, `/backupconfig`, `/listbackup`, `/restorebackup <id>`, `/exportconfig`, dan `/importconfig`. Backup disimpan di folder `backups/`, tidak menyertakan `.env` atau session WhatsApp, dan dibersihkan sesuai `BACKUP_RETENTION_DAYS`.
+
+Utility non-paid AI:
+- OCR memakai Tesseract lokal melalui `OCR_COMMAND`.
+- Transkripsi VN/audio memakai wrapper lokal Whisper/Vosk melalui `STT_COMMAND`; jika belum dikonfigurasi bot memberi instruksi setup.
+- Translate dapat memakai self-hosted LibreTranslate melalui `LIBRETRANSLATE_URL`, dengan fallback dictionary sederhana.
+- PDF/ZIP diproses lokal dengan limit ukuran dan proteksi path traversal/executable.
+
 ---
 
 ## 🏆 Kategori & Daftar Command Bot

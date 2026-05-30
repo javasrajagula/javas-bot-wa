@@ -1087,14 +1087,14 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
   // --- SETUP & FEATURES ---
   {
     name: 'setup',
-    aliases: [],
+    aliases: ['setupwizard'],
     category: 'admin',
     plugin: 'moderation',
     featureFlag: 'general',
     minRole: 'admin',
     description: 'Melakukan onboarding grup atau melihat konfigurasi.',
-    usage: '/setup',
-    examples: ['/setup']
+    usage: '/setup [basic|sekolah|komunitas|strict|game|reset|confirm]',
+    examples: ['/setupwizard', '/setup komunitas', '/setup confirm']
   },
   {
     name: 'statusfitur',
@@ -1196,6 +1196,50 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     description: 'Mengaktifkan/menonaktifkan plugin secara global.',
     usage: '/plugin [list|on|off] [nama]',
     examples: ['/plugin list', '/plugin off games']
+  },
+  {
+    name: 'backup',
+    aliases: ['backupdb', 'backupconfig'],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    minRole: 'owner',
+    description: 'Membuat backup database atau konfigurasi secara manual.',
+    usage: '/backup atau /backupdb atau /backupconfig',
+    examples: ['/backup', '/backupdb']
+  },
+  {
+    name: 'listbackup',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    minRole: 'owner',
+    description: 'Melihat daftar backup lokal.',
+    usage: '/listbackup',
+    examples: ['/listbackup']
+  },
+  {
+    name: 'restorebackup',
+    aliases: [],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    minRole: 'owner',
+    description: 'Restore database dari backup dengan konfirmasi eksplisit.',
+    usage: '/restorebackup <id>',
+    examples: ['/restorebackup db-2026-05-30T10-00-00-000Z']
+  },
+  {
+    name: 'exportconfig',
+    aliases: ['importconfig'],
+    category: 'owner',
+    plugin: 'owner',
+    featureFlag: 'general',
+    minRole: 'owner',
+    description: 'Export atau import konfigurasi grup dan subscription.',
+    usage: '/exportconfig atau reply JSON dengan /importconfig',
+    examples: ['/exportconfig']
   },
 
   // --- SEWA/SUBSCRIPTION TOOLS ---

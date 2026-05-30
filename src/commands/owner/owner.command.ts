@@ -7,6 +7,8 @@ import crypto from 'crypto';
 import { hdQueue, downloaderQueue, generalQueue } from '../../queues/queue.js';
 import { pluginManager } from '../../config/plugins.js';
 import { logError } from '../../utils/logger.js';
+import { backupService } from '../../services/backup/backup.service.js';
+import fs from 'fs';
 
 export let isMaintenanceMode = false;
 
@@ -133,6 +135,92 @@ export class OwnerSuiteCommand implements Command {
       const confirmMsg = `📣 *KONFIRMASI BROADCAST*\n\n*Pesan:*\n"${text}"\n\n⚠️ *Perhatian:* Pesan di atas akan dikirimkan ke seluruh grup WhatsApp yang terdaftar.\n\nKetik \`/broadcast confirm\` dalam waktu *30 detik* untuk melanjutkan pengiriman.`;
       await adapter.sendMessage(ctx.chatId, confirmMsg, { quotedMessageId: ctx.id });
       return;
+    }
+
+    // 4. /stats
+    if (['backup', 'backupdb', 'backupconfig', 'listbackup', 'restorebackup', 'exportconfig', 'importconfig'].includes(commandType)) {
+      try {
+        if (commandType === 'backup') {
+          const backups = await backupService.createFullBackup();
+          const text = backups
+            .map(backup => `- ${backup.fileName} (${Math.ceil(backup.size / 1024)} KB)`)
+            .join('\n');
+          await adapter.sendMessage(ctx.chatId, `✅ Backup lengkap berhasil dibuat:\n${text}`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        if (commandType === 'backupdb') {
+          const backup = await backupService.createDatabaseBackup();
+          const buffer = await fs.promises.readFile(backup.filePath);
+          await adapter.sendDocument(ctx.chatId, buffer, backup.fileName, 'application/octet-stream', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        if (commandType === 'backupconfig' || commandType === 'exportconfig') {
+          const buffer = await backupService.exportConfigBuffer();
+          await adapter.sendDocument(ctx.chatId, buffer, `config-export-${Date.now()}.json`, 'application/json', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        if (commandType === 'listbackup') {
+          const backups = backupService.listBackups();
+          if (backups.length === 0) {
+            await adapter.sendMessage(ctx.chatId, 'ℹ️ Belum ada backup lokal.', { quotedMessageId: ctx.id });
+            return;
+          }
+
+          const list = backups.slice(0, 20)
+            .map((backup, index) => `${index + 1}. *${backup.id}* [${backup.kind}] ${Math.ceil(backup.size / 1024)} KB`)
+            .join('\n');
+          await adapter.sendMessage(ctx.chatId, `📦 *DAFTAR BACKUP*\n\n${list}`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        if (commandType === 'restorebackup') {
+          const first = args[0];
+          if (!first) {
+            await adapter.sendMessage(ctx.chatId, '⚠️ Format: `/restorebackup <id>` lalu ikuti instruksi konfirmasi.', { quotedMessageId: ctx.id });
+            return;
+          }
+
+          if (first.toLowerCase() === 'confirm') {
+            const confirmation = args.slice(1).join(' ').trim();
+            const restored = await backupService.confirmRestore(ctx.senderId, confirmation);
+            await adapter.sendMessage(ctx.chatId, `✅ Database berhasil direstore dari *${restored.fileName}*. Restart bot disarankan.`, { quotedMessageId: ctx.id });
+            return;
+          }
+
+          if (args[1]?.toLowerCase() === 'confirm') {
+            const restored = await backupService.confirmRestore(ctx.senderId, `RESTORE ${first}`);
+            await adapter.sendMessage(ctx.chatId, `✅ Database berhasil direstore dari *${restored.fileName}*. Restart bot disarankan.`, { quotedMessageId: ctx.id });
+            return;
+          }
+
+          const phrase = backupService.requestRestore(ctx.senderId, first);
+          await adapter.sendMessage(
+            ctx.chatId,
+            `⚠️ *KONFIRMASI RESTORE DATABASE*\n\nRestore akan menimpa database aktif. Safety backup akan dibuat otomatis.\n\nKetik persis:\n/restorebackup confirm ${phrase}\n\nBerlaku 60 detik.`,
+            { quotedMessageId: ctx.id }
+          );
+          return;
+        }
+
+        if (commandType === 'importconfig') {
+          const media = ctx.media || ctx.quotedMessage?.media;
+          if (!media || media.type !== 'document') {
+            await adapter.sendMessage(ctx.chatId, '⚠️ Reply file JSON hasil `/exportconfig` dengan command `/importconfig`.', { quotedMessageId: ctx.id });
+            return;
+          }
+
+          const result = await backupService.importConfigFromBuffer(await media.getBuffer());
+          await adapter.sendMessage(ctx.chatId, `✅ Config berhasil diimport: ${result.groups} grup, ${result.subscriptions} subscription.`, { quotedMessageId: ctx.id });
+          return;
+        }
+      } catch (err: any) {
+        await logError('OwnerCommand', commandType, err);
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal menjalankan ${commandType}: ${err.message}`, { quotedMessageId: ctx.id });
+        return;
+      }
     }
 
     // 4. /stats
@@ -416,6 +504,6 @@ Brat: Max 10 requests / 1 minute
 
 const ownerSuite = new OwnerSuiteCommand();
 registerCommand(
-  ['maintenance', 'premium', 'broadcast', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan'],
+  ['maintenance', 'premium', 'broadcast', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan', 'backup', 'backupdb', 'backupconfig', 'listbackup', 'restorebackup', 'exportconfig', 'importconfig'],
   ownerSuite
 );

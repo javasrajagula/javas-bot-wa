@@ -14,6 +14,7 @@ import { env } from '../config/env.js';
 
 export class BaileysAdapter extends WhatsAppAdapter {
   private sock: any;
+  private reconnectAttempts = 0;
 
   public async start(): Promise<void> {
     const sessionDir = path.join(process.cwd(), env.WA_SESSION_NAME);
@@ -37,9 +38,14 @@ export class BaileysAdapter extends WhatsAppAdapter {
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
         console.log('Connection closed due to', error, ', reconnecting:', shouldReconnect);
         if (shouldReconnect) {
-          this.start();
+          const delayMs = Math.min(30_000, 1000 * 2 ** this.reconnectAttempts);
+          this.reconnectAttempts++;
+          setTimeout(() => {
+            this.start().catch(err => console.error('Failed to reconnect WhatsApp:', err));
+          }, delayMs);
         }
       } else if (connection === 'open') {
+        this.reconnectAttempts = 0;
         console.log('Successfully connected to WhatsApp!');
       }
     });

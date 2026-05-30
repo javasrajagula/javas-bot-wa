@@ -13,4 +13,12 @@ export const env = {
   TIKTOK_COOKIES: process.env.TIKTOK_COOKIES || '',
   INSTAGRAM_COOKIES: process.env.INSTAGRAM_COOKIES || '',
   OWNER_IDS: process.env.OWNER_IDS || '',
+  OWNER_DASHBOARD_PASSWORD: process.env.OWNER_DASHBOARD_PASSWORD || process.env.OWNER_PASSWORD || '',
+  DASHBOARD_ENABLED: process.env.DASHBOARD_ENABLED === 'true',
+  DASHBOARD_PORT: Number(process.env.DASHBOARD_PORT || 8787),
+  BACKUP_RETENTION_DAYS: Number(process.env.BACKUP_RETENTION_DAYS || 14),
+  AUTO_BACKUP_ENABLED: process.env.AUTO_BACKUP_ENABLED !== 'false',
+  LIBRETRANSLATE_URL: process.env.LIBRETRANSLATE_URL || '',
+  OCR_COMMAND: process.env.OCR_COMMAND || 'tesseract',
+  STT_COMMAND: process.env.STT_COMMAND || '',
 };

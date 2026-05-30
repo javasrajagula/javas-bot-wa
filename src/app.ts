@@ -31,6 +31,9 @@ import './commands/games/games.command.js';
 import './commands/owner/owner.command.js';
 import { startReminderWorker } from './workers/reminder.worker.js';
 import { achievementService } from './services/achievement/achievement.service.js';
+import { backupService } from './services/backup/backup.service.js';
+import { startDashboardServer } from './services/dashboard/dashboard.server.js';
+import { seedSystemDefaults } from './services/system/system-seed.service.js';
 
 async function bootstrap() {
   console.log('[System] Connecting to database...');
@@ -39,6 +42,8 @@ async function bootstrap() {
 
   console.log('[System] Initializing Achievements...');
   await achievementService.initAchievements();
+  await seedSystemDefaults();
+  console.log('[System] Default shop items and warning rules initialized.');
 
   console.log('[System] Initializing Werewolf Game Engine...');
   await werewolfEngine.boot();
@@ -47,6 +52,9 @@ async function bootstrap() {
   // Set up cleanup cron-like interval to sweep old temp files
   startCleanupInterval();
   console.log('[System] Temp files auto-cleanup scheduler started.');
+
+  backupService.startAutoBackup();
+  console.log('[System] Backup scheduler initialized.');
 
   // Pick WhatsApp connection adapter based on config
   let adapter;
@@ -157,6 +165,7 @@ async function bootstrap() {
   });
 
   await adapter.start();
+  startDashboardServer(adapter);
   console.log('[System] Starting background reminder worker...');
   startReminderWorker(adapter);
   console.log('[System] Bot is now active and ready to process commands.');

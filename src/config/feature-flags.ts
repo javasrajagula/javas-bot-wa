@@ -37,6 +37,7 @@ export const DEFAULT_FEATURES: Record<string, any> = {
   antivirtex: false,
   antimention: false,
   antisticker: false,
+  modsmart: false,
   antimentionLimit: 5,   // max mentions per message
   antivirtexLimit: 4000,  // max characters per message
 };

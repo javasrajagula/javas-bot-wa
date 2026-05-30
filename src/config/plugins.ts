@@ -35,14 +35,14 @@ const INITIAL_PLUGINS: PluginMetadata[] = [
   },
   {
     name: 'text',
-    commands: ['ocr', 'translate', 'tr', 'ringkas', 'summarize', 'ubah', 'typo', 'koreksi', 'balas', 'jelaskan', 'rangkum', 'quiz', 'belajar'],
+    commands: ['ocr', 'translate', 'tr', 'ringkas', 'summarize', 'ubah', 'typo', 'koreksi', 'balas', 'jelaskan', 'rangkum', 'quiz', 'belajar', 'jawab'],
     enabled: true,
     permission: 'USER',
     category: 'Text'
   },
   {
     name: 'document',
-    commands: ['img2pdf', 'pdf2img', 'mergepdf', 'compresspdf', 'pdf2word', 'word2pdf', 'scan', 'unzip', 'qr', 'readqr'],
+    commands: ['img2pdf', 'pdf2img', 'mergepdf', 'compresspdf', 'scan', 'unzip', 'qr', 'readqr', 'ssweb'],
     enabled: true,
     permission: 'USER',
     category: 'Documents'
@@ -74,6 +74,13 @@ const INITIAL_PLUGINS: PluginMetadata[] = [
     enabled: true,
     permission: 'USER',
     category: 'Economy'
+  },
+  {
+    name: 'owner',
+    commands: ['maintenance', 'premium', 'broadcast', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan', 'backup', 'backupdb', 'backupconfig', 'listbackup', 'restorebackup', 'exportconfig', 'importconfig'],
+    enabled: true,
+    permission: 'OWNER',
+    category: 'Owner'
   }
 ];
 
