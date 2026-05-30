@@ -155,11 +155,13 @@ Utility non-paid AI:
 | Command | Deskripsi | Peran |
 |:--------|:----------|:------|
 | `/img2pdf` | Gabungkan gambar menjadi PDF | User |
-| `/pdf2img` | Ekstrak halaman PDF menjadi gambar | User |
-| `/mergepdf` | Gabungkan beberapa PDF | User |
-| `/compresspdf` | Kompres ukuran PDF | User |
+| `/pdf2img` | Ekstrak halaman PDF spesifik ke gambar (contoh: `/pdf2img 3`) | User |
+| `/mergepdf` | Gabungkan beberapa PDF (Multi-step session) | User |
+| `/compresspdf` | Optimalkan (Optimize) ukuran PDF | User |
+| `/pdftext` | Ekstrak teks dari PDF (Poppler) | User |
+| `/pdfwatermark` | Tambah teks watermark ke PDF (max 30 karakter) | User |
 | `/scan` | Simulasi scan dokumen | User |
-| `/unzip` | Ekstrak ZIP/RAR dengan aman | User |
+| `/unzip` | Ekstrak ZIP/RAR dengan aman (Proteksi ZIP Bomb) | User |
 | `/qr <teks/url>` | Buat QR Code dari teks/link | User |
 | `/readqr` | Baca isi QR Code dari gambar | User |
 | `/linkscan <url>` | Scan keamanan URL/link (SSRF-safe) | User |
@@ -170,6 +172,7 @@ Utility non-paid AI:
 |:--------|:----------|:------|
 | `/setup` | Cek status fitur grup | Admin |
 | `/statusfitur` | Detail status feature flags | Admin |
+| `/fiturstatus` | Tampilkan prefix, plan sewa, sisa kuota, dan status fitur | User / Admin |
 | `/feature <nama> <on/off>` | Toggle fitur grup | Admin |
 | `/bot [on/off]` | Aktifkan/nonaktifkan bot di grup | Admin |
 | `/setprefix <prefix>` | Ubah prefix command | Admin |
@@ -188,6 +191,7 @@ Utility non-paid AI:
 | `/unmute @user` | Buka mute member | Admin |
 | `/grouplog` | Lihat log aktivitas grup | Admin |
 | `/warningrule set <N> <action>` | Atur aksi otomatis saat N warning | Admin |
+| `/repair group` | Atur ulang (reset) setelan grup ke default bawaan bot | Admin |
 
 ### 🏫 Komunitas & Sekolah
 
@@ -392,7 +396,7 @@ Test suite (Vitest) mencakup:
 - Bisnis, Keuangan, Reseller
 - Coupon, Quota, Subscription
 
-**Total: 134+ tests passing**
+**Total: 137+ tests passing**
 
 ---
 
