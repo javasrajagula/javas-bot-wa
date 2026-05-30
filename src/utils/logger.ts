@@ -1,7 +1,7 @@
 import prisma from '../db/client.js';
 import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
 import { createErrorId, rememberError } from './error-id.util.js';
-import { redactSensitive } from './mask.util.js';
+import { redactSensitive, redactText } from './mask.util.js';
 import { env } from '../config/env.js';
 
 export enum LogLevel {
@@ -29,19 +29,22 @@ function shouldLog(level: string): boolean {
 
 export function logInfo(message: string, ...args: any[]): void {
   if (shouldLog('info')) {
-    console.log(`[Info] ${message}`, ...args);
+    const safeArgs = args.map(arg => typeof arg === 'string' ? redactText(arg) : redactSensitive(arg));
+    console.log(`[Info] ${redactText(message)}`, ...safeArgs);
   }
 }
 
 export function logDebug(message: string, ...args: any[]): void {
   if (shouldLog('debug')) {
-    console.debug(`[Debug] ${message}`, ...args);
+    const safeArgs = args.map(arg => typeof arg === 'string' ? redactText(arg) : redactSensitive(arg));
+    console.debug(`[Debug] ${redactText(message)}`, ...safeArgs);
   }
 }
 
 export function logWarn(message: string, ...args: any[]): void {
   if (shouldLog('warn')) {
-    console.warn(`[Warn] ${message}`, ...args);
+    const safeArgs = args.map(arg => typeof arg === 'string' ? redactText(arg) : redactSensitive(arg));
+    console.warn(`[Warn] ${redactText(message)}`, ...safeArgs);
   }
 }
 
@@ -49,14 +52,16 @@ export function logSecure(message: string, data: any, level: 'info' | 'debug' | 
   if (shouldLog(level)) {
     const redacted = redactSensitive(data);
     const formatted = typeof redacted === 'object' ? JSON.stringify(redacted) : String(redacted);
+    const safeMessage = redactText(message);
+    const safeFormatted = typeof redacted === 'string' ? redactText(formatted) : formatted;
     if (level === 'error') {
-      console.error(`[Secure-Error] ${message}:`, formatted);
+      console.error(`[Secure-Error] ${safeMessage}:`, safeFormatted);
     } else if (level === 'warn') {
-      console.warn(`[Secure-Warn] ${message}:`, formatted);
+      console.warn(`[Secure-Warn] ${safeMessage}:`, safeFormatted);
     } else if (level === 'debug') {
-      console.debug(`[Secure-Debug] ${message}:`, formatted);
+      console.debug(`[Secure-Debug] ${safeMessage}:`, safeFormatted);
     } else {
-      console.log(`[Secure-Info] ${message}:`, formatted);
+      console.log(`[Secure-Info] ${safeMessage}:`, safeFormatted);
     }
   }
 }
@@ -68,8 +73,8 @@ export async function logError(
   metadata: Record<string, any> = {}
 ): Promise<string> {
   const errorId = createErrorId();
-  const message = error?.message || String(error);
-  const stack = error?.stack || null;
+  const message = redactText(error?.message || String(error));
+  const stack = error?.stack ? redactText(error.stack) : null;
   const safeMetadata = redactSensitive(metadata);
 
   rememberError({

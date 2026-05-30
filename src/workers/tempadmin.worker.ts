@@ -12,8 +12,25 @@ export function startTempAdminWorker(adapter: WhatsAppAdapter) {
           const parts = key.split(':');
           if (parts.length < 3) continue;
           
-          const groupId = parts[1];
-          const userId = parts[2];
+          let groupId = parts[1];
+          let userId = parts[2];
+
+          if (groupId && !groupId.includes('@')) {
+            try {
+              const decoded = Buffer.from(groupId, 'base64url').toString('utf-8');
+              if (decoded.includes('@')) {
+                groupId = decoded;
+              }
+            } catch (err) {}
+          }
+          if (userId && !userId.includes('@')) {
+            try {
+              const decoded = Buffer.from(userId, 'base64url').toString('utf-8');
+              if (decoded.includes('@')) {
+                userId = decoded;
+              }
+            } catch (err) {}
+          }
 
           const socket = (adapter as any).sock;
           if (socket && typeof socket.groupParticipantsUpdate === 'function') {

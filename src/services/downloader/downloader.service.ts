@@ -29,7 +29,9 @@ import {
   isAllowedThreadsUrl,
   isAllowedPinterestUrl,
   isAllowedCapCutUrl,
-  isSafePublicUrl
+  isSafePublicUrl,
+  validateUrlRedirects,
+  assertSafePublicUrl
 } from '../../validators/url.validator.js';
 
 export function isValidUrl(url: string): boolean {
@@ -74,13 +76,49 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage = '
  * Downloads a URL into a temporary file. Enforces a dynamic size limit.
  */
 async function downloadUrlToTemp(url: string, extension: string, maxBytes: number = 50 * 1024 * 1024): Promise<string> {
+  // Validate redirect chains and check for private IPs
+  const safeUrl = await validateUrlRedirects(url);
+  await assertSafePublicUrl(safeUrl);
+
+  // Perform lightweight HEAD request (or fallback GET range check) to verify content-length and content-type
+  let contentType = '';
+  let contentLength = 0;
+
+  try {
+    const headRes = await axios.head(safeUrl, {
+      timeout: 5000,
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    const contentTypeHeader = headRes.headers['content-type'];
+    contentType = typeof contentTypeHeader === 'string' ? contentTypeHeader : '';
+    const contentLengthHeader = headRes.headers['content-length'];
+    contentLength = parseInt(typeof contentLengthHeader === 'string' || typeof contentLengthHeader === 'number' ? String(contentLengthHeader) : '0', 10);
+  } catch (errHead) {
+    try {
+      const getRangeRes = await axios.get(safeUrl, {
+        timeout: 5000,
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Range': 'bytes=0-1024' }
+      });
+      const contentTypeHeader = getRangeRes.headers['content-type'];
+      contentType = typeof contentTypeHeader === 'string' ? contentTypeHeader : '';
+      const contentLengthHeader = getRangeRes.headers['content-length'];
+      contentLength = parseInt(typeof contentLengthHeader === 'string' || typeof contentLengthHeader === 'number' ? String(contentLengthHeader) : '0', 10);
+    } catch (errGet) {}
+  }
+
+  if (contentLength > maxBytes) {
+    throw new Error(`Ukuran file (${(contentLength / (1024 * 1024)).toFixed(1)} MB) melebihi batas maksimal (${(maxBytes / (1024 * 1024)).toFixed(0)} MB).`);
+  }
+
   const tempPath = getTempPath(extension);
   const writer = fs.createWriteStream(tempPath);
 
+  // Set maxRedirects: 0 in axios request (since we validated redirects beforehand)
   const response = await axios({
-    url,
+    url: safeUrl,
     method: 'GET',
     responseType: 'stream',
+    maxRedirects: 0,
     timeout: 60000, // 60 seconds connection/read timeout
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -88,12 +126,16 @@ async function downloadUrlToTemp(url: string, extension: string, maxBytes: numbe
   });
 
   let downloadedBytes = 0;
+  let limitExceeded = false;
 
   return new Promise((resolve, reject) => {
     response.data.on('data', (chunk: Buffer) => {
       downloadedBytes += chunk.length;
       if (downloadedBytes > maxBytes) {
-        writer.close();
+        limitExceeded = true;
+        // Destroy the response stream immediately
+        response.data.destroy();
+        writer.destroy();
         safeDelete(tempPath);
         reject(new Error(`Ukuran file melebihi batas maksimal (${(maxBytes / (1024 * 1024)).toFixed(0)} MB).`));
       }
@@ -101,8 +143,18 @@ async function downloadUrlToTemp(url: string, extension: string, maxBytes: numbe
 
     response.data.pipe(writer);
 
-    writer.on('finish', () => resolve(tempPath));
+    writer.on('finish', () => {
+      if (!limitExceeded) {
+        resolve(tempPath);
+      }
+    });
+
     writer.on('error', (err) => {
+      safeDelete(tempPath);
+      reject(err);
+    });
+
+    response.data.on('error', (err: any) => {
       safeDelete(tempPath);
       reject(err);
     });

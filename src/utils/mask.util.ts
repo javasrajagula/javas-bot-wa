@@ -8,7 +8,32 @@ export function maskPhone(value: string): string {
 }
 
 export function redactText(value: string): string {
-  return value.replace(PHONE_PATTERN, (match) => maskPhone(match));
+  if (!value) return value;
+  let redacted = value;
+  
+  // 1. Redact phone numbers
+  redacted = redacted.replace(PHONE_PATTERN, (match) => maskPhone(match));
+  
+  // 2. Redact URL query parameters (e.g. token=xyz, apikey=xyz, secret=xyz, password=xyz, key=xyz)
+  redacted = redacted.replace(
+    /(?<=\b)(token|password|passwd|secret|apikey|api_key|cookie|session|auth|credential|key)=([^&?\s#"\\]+)/gi,
+    '$1=[REDACTED]'
+  );
+
+  // 3. Redact JSON-like properties or simple key-value settings for sensitive keys
+  // For example: "apiKey": "xyz" or secret: 'xyz'
+  redacted = redacted.replace(
+    /(?<=\b)(token|password|passwd|secret|apikey|api_key|cookie|session|auth|credential|key)(["']?\s*[:=]\s*["'])([^"'\s\\]+)(["']?)/gi,
+    '$1$2[REDACTED]$4'
+  );
+
+  // 4. Redact Bearer tokens: Bearer <token>
+  redacted = redacted.replace(
+    /(bearer\s+)([a-zA-Z0-9\-\_\.\~\+\/]+=*)/gi,
+    '$1[REDACTED]'
+  );
+
+  return redacted;
 }
 
 export function redactSensitive<T>(input: T): T {

@@ -2,7 +2,9 @@ import { MessageContext } from './message.types.js';
 
 export interface SendMessageOptions {
   quotedMessageId?: string;
+  quotedMessageKey?: any;
   mentions?: string[];
+  mimetype?: string;
 }
 
 export abstract class WhatsAppAdapter {

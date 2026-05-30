@@ -14,6 +14,8 @@ export interface MessageContext {
   body: string;
   media?: MessageMedia;
   quotedMessage?: MessageContextQuoted;
+  rawMessageKey?: any;
+  rawQuotedMessageKey?: any;
 }
 
 export interface MessageContextQuoted {

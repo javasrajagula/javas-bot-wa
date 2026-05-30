@@ -3,6 +3,7 @@ import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
 import prisma from '../../db/client.js';
 import { localizerService } from '../../services/system/localizer.service.js';
+import { parseFeatureFlags } from '../../config/feature-flags.js';
 
 export async function interpolateTemplate(
   template: string,
@@ -47,9 +48,7 @@ export async function interpolateTemplate(
     .replace(/{prefix}/g, prefix);
 }
 
-// Global store for captcha verification sessions
-// Key: "groupId:userId", Value: { answer: string; expiresAt: number; welcomeText: string }
-export const captchaSessions = new Map<string, { answer: string; expiresAt: number; welcomeText: string }>();
+// Captcha verification sessions are persisted via stateStore.
 
 export class WelcomeCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
@@ -68,7 +67,7 @@ export class WelcomeCommand implements Command {
 
     // Fetch current features config
     const config = await prisma.groupConfig.findUnique({ where: { groupId: ctx.chatId } });
-    const features = config ? JSON.parse(config.featuresJson || '{}') : {};
+    const features = config ? parseFeatureFlags(config.featuresJson) : {};
 
     // 1. /welcome [on|off]
     if (commandType === 'welcome') {

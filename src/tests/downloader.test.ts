@@ -63,8 +63,7 @@ describe('Expanded URL Validators', () => {
 });
 
 describe('Media Duration Inspector', () => {
-  it('should return 0 or valid number for a file path without crashing', async () => {
-    const duration = await getMediaDuration('non_existent_file.mp4');
-    expect(duration).toBe(0);
+  it('should reject with an error for a non-existent file path', async () => {
+    await expect(getMediaDuration('non_existent_file.mp4')).rejects.toThrow();
   });
 });

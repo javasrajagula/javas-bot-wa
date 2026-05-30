@@ -476,7 +476,9 @@ export class ModerationSuiteCommand implements Command {
 
       const { stateStore } = await import('../../services/state/state-store.js');
       const expiresAt = Date.now() + seconds * 1000;
-      await stateStore.set(`tempadmin:${ctx.chatId}:${targetJid}`, expiresAt);
+      const encGroupId = Buffer.from(ctx.chatId).toString('base64url');
+      const encTargetJid = Buffer.from(targetJid).toString('base64url');
+      await stateStore.set(`tempadmin:${encGroupId}:${encTargetJid}`, expiresAt);
 
       await adapter.sendMessage(ctx.chatId, `✅ @${targetJid.split('@')[0]} dipromosikan menjadi Admin Sementara selama ${durationStr}.`, { mentions: [targetJid], quotedMessageId: ctx.id });
       return;

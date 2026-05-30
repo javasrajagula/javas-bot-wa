@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import prisma from '../db/client.js';
 
 export interface QueueJob<T = any> {
   id: string;
@@ -68,6 +69,30 @@ export class MemoryQueue implements QueueInterface {
     };
     this.queue.push(fullJob);
     console.log(`[Queue: ${this.name}] Added job ${job.id}. Current queue size: ${this.queue.length}`);
+
+    // Persist to DB
+    try {
+      const dataMeta = job.data && typeof job.data === 'object' ? job.data : {};
+      await prisma.queueJobRecord.upsert({
+        where: { jobId: job.id },
+        create: {
+          jobId: job.id,
+          queue: this.name,
+          status: 'waiting',
+          command: (dataMeta as any).command || null,
+          groupId: (dataMeta as any).groupId || null,
+          userId: (dataMeta as any).userId || null,
+          metadataJson: JSON.stringify(dataMeta)
+        },
+        update: {
+          status: 'waiting',
+          updatedAt: new Date()
+        }
+      });
+    } catch (dbErr) {
+      console.error(`[Queue: ${this.name}] Failed to save job ${job.id} to DB:`, dbErr);
+    }
+
     this.processNext();
   }
 
@@ -81,12 +106,29 @@ export class MemoryQueue implements QueueInterface {
     this.activeJobs.push(job);
 
     console.log(`[Queue: ${this.name}] Starting job ${job.id}`);
+
+    // Update status to active in DB
+    try {
+      await prisma.queueJobRecord.updateMany({
+        where: { jobId: job.id },
+        data: { status: 'active', updatedAt: new Date() }
+      });
+    } catch (dbErr) {
+      console.error(`[Queue: ${this.name}] Failed to update job ${job.id} to active:`, dbErr);
+    }
     
     try {
       await job.process();
       console.log(`[Queue: ${this.name}] Job ${job.id} succeeded`);
       this.completedJobs.push(job);
       if (this.completedJobs.length > 50) this.completedJobs.shift();
+
+      // Update status to completed in DB
+      await prisma.queueJobRecord.updateMany({
+        where: { jobId: job.id },
+        data: { status: 'completed', updatedAt: new Date() }
+      }).catch(() => {});
+
       if (job.onSuccess) job.onSuccess();
     } catch (err: any) {
       console.error(`[Queue: ${this.name}] Job ${job.id} failed:`, err);
@@ -94,10 +136,23 @@ export class MemoryQueue implements QueueInterface {
         job.retries++;
         console.log(`[Queue: ${this.name}] Retrying job ${job.id} (${job.retries}/2)`);
         this.queue.unshift(job);
+
+        // Update status back to waiting/retry in DB
+        await prisma.queueJobRecord.updateMany({
+          where: { jobId: job.id },
+          data: { status: 'waiting', updatedAt: new Date() }
+        }).catch(() => {});
       } else {
         console.log(`[Queue: ${this.name}] Job ${job.id} exhausted all retries`);
         this.failedJobs.push(job);
         if (this.failedJobs.length > 50) this.failedJobs.shift();
+
+        // Update status to failed in DB
+        await prisma.queueJobRecord.updateMany({
+          where: { jobId: job.id },
+          data: { status: 'failed', updatedAt: new Date() }
+        }).catch(() => {});
+
         if (job.onFailure) job.onFailure(err instanceof Error ? err : new Error(String(err)));
       }
     } finally {
@@ -111,6 +166,13 @@ export class MemoryQueue implements QueueInterface {
     this.queue = this.queue.filter(j => j.id !== jobId);
     if (this.queue.length < initialLen) {
       console.log(`[Queue: ${this.name}] Cancelled waiting job ${jobId}`);
+
+      // Update status to cancelled in DB
+      await prisma.queueJobRecord.updateMany({
+        where: { jobId },
+        data: { status: 'cancelled', updatedAt: new Date() }
+      }).catch(() => {});
+
       return true;
     }
     return false;

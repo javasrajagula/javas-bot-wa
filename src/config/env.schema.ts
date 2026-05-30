@@ -11,7 +11,7 @@ const optionalString = z.preprocess((value) => value ?? '', z.string());
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info', 'debug']).default('info'),
-  DATABASE_URL: z.string().min(1).default('file:./dev.db'),
+  DATABASE_URL: z.string().min(1).default('file:./data/dev.db'),
   DATABASE_PROVIDER: z.enum(['sqlite', 'postgresql', 'mysql']).default('sqlite'),
   BOT_PREFIX: z.string().min(1).max(4).default('/'),
   ADAPTER_MODE: z.enum(['console', 'baileys']).default('console'),
@@ -41,6 +41,7 @@ export const envSchema = z.object({
   AI_API_KEY: optionalString.default(''),
   OWNER_BYPASS_RATE_LIMIT: booleanFromString.default(true),
   PRIVATE_CHAT_BYPASS_RATE_LIMIT: booleanFromString.default(true),
+  TRUST_PROXY: booleanFromString.default(false),
 }).passthrough();
 
 export type Env = z.infer<typeof envSchema> & {
@@ -66,6 +67,9 @@ export function parseEnv(raw: NodeJS.ProcessEnv = process.env): Env {
   }
 
   if (!value.OWNER_IDS || value.OWNER_IDS.trim() === '') {
+    if (value.NODE_ENV === 'production') {
+      throw new Error("Konfigurasi environment tidak valid: OWNER_IDS wajib diisi di production.");
+    }
     console.warn("[WARNING] OWNER_IDS kosong. Beberapa command administrator/owner mungkin tidak dapat diakses.");
   }
 

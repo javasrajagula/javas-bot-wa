@@ -3,7 +3,7 @@ import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
 import prisma from '../db/client.js';
 import { rateLimiter } from '../utils/rate-limit.util.js';
 import { isOwner, isPremium } from '../bot/permission.js';
-import { DEFAULT_FEATURES } from '../config/feature-flags.js';
+import { DEFAULT_FEATURES, parseFeatureFlags } from '../config/feature-flags.js';
 import { achievementService } from '../services/achievement/achievement.service.js';
 import { env } from '../config/env.js';
 import { permissionService } from '../services/system/permission.service.js';
@@ -99,7 +99,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   // Update daily mission message count
   const { updateDailyMissionMsgCount } = await import('./games/mission.command.js');
   updateDailyMissionMsgCount(ctx.senderId).catch(err => console.error('[Mission Msg Fail]', err));
-  
+
   // 1. Get Group Configuration (or default values)
   let prefix = '/';
   let botEnabled = true;
@@ -225,7 +225,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
       // 4. Anti-Spam Message Frequency (Rate & Cooldown)
       if (flags.antispam) {
         const now = Date.now();
-        
+
         // Repeated identical message check
         if (ctx.body) {
           const lastMsg = lastMessages.get(scopeKey);
@@ -269,7 +269,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
                 return whitelisted.some((domain: string) => hostname === domain || hostname.endsWith('.' + domain));
               });
             }
-          } catch {}
+          } catch { }
 
           if (!isWhitelisted) {
             await executePunishment(ctx.chatId, ctx.senderId, flags.antilinkMode || 'delete', 'Mengirimkan link dilarang', ctx, adapter);
@@ -307,12 +307,11 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
 
   // Intercept Captcha inputs
   if (isGroup) {
-    const { captchaSessions } = await import('./community/welcome.command.js');
-    const captchaKey = `${ctx.chatId}:${ctx.senderId}`;
-    const captcha = captchaSessions.get(captchaKey);
+    const captchaKey = `captcha:${ctx.chatId}:${ctx.senderId}`;
+    const captcha = await stateStore.get<any>(captchaKey);
     if (captcha) {
       if (ctx.body.trim() === captcha.answer) {
-        captchaSessions.delete(captchaKey);
+        await stateStore.delete(captchaKey);
         await adapter.sendMessage(ctx.chatId, `✅ *Verifikasi Berhasil!* Selamat bergabung @${ctx.senderId.split('@')[0]}.`, { mentions: [ctx.senderId] });
         if (captcha.welcomeText) {
           await adapter.sendMessage(ctx.chatId, captcha.welcomeText, { mentions: [ctx.senderId] });
@@ -417,7 +416,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
 
   // 4. Validate if feature is enabled in Group
   if (isGroup && groupConfig) {
-    const flags = JSON.parse(groupConfig.featuresJson || '{}');
+    const flags = parseFeatureFlags(groupConfig.featuresJson);
     if (featureKey !== 'general') {
       const isEnabled = flags[featureKey] !== undefined ? flags[featureKey] : DEFAULT_FEATURES[featureKey];
       if (!isEnabled) {
@@ -439,7 +438,19 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
     }
 
     const category = registeredCmd.metadata.category;
-    if (groupPlan === 'free') {
+
+    const freeAllowedCommands = [
+      'sewa',
+      'ceksewa',
+      'fitursewa',
+      'invoice',
+      'sewaconfirm',
+      'trial'
+    ];
+
+    if (freeAllowedCommands.includes(commandName)) {
+      // command sewa harus tetap bisa dipakai walaupun grup masih FREE
+    } else if (groupPlan === 'free') {
       if (category !== 'general' && category !== 'sticker') {
         await adapter.sendMessage(ctx.chatId, `⚠️ Grup ini menggunakan paket FREE. Fitur "${category}" tidak tersedia. Silakan gunakan paket BASIC atau PREMIUM. Ketik \`/sewa\` untuk info.`, { quotedMessageId: ctx.id });
         return;
@@ -450,183 +461,241 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
         return;
       }
     }
-  }
 
-  // --- ROLE AND PERMISSION CHECKS ---
-  const { getUserRole } = await import('../bot/permission.js');
-  const userRole = await getUserRole(ctx.chatId, ctx.senderId, adapter);
+    // --- ROLE AND PERMISSION CHECKS ---
+    const { getUserRole } = await import('../bot/permission.js');
+    const userRole = await getUserRole(ctx.chatId, ctx.senderId, adapter);
 
-  // Role hierarchy mapping
-  const roleHierarchy: Record<string, number> = {
-    owner: 4,
-    admin: 3,
-    premium: 2,
-    user: 1
-  };
+    // Role hierarchy mapping
+    const roleHierarchy: Record<string, number> = {
+      owner: 4,
+      admin: 3,
+      premium: 2,
+      user: 1
+    };
 
-  const minRole = registeredCmd.metadata.minRole || 'user';
-  const isPremiumOnly = registeredCmd.metadata.premiumOnly || false;
+    const minRole = registeredCmd.metadata.minRole || 'user';
+    const isPremiumOnly = registeredCmd.metadata.premiumOnly || false;
 
-  if (roleHierarchy[userRole] < roleHierarchy[minRole]) {
-    if (minRole === 'owner') {
-      await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Owner.', { quotedMessageId: ctx.id });
-      return;
-    }
-    if (minRole === 'admin') {
-      if (!isGroup) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya dapat digunakan di dalam grup oleh Admin.', { quotedMessageId: ctx.id });
-      } else {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Admin grup.', { quotedMessageId: ctx.id });
+    if (roleHierarchy[userRole] < roleHierarchy[minRole]) {
+      if (minRole === 'owner') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Owner.', { quotedMessageId: ctx.id });
+        return;
       }
+      if (minRole === 'admin') {
+        if (!isGroup) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya dapat digunakan di dalam grup oleh Admin.', { quotedMessageId: ctx.id });
+        } else {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Admin grup.', { quotedMessageId: ctx.id });
+        }
+        return;
+      }
+    }
+
+    const alwaysAllowedCommands = [
+      'menu',
+      'help',
+      'start',
+      'cmd',
+      'cari',
+      'sewa',
+      'ceksewa',
+      'fitursewa',
+      'invoice',
+      'trial',
+      'premiumguide'
+    ];
+
+    if (
+      !alwaysAllowedCommands.includes(commandName) &&
+      isPremiumOnly &&
+      roleHierarchy[userRole] < roleHierarchy['premium']
+    ) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Premium User.', { quotedMessageId: ctx.id });
       return;
     }
-  }
 
-  if (isPremiumOnly && roleHierarchy[userRole] < roleHierarchy['premium']) {
-    await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Premium User.', { quotedMessageId: ctx.id });
-    return;
-  }
+    // 5. Rate Limiting Check
+    let isRateLimited = false;
+    let retryAfterSeconds = 0;
 
-  // 5. Rate Limiting Check
-  let isRateLimited = false;
-  let retryAfterSeconds = 0;
+    const bypassOwner = env.OWNER_BYPASS_RATE_LIMIT;
+    const bypassPrivate = env.PRIVATE_CHAT_BYPASS_RATE_LIMIT;
+    const isSenderOwner = isOwner(ctx.senderId);
 
-  const bypassOwner = env.OWNER_BYPASS_RATE_LIMIT;
-  const bypassPrivate = env.PRIVATE_CHAT_BYPASS_RATE_LIMIT;
-  const isSenderOwner = isOwner(ctx.senderId);
+    const rateLimitFeature = registeredCmd.metadata.rateLimitKey || featureKey || 'general';
 
-  const rateLimitFeature = registeredCmd.metadata.rateLimitKey || featureKey || 'general';
+    if (isGroup) {
+      if (!(isSenderOwner && bypassOwner)) {
+        const rateLimitKey = rateLimitFeature === 'werewolf'
+          ? `group:${ctx.chatId}:werewolf`
+          : `user:${ctx.senderId}:${rateLimitFeature}`;
 
-  if (isGroup) {
-    if (!(isSenderOwner && bypassOwner)) {
-      const rateLimitKey = rateLimitFeature === 'werewolf'
-        ? `group:${ctx.chatId}:werewolf`
-        : `user:${ctx.senderId}:${rateLimitFeature}`;
-
-      const res = rateLimiter.isRateLimited(rateLimitKey, rateLimitFeature);
-      isRateLimited = res.limited;
-      retryAfterSeconds = res.retryAfterSeconds;
+        const res = rateLimiter.isRateLimited(rateLimitKey, rateLimitFeature);
+        isRateLimited = res.limited;
+        retryAfterSeconds = res.retryAfterSeconds;
+      }
+    } else {
+      if (!bypassPrivate && !(isSenderOwner && bypassOwner)) {
+        const rateLimitKey = `user:${ctx.senderId}:${rateLimitFeature}`;
+        const res = rateLimiter.isRateLimited(rateLimitKey, rateLimitFeature);
+        isRateLimited = res.limited;
+        retryAfterSeconds = res.retryAfterSeconds;
+      }
     }
-  } else {
-    if (!bypassPrivate && !(isSenderOwner && bypassOwner)) {
-      const rateLimitKey = `user:${ctx.senderId}:${rateLimitFeature}`;
-      const res = rateLimiter.isRateLimited(rateLimitKey, rateLimitFeature);
-      isRateLimited = res.limited;
-      retryAfterSeconds = res.retryAfterSeconds;
+    if (isRateLimited) {
+      await adapter.sendMessage(
+        ctx.chatId,
+        `⏳ Anda terkena rate limit. Silakan coba lagi setelah ${retryAfterSeconds} detik.`,
+        { quotedMessageId: ctx.id }
+      );
+      return;
     }
-  }
 
-  if (isRateLimited) {
-    await adapter.sendMessage(
-      ctx.chatId,
-      `⏳ Anda terkena rate limit. Silakan coba lagi setelah ${retryAfterSeconds} detik.`,
-      { quotedMessageId: ctx.id }
-    );
-    return;
-  }
-
-  // 5b. Quota Limit Check
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-
-  if (isGroup) {
-    let groupPlan = 'free';
-    const sub = await prisma.groupSubscription.findUnique({
-      where: { groupId: ctx.chatId }
+    // 5b. Pessimistic Quota Reservation check
+    const startTime = Date.now();
+    const tempLog = await prisma.usageLog.create({
+      data: {
+        userId: ctx.senderId,
+        groupId: isGroup ? ctx.chatId : null,
+        feature: featureKey,
+        command: commandName,
+        success: false,
+        status: 'failed'
+      }
     });
-    if (sub) {
-      const expired = sub.expiresAt && sub.expiresAt.getTime() < Date.now();
-      if (!expired) {
-        groupPlan = sub.plan || 'free';
-      }
-    }
 
-    const maxCmd = groupPlan === 'free' ? 50 : groupPlan === 'basic' ? 200 : 999999;
-    if (groupPlan !== 'premium') {
-      const usageCount = await prisma.usageLog.count({
-        where: {
-          groupId: ctx.chatId,
-          createdAt: { gte: startOfDay }
-        }
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    if (isGroup) {
+      let groupPlan = 'free';
+      const sub = await prisma.groupSubscription.findUnique({
+        where: { groupId: ctx.chatId }
       });
-      if (usageCount >= maxCmd) {
-        await adapter.sendMessage(
-          ctx.chatId,
-          `⚠️ *KUOTA HARIAN GRUP HABIS!* ⚠️\n\nGrup ini telah mencapai batas kuota harian *${maxCmd}* perintah (Paket ${groupPlan.toUpperCase()}).\nSewa paket PREMIUM untuk mendapatkan kuota tak terbatas! Ketik \`/sewa\` untuk informasi sewa.`,
-          { quotedMessageId: ctx.id }
-        );
-        return;
-      }
-    }
-  } else {
-    // Private chat quota check
-    const isSenderPremium = await isPremium(ctx.senderId);
-    if (!isSenderPremium && !isSenderOwner) {
-      const maxCmd = 20; // Default quota for free user in private chat
-      const usageCount = await prisma.usageLog.count({
-        where: {
-          userId: ctx.senderId,
-          groupId: null,
-          createdAt: { gte: startOfDay }
+      if (sub) {
+        const expired = sub.expiresAt && sub.expiresAt.getTime() < Date.now();
+        if (!expired) {
+          groupPlan = sub.plan || 'free';
         }
-      });
-      if (usageCount >= maxCmd) {
-        await adapter.sendMessage(
-          ctx.chatId,
-          `⚠️ *KUOTA HARIAN ANDA HABIS!* ⚠️\n\nAnda telah mencapai batas kuota harian *${maxCmd}* perintah untuk chat pribadi.\nJadilah user PREMIUM untuk mendapatkan kuota tak terbatas! Ketik \`/invoice premium 1\` untuk membeli premium.`,
-          { quotedMessageId: ctx.id }
-        );
-        return;
+      }
+
+      let maxCmd = 50;
+      if (groupPlan === 'basic') maxCmd = 200;
+      else if (groupPlan === 'premium') maxCmd = 999999;
+
+      if (sub && sub.maxDailyCmd !== null && sub.maxDailyCmd !== undefined) {
+        maxCmd = sub.maxDailyCmd;
+      }
+
+      if (groupPlan !== 'premium') {
+        const usageCount = await prisma.usageLog.count({
+          where: {
+            groupId: ctx.chatId,
+            createdAt: { gte: startOfDay }
+          }
+        });
+        if (usageCount > maxCmd) {
+          await prisma.usageLog.delete({ where: { id: tempLog.id } }).catch(() => {});
+          await adapter.sendMessage(
+            ctx.chatId,
+            `⚠️ *KUOTA HARIAN GRUP HABIS!* ⚠️\n\nGrup ini telah mencapai batas kuota harian *${maxCmd}* perintah (Paket ${groupPlan.toUpperCase()}).\nSewa paket PREMIUM untuk mendapatkan kuota tak terbatas! Ketik \`/sewa\` untuk informasi sewa.`,
+            { quotedMessageId: ctx.id }
+          );
+          return;
+        }
+      }
+    } else {
+      // Private chat quota check
+      const isSenderPremium = await isPremium(ctx.senderId);
+      if (!isSenderPremium && !isSenderOwner) {
+        const maxCmd = 20; // Default quota for free user in private chat
+        const usageCount = await prisma.usageLog.count({
+          where: {
+            userId: ctx.senderId,
+            groupId: null,
+            createdAt: { gte: startOfDay }
+          }
+        });
+        if (usageCount > maxCmd) {
+          await prisma.usageLog.delete({ where: { id: tempLog.id } }).catch(() => {});
+          await adapter.sendMessage(
+            ctx.chatId,
+            `⚠️ *KUOTA HARIAN ANDA HABIS!* ⚠️\n\nAnda telah mencapai batas kuota harian *${maxCmd}* perintah untuk chat pribadi.\nJadilah user PREMIUM untuk mendapatkan kuota tak terbatas! Ketik \`/invoice premium 1\` untuk membeli premium.`,
+            { quotedMessageId: ctx.id }
+          );
+          return;
+        }
       }
     }
-  }
 
-  // Log usage in Database asynchronously
-  prisma.usageLog.create({
-    data: {
-      userId: ctx.senderId,
-      groupId: isGroup ? ctx.chatId : null,
-      feature: featureKey
-    }
-  }).then(() => {
-    checkCommandAchievements(ctx.senderId, isGroup, ctx.chatId, adapter, commandName, minRole);
-  }).catch(err => console.error('Failed to save UsageLog:', err));
-
-  // Auto-delete Command Message if cleancmd feature is enabled
-  if (isGroup && groupConfig) {
-    const flags = JSON.parse(groupConfig.featuresJson || '{}');
-    if (flags.cleancmd) {
-      try {
-        await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
-      } catch (err) {
-        console.error('[CleanCmd] Failed to auto-delete command message:', err);
+    // Auto-delete Command Message if cleancmd feature is enabled
+    if (isGroup && groupConfig) {
+      const flags = parseFeatureFlags(groupConfig.featuresJson);
+      if (flags.cleancmd) {
+        try {
+          await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
+        } catch (err) {
+          console.error('[CleanCmd] Failed to auto-delete command message:', err);
+        }
       }
     }
-  }
 
-  // 6. Execute Command
-  try {
-    const { updateDailyMissionCmdCount } = await import('./games/mission.command.js');
-    updateDailyMissionCmdCount(ctx.senderId).catch(err => console.error('[Mission Cmd Fail]', err));
+    // 6. Execute Command
+    try {
+      const { updateDailyMissionCmdCount } = await import('./games/mission.command.js');
+      updateDailyMissionCmdCount(ctx.senderId).catch(err => console.error('[Mission Cmd Fail]', err));
 
-    await registeredCmd.execute(ctx, args, adapter);
-    achievementService.checkEconomyAchievements(
-      ctx.senderId,
-      adapter,
-      isGroup ? ctx.chatId : undefined
-    ).catch(err => console.error('[Achievement Economy Hook Failed]', err));
-  } catch (err: any) {
-    const { safeReplyError } = await import('../utils/logger.js');
-    await safeReplyError(ctx.chatId, err, adapter, {
-      quotedMessageId: ctx.id,
-      scope: 'routeMessage',
-      feature: featureKey,
-      metadata: {
+      await registeredCmd.execute(ctx, args, adapter);
+
+      // Update reservation log as success
+      const durationMs = Date.now() - startTime;
+      await prisma.usageLog.update({
+        where: { id: tempLog.id },
+        data: {
+          success: true,
+          status: 'success',
+          durationMs
+        }
+      }).catch(err => console.error('Failed to update UsageLog success:', err));
+
+      checkCommandAchievements(ctx.senderId, isGroup, ctx.chatId, adapter, commandName, minRole);
+
+      achievementService.checkEconomyAchievements(
+        ctx.senderId,
+        adapter,
+        isGroup ? ctx.chatId : undefined
+      ).catch(err => console.error('[Achievement Economy Hook Failed]', err));
+    } catch (err: any) {
+      const durationMs = Date.now() - startTime;
+      const { logError } = await import('../utils/logger.js');
+      const errorId = await logError('routeMessage', featureKey, err, {
         userId: ctx.senderId,
         command: commandName,
         args
+      });
+
+      // Update reservation log as failed with error details
+      await prisma.usageLog.update({
+        where: { id: tempLog.id },
+        data: {
+          success: false,
+          status: 'failed',
+          errorId,
+          durationMs
+        }
+      }).catch(dbErr => console.error('Failed to update UsageLog error:', dbErr));
+
+      try {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `Terjadi kesalahan sistem saat memproses command Anda. Error ID: ${errorId}`,
+          { quotedMessageId: ctx.id }
+        );
+      } catch (sendErr) {
+        console.error('[Logger] Failed to send safe reply error to user:', sendErr);
       }
-    });
+    }
   }
 }
 
@@ -646,7 +715,7 @@ export async function executePunishment(
   if (ctx && action !== 'warn_no_delete') {
     try {
       await adapter.deleteMessage(chatId, ctx.id, userId);
-    } catch {}
+    } catch { }
   }
 
   const actualAction = action === 'warn_no_delete' ? 'warn' : action;
@@ -723,7 +792,7 @@ export async function executePunishment(
     if (triggeredRule) {
       const ruleAction = triggeredRule.action;
       warningMsg += `\n\n🚫 ${mention} telah mencapai batas ${triggeredRule.threshold} peringatan! Melakukan tindakan: *${ruleAction.toUpperCase()}*.`;
-      
+
       await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
 
       if (ruleAction === 'kick') {

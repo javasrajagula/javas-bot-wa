@@ -33,13 +33,16 @@ model UserProfile {
 }
 
 model UsageLog {
-  id        String   @id @default(uuid())
-  userId    String
-  groupId   String?
-  feature   String
-  command   String?
-  success   Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String
+  groupId    String?
+  feature    String
+  command    String?
+  success    Boolean  @default(true)
+  status     String?
+  errorId    String?
+  durationMs Int?
+  createdAt  DateTime @default(now())
 }
 
 model PremiumUser {

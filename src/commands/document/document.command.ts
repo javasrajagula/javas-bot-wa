@@ -3,9 +3,13 @@ import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
 import axios from 'axios';
 import crypto from 'crypto';
+import fs from 'fs';
 import { isPremium } from '../../bot/permission.js';
 import { isSafePublicUrl } from '../../validators/url.validator.js';
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
+import { stateStore } from '../../services/state/state-store.js';
+import JSZip from 'jszip';
+import { safeDelete, getTempPath } from '../../utils/file.util.js';
 import {
   buildScanImage,
   compressPdfBuffer,
@@ -13,37 +17,9 @@ import {
   imageToPdf,
   inspectZip,
   mergePdfBuffers,
-  renderPdfFirstPage
+  renderPdfPage,
+  extractTextFromPdfWithPoppler
 } from '../../services/document/document-tools.service.js';
-
-// Pure JS PDF Text Extractor
-function extractTextFromPdfBuffer(pdfBuffer: Buffer): string {
-  try {
-    const pdfString = pdfBuffer.toString('binary');
-    const textMatches = pdfString.match(/\(([^)]+)\)\s*Tj/g) || [];
-    const tjMatches = pdfString.match(/\[([^\]]+)\]\s*TJ/g) || [];
-    
-    let text = '';
-    textMatches.forEach(m => {
-      const match = m.match(/\(([^)]+)\)/);
-      if (match && match[1]) text += match[1] + ' ';
-    });
-    
-    tjMatches.forEach(m => {
-      const strings = m.match(/\(([^)]+)\)/g) || [];
-      strings.forEach(s => {
-        const match = s.match(/\(([^)]+)\)/);
-        if (match && match[1]) text += match[1];
-      });
-      text += ' ';
-    });
-
-    // Replace octal escapes
-    return text.replace(/\\([\d]{3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8))).trim();
-  } catch (err) {
-    return 'Gagal mengekstrak teks: ' + (err as Error).message;
-  }
-}
 
 async function splitPdfBuffer(pdfBuffer: Buffer, range: string): Promise<Buffer> {
   const srcDoc = await PDFDocument.load(pdfBuffer);
@@ -101,27 +77,63 @@ async function watermarkPdfBuffer(pdfBuffer: Buffer, watermarkText: string): Pro
 
 async function txtToPdf(text: string): Promise<Buffer> {
   const doc = await PDFDocument.create();
-  const page = doc.addPage([595.276, 841.890]); // A4
   const font = await doc.embedFont(StandardFonts.Helvetica);
   
-  const { height } = page.getSize();
+  const pageWidth = 595.276; // A4 width
+  const pageHeight = 841.890; // A4 height
   const margin = 50;
-  let y = height - margin;
-  const lines = text.split('\n');
+  const fontSize = 11;
+  const lineSpacing = 15;
+  const maxLineWidth = pageWidth - 2 * margin;
   
-  lines.forEach(line => {
-    if (y < margin) {
-      // Just cutoff for simple rendering
-      return;
+  let page = doc.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - margin;
+
+  const wrapText = (lineText: string): string[] => {
+    const words = lineText.split(' ');
+    const wrapped: string[] = [];
+    let currentLine = '';
+
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const width = font.widthOfTextAtSize(testLine, fontSize);
+      if (width > maxLineWidth) {
+        wrapped.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine) {
+      wrapped.push(currentLine);
+    }
+    return wrapped.length > 0 ? wrapped : [''];
+  };
+
+  const rawLines = text.split('\n');
+  const lines: string[] = [];
+  for (const rawLine of rawLines) {
+    lines.push(...wrapText(rawLine));
+  }
+  
+  const pageLimit = 100;
+  
+  for (const line of lines) {
+    if (y < margin + fontSize) {
+      if (doc.getPageCount() >= pageLimit) {
+        break;
+      }
+      page = doc.addPage([pageWidth, pageHeight]);
+      y = pageHeight - margin;
     }
     page.drawText(line, {
       x: margin,
       y,
-      size: 11,
+      size: fontSize,
       font: font
     });
-    y -= 15;
-  });
+    y -= lineSpacing;
+  }
   
   const bytes = await doc.save();
   return Buffer.from(bytes);
@@ -178,7 +190,98 @@ export class DocumentSuiteCommand implements Command {
       return;
     }
 
+    // --- 6. /mergepdf ---
+    if (cmd === 'mergepdf') {
+      const encGroupId = Buffer.from(ctx.chatId).toString('base64url');
+      const encSenderId = Buffer.from(ctx.senderId).toString('base64url');
+      const sessionKey = `mergepdf:session:${encGroupId}:${encSenderId}`;
+      const session = await stateStore.get<{ files: string[] }>(sessionKey);
 
+      const subCommand = args[0]?.toLowerCase();
+
+      if (subCommand === 'start') {
+        if (session) {
+          for (const file of session.files) {
+            safeDelete(file);
+          }
+        }
+        await stateStore.set(sessionKey, { files: [] }, 900);
+        await adapter.sendMessage(ctx.chatId, '🎬 *Sesi Penggabungan PDF Dimulai* 🎬\n\nSilakan kirim/reply dokumen PDF satu per satu dengan mengetik `/mergepdf` untuk menambahkannya.\n\nKetik `/mergepdf done` jika sudah selesai, atau `/mergepdf cancel` untuk membatalkan.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      if (subCommand === 'cancel') {
+        if (session) {
+          for (const file of session.files) {
+            safeDelete(file);
+          }
+          await stateStore.delete(sessionKey);
+          await adapter.sendMessage(ctx.chatId, '❌ Sesi penggabungan PDF dibatalkan dan file sementara dihapus.', { quotedMessageId: ctx.id });
+        } else {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi penggabungan PDF yang sedang aktif.', { quotedMessageId: ctx.id });
+        }
+        return;
+      }
+
+      if (subCommand === 'done') {
+        if (!session || session.files.length < 2) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Sesi tidak aktif atau Anda harus menambahkan minimal 2 file PDF sebelum menggabungkannya.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        await adapter.sendMessage(ctx.chatId, `⏳ Menggabungkan ${session.files.length} file PDF...`, { quotedMessageId: ctx.id });
+        try {
+          const buffers = [];
+          for (const filePath of session.files) {
+            if (fs.existsSync(filePath)) {
+              buffers.push(await fs.promises.readFile(filePath));
+            }
+          }
+          
+          if (buffers.length < 2) {
+            throw new Error('Beberapa file sementara hilang.');
+          }
+
+          const merged = await mergePdfBuffers(buffers);
+          await adapter.sendDocument(ctx.chatId, merged, 'merged.pdf', 'application/pdf', { quotedMessageId: ctx.id });
+        } catch (err: any) {
+          await adapter.sendMessage(ctx.chatId, `❌ Gagal menggabungkan PDF: ${err.message}`, { quotedMessageId: ctx.id });
+        } finally {
+          for (const file of session.files) {
+            safeDelete(file);
+          }
+          await stateStore.delete(sessionKey);
+        }
+        return;
+      }
+
+      // Default or legacy direct merge behavior
+      const media = ctx.media || ctx.quotedMessage?.media;
+      if (session) {
+        if (!media || !media.mimeType.includes('pdf')) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Reply atau sertakan dokumen PDF yang ingin ditambahkan ke sesi merge.', { quotedMessageId: ctx.id });
+          return;
+        }
+        const buffer = await media.getBuffer();
+        const tempPath = getTempPath('pdf');
+        await fs.promises.writeFile(tempPath, buffer);
+        session.files.push(tempPath);
+        await stateStore.set(sessionKey, session, 900);
+        await adapter.sendMessage(ctx.chatId, `📥 PDF berhasil ditambahkan ke sesi. Total: *${session.files.length}* file.\n\nKetik:\n• \`/mergepdf\` (pada file lain) untuk menambah lagi\n• \`/mergepdf done\` untuk menyelesaikan\n• \`/mergepdf cancel\` untuk membatalkan`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const quoted = ctx.quotedMessage?.media;
+      if (!media || !media.mimeType.includes('pdf') || !quoted || !quoted.mimeType.includes('pdf')) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Gunakan `/mergepdf start` untuk memulai sesi penggabungan multi-file,\natau reply satu PDF sambil mengirim PDF lain dengan caption `/mergepdf` untuk cara cepat.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const buffer = await media.getBuffer();
+      const merged = await mergePdfBuffers([await quoted.getBuffer(), buffer]);
+      await adapter.sendDocument(ctx.chatId, merged, 'merged.pdf', 'application/pdf', { quotedMessageId: ctx.id });
+      return;
+    }
 
     // Load media buffer for rest of commands
     const media = ctx.media || ctx.quotedMessage?.media;
@@ -214,25 +317,21 @@ export class DocumentSuiteCommand implements Command {
         return;
       }
 
+      let pageNum = 1;
+      if (args[0]) {
+        pageNum = parseInt(args[0], 10);
+        if (isNaN(pageNum) || pageNum < 1) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Halaman harus berupa angka positif mulai dari 1.', { quotedMessageId: ctx.id });
+          return;
+        }
+      }
+
       try {
-        const png = await renderPdfFirstPage(buffer);
-        await adapter.sendImage(ctx.chatId, png, 'Halaman 1 hasil konversi PDF.', { quotedMessageId: ctx.id });
+        const png = await renderPdfPage(buffer, pageNum);
+        await adapter.sendImage(ctx.chatId, png, `Halaman ${pageNum} hasil konversi PDF.`, { quotedMessageId: ctx.id });
       } catch (err: any) {
         await adapter.sendMessage(ctx.chatId, `❌ Gagal mengonversi PDF: ${err.message}`, { quotedMessageId: ctx.id });
       }
-      return;
-    }
-
-    // --- 6. /mergepdf ---
-    if (cmd === 'mergepdf') {
-      const quoted = ctx.quotedMessage?.media;
-      if (!media.mimeType.includes('pdf') || !quoted || !quoted.mimeType.includes('pdf')) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Reply satu PDF sambil mengirim PDF lain dengan caption `/mergepdf` agar dua PDF bisa digabung.', { quotedMessageId: ctx.id });
-        return;
-      }
-
-      const merged = await mergePdfBuffers([await quoted.getBuffer(), buffer]);
-      await adapter.sendDocument(ctx.chatId, merged, 'merged.pdf', 'application/pdf', { quotedMessageId: ctx.id });
       return;
     }
 
@@ -243,8 +342,23 @@ export class DocumentSuiteCommand implements Command {
         return;
       }
 
-      const compressed = await compressPdfBuffer(buffer);
-      await adapter.sendDocument(ctx.chatId, compressed, 'compressed.pdf', 'application/pdf', { quotedMessageId: ctx.id });
+      await adapter.sendMessage(ctx.chatId, '⏳ Mengoptimalkan file PDF (Optimize PDF)...', { quotedMessageId: ctx.id });
+      try {
+        const compressed = await compressPdfBuffer(buffer);
+        const originalSize = buffer.length;
+        const optimizedSize = compressed.length;
+        const savings = ((originalSize - optimizedSize) / originalSize * 100).toFixed(0);
+
+        let msg = `✅ Berhasil mengoptimalkan PDF (Optimize PDF).\n`;
+        msg += `• Ukuran Awal: *${Math.ceil(originalSize / 1024)} KB*\n`;
+        msg += `• Ukuran Baru: *${Math.ceil(optimizedSize / 1024)} KB*\n`;
+        msg += `• Penghematan: *${savings}%*`;
+
+        await adapter.sendDocument(ctx.chatId, compressed, 'optimized.pdf', 'application/pdf', { quotedMessageId: ctx.id });
+        await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal mengoptimalkan PDF: ${err.message}`, { quotedMessageId: ctx.id });
+      }
       return;
     }
 
@@ -264,6 +378,44 @@ export class DocumentSuiteCommand implements Command {
     if (cmd === 'unzip' || cmd === 'ziplist') {
       if (!media.mimeType.includes('zip') && !media.mimeType.includes('compressed')) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Command ini mendukung file ZIP.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // Check ZIP Bomb guardrails
+      try {
+        const zip = await JSZip.loadAsync(buffer);
+        const entries = Object.values(zip.files);
+        
+        if (entries.length > 500) {
+          throw new Error('File ZIP ditolak karena berisi terlalu banyak file (maksimal 500 file).');
+        }
+
+        let totalUncompressedSize = 0;
+        for (const entry of entries) {
+          const depth = entry.name.split('/').filter(Boolean).length;
+          if (depth > 5) {
+            throw new Error('File ZIP ditolak karena struktur direktori terlalu dalam (maksimal 5 tingkat).');
+          }
+          
+          if (!entry.dir) {
+            const size = (entry as any)._data?.uncompressedSize || 0;
+            totalUncompressedSize += size;
+          }
+        }
+
+        if (totalUncompressedSize > 100 * 1024 * 1024) {
+          throw new Error('File ZIP ditolak karena total ukuran setelah diekstrak melebihi batas 100MB.');
+        }
+
+        if (totalUncompressedSize > 5 * 1024 * 1024) {
+          const ratio = buffer.length / totalUncompressedSize;
+          if (ratio < 0.01) {
+            throw new Error('File ZIP ditolak karena rasio kompresi mencurigakan (kemungkinan ZIP Bomb).');
+          }
+        }
+
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ ZIP ditolak: ${err.message}`, { quotedMessageId: ctx.id });
         return;
       }
 
@@ -300,11 +452,17 @@ export class DocumentSuiteCommand implements Command {
         return;
       }
 
-      const text = extractTextFromPdfBuffer(buffer);
-      if (text.length > 500) {
-        await adapter.sendDocument(ctx.chatId, Buffer.from(text, 'utf-8'), 'extracted-text.txt', 'text/plain', { quotedMessageId: ctx.id });
-      } else {
-        await adapter.sendMessage(ctx.chatId, `📝 *HASIL EKSTRAKSI TEKS PDF*\n\n${text || 'Tidak ada teks terdeteksi.'}`, { quotedMessageId: ctx.id });
+      try {
+        const text = await extractTextFromPdfWithPoppler(buffer);
+        if (!text || text.trim().length === 0) {
+          await adapter.sendMessage(ctx.chatId, '📝 *HASIL EKSTRAKSI TEKS PDF*\n\n⚠️ OCR diperlukan (tidak ada teks terbaca pada file PDF ini).', { quotedMessageId: ctx.id });
+        } else if (text.length > 500) {
+          await adapter.sendDocument(ctx.chatId, Buffer.from(text, 'utf-8'), 'extracted-text.txt', 'text/plain', { quotedMessageId: ctx.id });
+        } else {
+          await adapter.sendMessage(ctx.chatId, `📝 *HASIL EKSTRAKSI TEKS PDF*\n\n${text}`, { quotedMessageId: ctx.id });
+        }
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal mengekstrak teks PDF: ${err.message}`, { quotedMessageId: ctx.id });
       }
       return;
     }
@@ -318,7 +476,7 @@ export class DocumentSuiteCommand implements Command {
 
       const range = args[0]?.trim();
       if (!range) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/pdfsplit 1-3` atau `/pdfsplit 2`', { quotedMessageId: ctx.id });
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/pdfsplit 1-3` or `/pdfsplit 2`', { quotedMessageId: ctx.id });
         return;
       }
 
@@ -341,6 +499,10 @@ export class DocumentSuiteCommand implements Command {
       const watermarkText = args.join(' ').trim();
       if (!watermarkText) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan teks watermark. Contoh: `/pdfwatermark CONFIDENTIAL`', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (watermarkText.length > 30) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Teks watermark terlalu panjang (maksimal 30 karakter).', { quotedMessageId: ctx.id });
         return;
       }
 

@@ -1,2237 +1,1901 @@
-# PRD — Javas Bot WA: Stabilization, Security, Feature Expansion, and Productization
+# PRD — Bug Fix & Hardening Javas Bot WA
 
-## 1. Product Name
+## 1. Ringkasan
 
-Javas Bot WA
+Produk: **Javas Bot WA**
+Repo: `javasrajagula/javas-bot-wa`
+Dokumen: PRD perbaikan bug menyeluruh
+Tujuan utama: memperbaiki bug fatal, security issue, reliability issue, command behavior mismatch, dan deployment gap yang ditemukan dari audit kode.
 
-## 2. Target Implementation Agent
+Proyek ini bertujuan membuat bot:
 
-Codex / AI Coding Agent
+1. Lebih stabil saat dijalankan di production.
+2. Aman dari abuse umum seperti SSRF, DoS file besar, credential leak, dan bypass limit.
+3. Lebih konsisten antara dokumentasi command dan implementasi.
+4. Lebih mudah di-deploy dengan Docker.
+5. Lebih mudah di-debug oleh owner/admin.
+6. Siap untuk model sewa/premium yang lebih reliable.
 
-## 3. Repository Context
+---
 
-This project is a WhatsApp bot built with Node.js, TypeScript, Baileys, Prisma ORM, and SQLite. It already contains a modular command system, plugin manager, group feature flags, owner dashboard, economy, games, media tools, document tools, moderation features, backup, usage logs, error logs, and worker-style background tasks.
+## 2. Problem Statement
 
-The goal of this PRD is to guide Codex to improve the existing bot in structured phases without breaking current functionality.
+Saat ini Javas Bot WA sudah memiliki banyak fitur, tetapi ada beberapa masalah besar:
 
-## 4. Product Vision
+1. Konfigurasi database dan Docker belum aman untuk production.
+2. Dependency native seperti FFmpeg, ffprobe, Poppler, dan OCR/STT tidak tersedia di Docker default.
+3. WhatsApp adapter belum mengirim quoted reply/mention secara benar di semua media type.
+4. Reconnect Baileys berisiko membuat listener dobel.
+5. Downloader dan utility URL masih punya risiko SSRF/DoS.
+6. Queue, rate limit, captcha, maintenance mode, dan state penting masih banyak yang in-memory.
+7. Banyak command tidak sesuai klaim fitur, misalnya `removebg`, `outline`, `batchstiker`, `subtitle`, `compresspdf`, dan `pdftext`.
+8. Quota, subscription, plugin toggle, warning rules, dan feature flags belum konsisten.
+9. Dashboard dan backup butuh validasi tambahan agar aman di production.
+10. Worker reminder/temp-admin belum aman untuk multi-instance dan parsing JID tertentu.
 
-Turn Javas Bot WA from a feature-rich WhatsApp utility bot into a stable, secure, scalable, and monetizable WhatsApp bot platform for Indonesian communities, schools, gaming groups, jual-beli groups, and bot rental/reseller use cases.
+---
 
-The bot should support:
+## 3. Goals
 
-1. Reliable WhatsApp bot operation.
-2. Safe moderation and anti-spam.
-3. Useful AI-assisted learning and productivity.
-4. School/community management tools.
-5. Premium/sewa/reseller workflows.
-6. Dashboard and analytics.
-7. Privacy-conscious data handling.
-8. Scalable backend architecture using Redis/PostgreSQL when needed.
+### 3.1 Product Goals
 
-## 5. High-Level Goals
+1. Bot dapat berjalan stabil minimal 7 hari nonstop dalam mode Baileys.
+2. Bot dapat di-deploy via Docker tanpa kehilangan database dan tanpa fitur media gagal karena binary tidak tersedia.
+3. Owner dapat mengetahui masalah runtime lewat command `/doctor`.
+4. Admin grup mendapatkan behavior command yang konsisten dengan dokumentasi.
+5. Sistem subscription, quota, dan feature flag bekerja sesuai data di database.
+6. Fitur berisiko tinggi seperti downloader, screenshot web, PDF, ZIP, dan media processing memiliki guardrail keamanan.
 
-### 5.1 Stability Goals
+### 3.2 Engineering Goals
 
-* Bot should survive restarts without losing critical state.
-* Commands should fail safely with clear error IDs.
-* Heavy media/downloader jobs should not crash the bot.
-* Queue processing should be observable and cancelable.
-* Runtime configuration should be validated before startup.
+1. `npm run build` dan `npm run typecheck` wajib pass.
+2. Semua P0 dan P1 bugs ditutup sebelum release production.
+3. Tambahkan test minimal untuk validator URL, quota, feature flag parsing, dan command behavior kritikal.
+4. Kurangi penggunaan in-memory state untuk flow production-critical.
+5. Buat deployment Docker reproducible.
 
-### 5.2 Security Goals
+---
 
-* Remove sensitive logs.
-* Harden dashboard authentication.
-* Prevent SSRF and unsafe URL downloads.
-* Add CSRF protection to dashboard POST actions.
-* Add privacy mode and data retention controls.
-* Add security self-check command.
+## 4. Non-Goals
 
-### 5.3 Product Goals
+Untuk fase ini, hal berikut tidak termasuk scope utama:
 
-* Add setup wizard for new groups.
-* Add dynamic/smart menu and command help.
-* Add advanced group moderation.
-* Add school, business, community, and premium features.
-* Add owner analytics, reseller tools, and billing/quota features.
+1. Menambah fitur hiburan baru.
+2. Mendesain ulang seluruh arsitektur command.
+3. Migrasi penuh ke microservices.
+4. Mengganti Baileys dengan library WhatsApp lain.
+5. Membuat dashboard frontend modern berbasis React.
+6. Membuat AI provider baru.
+7. Membuat payment gateway production.
 
-### 5.4 Developer Experience Goals
+---
 
-* Add CI workflow.
-* Add tests for critical flows.
-* Add build/start scripts.
-* Add Docker/Docker Compose.
-* Add command documentation generator.
-* Keep implementation modular and incremental.
+## 5. Target User
 
-## 6. Non-Goals
+### 5.1 Owner Bot
 
-For the first phase, do not implement all feature backlog items at once. Codex must implement the project in safe, incremental pull requests.
+Kebutuhan:
 
-Do not introduce paid third-party APIs as hard requirements. All AI/downloader/OCR/STT integrations must support optional providers and graceful fallback.
+* Bot tidak crash.
+* Bisa melihat health check.
+* Bisa backup/restore dengan aman.
+* Bisa mengatur plugin, quota, premium, dan subscription.
+* Bisa tahu dependency apa yang belum terpasang.
 
-Do not store unnecessary message content unless a feature explicitly requires it and privacy settings allow it.
+### 5.2 Admin Grup
 
-Do not implement unsafe auto-kick/auto-ban behavior without confirmation, logs, and rollback support.
+Kebutuhan:
 
-## 7. Current Problems to Fix
+* Fitur welcome, moderation, warning, anti-link, anti-spam berjalan konsisten.
+* Command admin tidak error karena config rusak.
+* Bisa melihat fitur aktif/nonaktif.
+* Bisa reset config grup jika terjadi masalah.
 
-## 7.1 Environment Validation
+### 5.3 User Grup / Private Chat
 
-### Problem
+Kebutuhan:
 
-Environment variables are currently loaded with defaults but are not strictly validated.
+* Command reply benar-benar reply ke pesan yang dikutip.
+* Media command tidak menggantung.
+* Error message jelas.
+* Premium/quota/cooldown konsisten.
 
-### Requirement
+### 5.4 Maintainer / Developer
 
-Add a validated config layer using Zod.
+Kebutuhan:
 
-### Acceptance Criteria
+* Ada test.
+* Ada logging aman.
+* Ada error ID yang bisa dilacak.
+* Ada issue breakdown yang jelas.
 
-* Invalid `ADAPTER_MODE` causes startup failure with clear message.
-* `DASHBOARD_PORT` must be a valid number.
-* If `DASHBOARD_ENABLED=true`, dashboard password must be required.
-* `OWNER_IDS` should warn or fail depending on mode.
-* Add `LOG_LEVEL`, `NODE_ENV`, `REDIS_ENABLED`, `DATABASE_PROVIDER`, and `PUBLIC_BASE_URL`.
-* Add `.env.example` updates.
+---
 
-## 7.2 Sensitive Logging
+## 6. Prioritas Release
 
-### Problem
+### Phase 0 — Stabilitas Production Dasar
 
-Owner IDs and permission checks may expose phone numbers in logs.
+Wajib selesai sebelum fitur baru.
 
-### Requirement
+1. Database & Docker persistence.
+2. Native dependency Docker.
+3. Baileys adapter quoted reply/mention.
+4. Baileys reconnect cleanup.
+5. URL security hardening.
+6. Build/typecheck pass.
+7. `/doctor`.
 
-Remove or mask sensitive logs.
+### Phase 1 — Security & Abuse Prevention
 
-### Acceptance Criteria
+1. SSRF protection menyeluruh.
+2. Stream size limit yang benar.
+3. Error redaction.
+4. Dashboard hardening.
+5. Rate limit dan quota race condition.
+6. Worker safety.
+
+### Phase 2 — Command Correctness
+
+1. Perbaiki command yang misleading.
+2. Validasi media/dimensi/durasi.
+3. PDF/ZIP guardrail.
+4. Audio mimetype.
+5. Feature flag consistency.
+
+### Phase 3 — Maintainability
+
+1. Refactor legacy code path.
+2. Durable queue/state.
+3. Test coverage.
+4. Dokumentasi deployment.
+5. Cleanup schema dan env.
+
+---
+
+## 7. Bug Coverage Matrix
+
+Semua bug audit sebelumnya dikelompokkan ke dalam epic berikut.
+
+### Epic A — Database, Docker, dan Runtime Dependency
+
+Mencakup:
+
+* Database provider env tidak sinkron dengan Prisma schema.
+* SQLite default tidak persistent di Docker.
+* Docker tidak menjalankan migration.
+* Docker tidak menyertakan FFmpeg, ffprobe, Poppler, Tesseract/STT.
+* Backup hanya mendukung SQLite.
+* Restore DB dilakukan saat Prisma masih aktif.
+* Dashboard production host mengabaikan `DASHBOARD_HOST`.
+
+### Epic B — WhatsApp Adapter & Message Routing
+
+Mencakup:
+
+* Reconnect Baileys membuat potensi socket/listener dobel.
+* `quotedMessageId` tidak benar-benar digunakan.
+* Mentions tidak konsisten di image/video/document/sticker.
+* Parser pesan terlalu sempit.
+* Media buffer concat tidak efisien.
+* Media besar diunduh penuh sebelum validasi.
+* Processing pesan serial per batch.
+* Audio mimetype hard-coded salah.
+* JID parsing dengan `:` rentan rusak.
+
+### Epic C — Security Hardening
+
+Mencakup:
+
+* Downloader tidak memvalidasi URL hasil ekstraksi.
+* `isSafePublicUrl` tidak melakukan DNS lookup.
+* Utility download bebas tanpa SSRF guard.
+* SVG injection di `/quote`.
+* Error message/stack bisa menyimpan data sensitif.
+* Dashboard `/api/status` unauthenticated.
+* Dashboard rate limit berbasis `x-forwarded-for` mentah.
+* API key dikirim lewat WhatsApp chat.
+* ZIP memory pressure.
+* Stream download tidak dihentikan saat size limit lewat.
+* Timeout helper tidak clear timer saat promise reject.
+
+### Epic D — Permission, Quota, Plugin, Feature Flag
+
+Mencakup:
 
-* No raw owner phone numbers printed in production.
-* Add `maskPhone()` utility.
-* Debug logs only appear when `LOG_LEVEL=debug`.
-* Error logs should not expose tokens, cookies, session IDs, or full phone numbers.
+* `OWNER_IDS` kosong hanya warning.
+* `/premium add` parsing target user rapuh.
+* Plugin toggle bisa bypass command yang tidak mapped.
+* Feature flag tidak konsisten.
+* `featuresJson` sering di-parse mentah.
+* `maxDailyCmd` tidak dipakai.
+* Usage log dicatat sebelum command selesai.
+* Quota race condition.
+* Warning rule duration tidak dipakai.
+* Broadcast hanya ke groupConfig.
+* Compound unique nullable berisiko duplikasi.
+* Legacy `getFeatureKey` dan `commands` object membingungkan.
+* `pluginManager.setPluginStatus()` tidak await DB save.
 
-## 7.3 Memory-Only State
+### Epic E — Queue, State, Worker, Rate Limit
 
-### Problem
+Mencakup:
 
-Rate limit, cooldown, mute state, quiz state, queue, dashboard sessions, and downloader cooldown are memory-only.
+* Redis env ada tapi queue tetap memory.
+* `RedisStateStore` belum benar-benar Redis.
+* Queue job hilang saat restart.
+* Queue `add()` return sebelum job selesai.
+* Active queue job tidak bisa dibatalkan.
+* Rate limiter hanya mencakup sedikit feature.
+* Maintenance, captcha, pending broadcast, queue, limiter masih in-memory.
+* FileStateStore blocking sync write.
+* Temp cleanup gagal jika ada folder.
+* Reminder worker bisa double-send di multi-instance.
+* Reminder status `failed` tidak terdokumentasi.
 
-### Requirement
+### Epic F — Media, Sticker, Audio Commands
 
-Introduce persistent/distributed state support.
+Mencakup:
 
-### Acceptance Criteria
+* `/removebg` tidak benar-benar remove background.
+* `/outline` tidak benar-benar membuat outline.
+* Sticker metadata pack/author tidak bekerja.
+* `/batchstiker` tidak batch.
+* `/stiker` klaim mendukung video tetapi implementasi Sharp.
+* `/vstiker` memotong video panjang, bukan menolak sesuai pesan.
+* `/emojimix` API hard-coded tanpa timeout.
+* `/compress` bisa silent no-op.
+* `/resize` tidak membatasi dimensi.
+* Timestamp validator menerima waktu tidak masuk akal.
+* `/subtitle` bukan subtitle otomatis.
+* `/reverse` tidak punya durasi guard.
+* TTS memakai HTTP.
+* Audio command menulis media ke disk sebelum validasi ukuran.
+* `getMediaDuration()` fallback 0 bisa bypass durasi.
+* FFmpeg tidak punya timeout.
 
-* Add Redis adapter interface with memory fallback.
-* Rate limiter supports Redis TTL keys.
-* Mute and spam states are scoped per group and can survive restart when Redis is enabled.
-* Queue can later use BullMQ; initial abstraction must support memory and Redis-backed implementation.
-* Dashboard sessions have TTL.
+### Epic G — Document, PDF, ZIP
 
-## 7.4 Group-Scoped Moderation State
+Mencakup:
 
-### Problem
+* PDF text extraction tidak andal.
+* `txtToPdf` hanya satu halaman dan tidak wrap.
+* `compresspdf` bukan kompresi nyata.
+* `pdf2img` hanya halaman pertama.
+* `mergepdf` flow sulit dipakai.
+* ZIP handling rentan memory pressure.
+* `pdfwatermark` tidak membatasi panjang teks.
 
-Spam/mute maps use only sender ID, causing cross-group side effects.
+### Epic H — Dashboard, Backup, Observability
 
-### Requirement
+Mencakup:
 
-Scope moderation keys by group.
+* Dashboard broadcast tidak throttle.
+* Dashboard premium/subscription minim validasi.
+* Auto backup failure hanya console.
+* Restore DB perlu safe flow.
+* Session dashboard in-memory.
+* Health/status perlu diperjelas.
+* Perlu `/doctor`, `/fiturstatus`, dan `/repair`.
 
-### Acceptance Criteria
+---
 
-* Use `groupId:userId` for group moderation state.
-* Private chat uses `private:userId`.
-* Existing moderation behavior preserved.
-* Add tests for user muted in one group but not another.
+## 8. Functional Requirements
 
-## 7.5 Permission Consistency
+## Epic A — Database, Docker, Runtime Dependency
 
-### Problem
+### A1. Database Provider Consistency
 
-There are duplicate admin-checking paths. Owner/admin behavior can become inconsistent.
+Requirement:
 
-### Requirement
+* Sistem harus hanya mendukung database provider yang benar-benar aktif.
+* Jika tetap SQLite, hapus/matikan opsi PostgreSQL/MySQL dari env.
+* Jika ingin support PostgreSQL/MySQL, buat schema Prisma provider yang sesuai dan dokumentasi migration.
 
-Create a single permission service.
+Acceptance Criteria:
 
-### Acceptance Criteria
+* `DATABASE_PROVIDER=postgresql` tidak boleh silently memakai schema SQLite.
+* Saat startup, bot menampilkan provider aktif.
+* Dokumentasi `.env.example` sinkron dengan implementasi.
+* `npm run build` pass.
 
-* All command permission checks use one `permission.service.ts`.
-* Owner is consistently treated as highest role.
-* Admin checks use Baileys metadata with cache.
-* Console adapter test users still work in dev mode.
-* Add unit tests for owner, admin, premium, and regular users.
+Priority: P0
 
-## 7.6 Dashboard Hardening
+---
 
-### Problem
+### A2. Docker SQLite Persistence
 
-Dashboard has password login but needs stronger production security.
+Requirement:
 
-### Requirement
+* Jika `DATABASE_URL=file:./dev.db`, Docker harus mount path DB tersebut.
+* Rekomendasi: ubah default menjadi `file:/app/data/dev.db` atau `file:./data/dev.db`.
 
-Harden dashboard.
+Acceptance Criteria:
 
-### Acceptance Criteria
+* Recreate container tidak menghapus DB.
+* `docker compose up --build` membuat DB di folder mounted.
+* README menjelaskan path DB production.
 
-* Add login rate limit.
-* Add CSRF token for POST actions.
-* Add session expiry.
-* Add `Secure` cookie when HTTPS is detected.
-* Add `Max-Age` to session cookie.
-* Add request body size limit.
-* Add audit log for dashboard actions.
-* Add optional bind host, default `127.0.0.1` in production.
-* Add `/dashboard/security` or `/securitycheck`.
+Priority: P0
 
-## 7.7 SSRF and URL Safety
+---
 
-### Problem
+### A3. Migration at Deploy
 
-URL validation blocks only basic localhost/private IP patterns.
+Requirement:
 
-### Requirement
+* Tambahkan flow migrasi sebelum start production.
 
-Improve URL safety for downloader, screenshot, QR safety, and file features.
+Opsi:
 
-### Acceptance Criteria
+1. Entrypoint shell:
 
-* Resolve hostname to IP before download.
-* Block private, loopback, link-local, multicast, reserved IPv4/IPv6 ranges.
-* Validate redirect targets.
-* Limit max redirects.
-* Validate content-type and content-length.
-* Add domain allowlists for supported downloader platforms.
-* Add tests for localhost, private IP, metadata IP, obfuscated IP, redirect to private IP.
+   * `npx prisma migrate deploy`
+   * `node dist/app.js`
+2. Atau dokumentasikan command wajib:
 
-## 7.8 Media Memory Usage
+   * `npm run db:migrate`
 
-### Problem
+Acceptance Criteria:
 
-Media is buffered fully in memory before processing.
+* Container baru dengan DB kosong bisa start tanpa manual schema push.
+* Jika migration gagal, app tidak lanjut start.
+* Log migrasi jelas.
 
-### Requirement
+Priority: P0
 
-Support safer media streaming and file-size limits.
+---
 
-### Acceptance Criteria
+### A4. Native Dependency Docker
 
-* Download media to temp file with streaming size limit where possible.
-* Avoid repeated `Buffer.concat` for large files.
-* Add max input file size per feature and per plan.
-* Add FFmpeg timeout.
-* Add temp file cleanup on success/failure.
-* Add `/fileinfo` command.
+Requirement:
 
-## 7.9 Database Production Readiness
+* Docker image production harus menyertakan minimal:
 
-### Problem
+  * `ffmpeg`
+  * `ffprobe`
+  * `poppler-utils`
+  * optional: `tesseract-ocr`
+  * optional: fonts untuk Sharp/SVG/FFmpeg drawtext
 
-SQLite is good for development but limited for production scale.
+Acceptance Criteria:
 
-### Requirement
+* `/doctor` menampilkan FFmpeg/ffprobe/Poppler tersedia.
+* `/vstiker`, `/mp3`, `/pdf2img`, `/thumb` tidak gagal karena binary missing.
+* Dockerfile terdokumentasi.
 
-Support PostgreSQL production path while keeping SQLite dev compatibility.
+Priority: P0
 
-### Acceptance Criteria
+---
 
-* Add Prisma config guidance for PostgreSQL.
-* Add indexes for frequently queried fields.
-* Add migration scripts.
-* Add `npm run db:migrate`, `db:push`, `db:studio`.
-* Add data retention cleanup worker.
-* Add backup compatibility for SQLite/PostgreSQL.
+### A5. Backup Provider Awareness
 
-## 7.10 Plugin State Storage
+Requirement:
 
-### Problem
+* Backup service harus mendeteksi provider database.
+* Untuk SQLite: copy file.
+* Untuk PostgreSQL/MySQL: beri error eksplisit atau implement dump command.
 
-Plugin state is stored inside source folder.
+Acceptance Criteria:
 
-### Requirement
+* Jika DB bukan SQLite, backup tidak memberi pesan misleading.
+* Error menyebut provider belum didukung.
+* Tidak ada silent failure.
 
-Move plugin state to database or data directory.
+Priority: P1
 
-### Acceptance Criteria
+---
 
-* Store plugin status in database.
-* Existing plugin defaults still work.
-* Dashboard plugin toggle persists across restart and redeploy.
-* Add migration from existing JSON file if present.
+### A6. Safe Restore Flow
 
-## 7.11 Error Handling
+Requirement:
 
-### Problem
+* Restore SQLite harus:
 
-Some commands expose raw error messages to users.
+  1. Stop incoming command atau aktifkan maintenance lock.
+  2. Disconnect Prisma.
+  3. Copy DB backup.
+  4. Reconnect atau instruksikan restart wajib.
+  5. Simpan audit log.
 
-### Requirement
+Acceptance Criteria:
 
-Use safe error responses everywhere.
+* Tidak ada restore saat command lain sedang menulis DB.
+* Owner menerima pesan bahwa restart wajib atau restart otomatis dilakukan.
+* Safety backup selalu dibuat.
 
-### Acceptance Criteria
+Priority: P1
 
-* Every command failure returns generic message plus Error ID.
-* Full stack stored only in database/log file.
-* `/error <id>` owner command shows detail.
-* `/retry` retries the last failed command when safe.
+---
 
-## 7.12 CI, Build, and Test Coverage
+## Epic B — WhatsApp Adapter & Message Routing
 
-### Requirement
+### B1. Proper Quoted Reply Support
 
-Add developer tooling.
+Requirement:
 
-### Acceptance Criteria
+* Semua `sendMessage`, `sendImage`, `sendVideo`, `sendAudio`, `sendVoiceNote`, `sendDocument`, dan `sendSticker` harus support quoted reply.
 
-* Add `npm run build`.
-* Add `npm run start`.
-* Add `npm run lint`.
-* Add GitHub Actions CI for install, typecheck, test, build.
-* Add tests for config, permission, URL validator, command registry, rate limiter, feature flags, dashboard auth helpers.
+Implementation Note:
 
-## 8. Implementation Strategy
+* `MessageContext` perlu menyimpan raw `WAMessageKey` atau minimal data key lengkap:
 
-Codex must implement this PRD in phases.
+  * `remoteJid`
+  * `id`
+  * `participant`
+  * `fromMe`
 
-Recommended PR order:
+Acceptance Criteria:
 
-1. Stabilization and security.
-2. Observability and dashboard improvements.
-3. Core UX improvements.
-4. Moderation and group safety.
-5. School/community tools.
-6. AI and media enhancements.
-7. Monetization and reseller features.
-8. Advanced automation and enterprise features.
+* Jika command dipanggil dengan reply, response bot muncul sebagai reply WhatsApp native.
+* Test manual minimal:
 
-Each PR must include:
+  * text reply
+  * image reply
+  * sticker reply
+  * document reply
 
-* Code changes.
-* Tests.
-* Documentation updates.
-* Migration notes if data model changes.
-* No unrelated refactors.
+Priority: P0
 
-## 9. Phase 0 — Foundation and Safety
+---
 
-## 9.1 Config Validation
+### B2. Consistent Mentions
 
-Add `src/config/env.schema.ts`.
+Requirement:
 
-Fields:
+* Semua send method yang menerima `mentions` harus meneruskan mentions ke Baileys payload.
 
-* `NODE_ENV`
-* `LOG_LEVEL`
-* `DATABASE_URL`
-* `ADAPTER_MODE`
-* `BOT_PREFIX`
-* `WA_SESSION_NAME`
-* `OWNER_IDS`
-* `DASHBOARD_ENABLED`
-* `DASHBOARD_PORT`
-* `DASHBOARD_HOST`
-* `OWNER_DASHBOARD_PASSWORD`
-* `AUTO_BACKUP_ENABLED`
-* `BACKUP_RETENTION_DAYS`
-* `REDIS_ENABLED`
-* `REDIS_URL`
-* `LIBRETRANSLATE_URL`
-* `OCR_COMMAND`
-* `STT_COMMAND`
-* `AI_PROVIDER`
-* `AI_API_BASE_URL`
-* `AI_API_KEY`
-* `PUBLIC_BASE_URL`
+Acceptance Criteria:
 
-## 9.2 Logging and Error IDs
+* Welcome card image mention user dengan benar.
+* Goodbye message mention user dengan benar.
+* Moderation warning/kick/mute mention user dengan benar.
+* Mentions bekerja untuk text, image caption, video caption, document caption jika tersedia.
 
-Add:
+Priority: P0
 
-* `logger.service.ts`
-* `error-id.util.ts`
-* `mask.util.ts`
+---
+
+### B3. Baileys Reconnect Cleanup
+
+Requirement:
+
+* Saat reconnect:
+
+  * Tutup socket lama.
+  * Hindari event listener dobel.
+  * Simpan reconnect state.
+  * Gunakan exponential backoff dengan max delay.
+  * Reset attempts saat open.
+
+Acceptance Criteria:
+
+* Setelah 5 kali reconnect, satu pesan hanya diproses satu kali.
+* Tidak ada memory leak listener.
+* Log reconnect jelas.
+
+Priority: P0
+
+---
+
+### B4. Message Wrapper Parser
+
+Requirement:
+
+* Parser harus unwrap:
+
+  * ephemeralMessage
+  * viewOnceMessage
+  * viewOnceMessageV2
+  * documentWithCaptionMessage
+  * editedMessage jika relevan
+  * buttons/list response
+  * template response
+  * reaction ignored dengan aman
+
+Acceptance Criteria:
+
+* Command dalam ephemeral message tetap terbaca.
+* Caption dokumen terbaca.
+* Button/list response tidak membuat crash.
+* Unsupported message type tidak crash.
+
+Priority: P1
+
+---
+
+### B5. Streaming Media Buffer Improvement
+
+Requirement:
+
+* Ganti `Buffer.concat` berulang menjadi array chunks.
+* Tambahkan max byte guard saat download media dari Baileys.
+
+Acceptance Criteria:
+
+* File melebihi limit dihentikan sebelum full download.
+* Memory usage lebih stabil pada file besar.
+* Error user jelas: file terlalu besar.
+
+Priority: P1
+
+---
+
+### B6. Audio MIME Type Correctness
+
+Requirement:
+
+* `sendAudio()` dan `sendVoiceNote()` menerima mime type optional.
+* MP3 dikirim sebagai `audio/mpeg`.
+* M4A/MP4 audio dikirim sebagai `audio/mp4`.
+
+Acceptance Criteria:
+
+* `/mp3`, `/tts`, `/speed`, `/voice`, `/cutaudio` terkirim dengan MIME benar.
+* WhatsApp client bisa play audio normal.
+
+Priority: P1
+
+---
+
+## Epic C — Security Hardening
+
+### C1. Unified Safe URL Validator
+
+Requirement:
+
+* Buat satu fungsi canonical:
+
+  * normalize URL
+  * allow protocol `http/https`
+  * block localhost/private/multicast/link-local
+  * DNS lookup semua address
+  * validate redirect chain
+  * enforce max redirects
+  * optional domain allowlist
+  * optional content-type allowlist
+  * optional content-length max
+
+Acceptance Criteria:
+
+* Semua downloader, ssweb, checklink, QR URL, document fetch, dan utility download pakai validator ini.
+* Test SSRF untuk:
+
+  * `localhost`
+  * `127.0.0.1`
+  * `169.254.169.254`
+  * `10.0.0.1`
+  * `192.168.1.1`
+  * IPv6 local
+  * redirect ke private IP
+
+Priority: P0
+
+---
+
+### C2. Validate Extracted Downloader URLs
+
+Requirement:
+
+* URL hasil ekstraksi dari TikTok/Instagram/YouTube/Facebook/Twitter/etc harus divalidasi sebelum download.
+
+Acceptance Criteria:
+
+* Jika extractor mengembalikan private/local URL, download ditolak.
+* Redirect chain tetap dicek.
+* Size dan content-type dicek.
+* Stream dihentikan jika melewati batas.
+
+Priority: P0
+
+---
+
+### C3. Harden Download Stream
+
+Requirement:
+
+* `downloadUrlToTemp` harus:
+
+  * timeout koneksi dan total download.
+  * destroy response stream saat limit lewat.
+  * cleanup file partial.
+  * reject content-type yang tidak sesuai.
+  * reject content-length terlalu besar sebelum download jika tersedia.
+
+Acceptance Criteria:
+
+* File partial terhapus saat gagal.
+* Tidak ada stream lanjut setelah reject.
+* Error tidak menggantung.
+
+Priority: P0
+
+---
+
+### C4. Escape SVG/XML Input
+
+Requirement:
+
+* Semua user input yang masuk SVG/XML harus di-escape.
+
+Acceptance Criteria:
+
+* `/quote <script>` tidak merusak SVG.
+* Karakter `<`, `>`, `&`, `'`, `"` aman.
+* Reuse helper `escapeXml`.
+
+Priority: P1
+
+---
+
+### C5. Error Redaction
+
+Requirement:
+
+* Terapkan redaction untuk:
+
+  * error message
+  * stack
+  * metadata
+  * URL query dengan token
+  * cookie/session string
+  * API key
+
+Acceptance Criteria:
+
+* Error log tidak menyimpan raw token/API key/cookie/password.
+* Test redaction untuk key dan value sensitif.
+* Dashboard error tidak menampilkan secret.
+
+Priority: P1
+
+---
+
+### C6. Dashboard API Hardening
+
+Requirement:
+
+* `/api/status` harus:
+
+  * tetap public tapi minimal info, atau
+  * memerlukan API key jika `DASHBOARD_API_ENABLED=true`.
+
+Acceptance Criteria:
+
+* Tidak membocorkan adapter mode jika konfigurasi secure mode aktif.
+* Tambahkan setting `DASHBOARD_PUBLIC_HEALTH`.
+* `/health` tetap bisa untuk container health check dengan info minimal.
+
+Priority: P2
+
+---
+
+### C7. Dashboard Rate Limit Trust Proxy
+
+Requirement:
+
+* Jangan percaya `x-forwarded-for` kecuali `TRUST_PROXY=true`.
+* Jika false, pakai `remoteAddress`.
+
+Acceptance Criteria:
+
+* Attacker tidak bisa bypass rate limit hanya dengan mengganti header.
+* Dokumentasi reverse proxy tersedia.
+
+Priority: P1
+
+---
+
+### C8. Safer API Key Delivery
+
+Requirement:
+
+* `/apikey` tetap bisa membuat key, tetapi:
+
+  * default hanya private chat.
+  * jika dipakai di grup, bot menolak dan minta owner ulangi di private chat.
+  * optional: kirim warning bahwa WhatsApp bukan secret vault.
+
+Acceptance Criteria:
+
+* API key tidak dikirim ke grup.
+* Owner menerima instruksi aman.
+
+Priority: P1
+
+---
+
+## Epic D — Permission, Quota, Plugin, Feature Flag
+
+### D1. Owner Config Validation
+
+Requirement:
+
+* Jika production dan `OWNER_IDS` kosong, bot harus gagal start atau masuk safe mode.
+* Di development boleh warning.
+
+Acceptance Criteria:
+
+* `NODE_ENV=production` + `OWNER_IDS=""` membuat startup gagal dengan pesan jelas.
+* `NODE_ENV=development` tetap warning.
+
+Priority: P0
+
+---
+
+### D2. Robust JID Normalization
+
+Requirement:
+
+* Buat helper `normalizeJid()` dan `normalizePhone()` canonical.
+* Support:
+
+  * `@s.whatsapp.net`
+  * `@lid`
+  * mention format
+  * nomor tanpa suffix
+  * device suffix `:xx`
+
+Acceptance Criteria:
+
+* Premium add/remove bekerja untuk JID dan mention.
+* Owner check tetap akurat.
+* Test berbagai format JID.
+
+Priority: P1
+
+---
+
+### D3. Safe Feature Flag Parsing
+
+Requirement:
+
+* Semua `JSON.parse(featuresJson)` diganti `parseFeatureFlags()`.
+* Jika JSON rusak, sistem pakai default dan log warning.
+
+Acceptance Criteria:
+
+* Corrupt `featuresJson` tidak membuat router crash.
+* `/repair group` bisa reset config.
+
+Priority: P0
+
+---
+
+### D4. Use `maxDailyCmd`
+
+Requirement:
+
+* Jika `GroupSubscription.maxDailyCmd` terisi, pakai value itu.
+* Jika null, fallback:
+
+  * free: 50
+  * basic: 200
+  * premium: unlimited
+
+Acceptance Criteria:
+
+* Owner bisa set custom quota.
+* Quota check membaca DB.
+
+Priority: P1
+
+---
+
+### D5. Transactional Usage & Quota
+
+Requirement:
+
+* Quota check dan usage log harus atomic.
+* Usage log dibuat setelah command selesai.
+* Simpan:
+
+  * command
+  * feature
+  * success true/false
+  * errorId jika gagal
+
+Acceptance Criteria:
+
+* Concurrent command tidak melewati quota.
+* Failed command tercatat sebagai failed.
+* Dashboard usage bisa bedakan sukses/gagal.
+
+Priority: P1
+
+---
+
+### D6. Warning Rule Duration
+
+Requirement:
+
+* `WarningRule.duration` harus dipakai untuk mute duration.
+* Jika null, fallback 300 detik.
+
+Acceptance Criteria:
+
+* Rule mute 60 detik benar-benar expire 60 detik.
+* Pesan bot menyebut durasi sesuai rule.
+
+Priority: P2
+
+---
+
+### D7. Plugin Mapping Completeness
+
+Requirement:
+
+* Semua registered command harus punya metadata plugin valid.
+* Jika plugin tidak ditemukan, command dianggap disabled atau build test gagal.
+
+Acceptance Criteria:
+
+* Tidak ada command owner/community/media yang plugin unknown.
+* Test registry memastikan semua command punya plugin metadata.
+* `isPluginEnabled(unknown)` tidak default true di production.
+
+Priority: P1
+
+---
+
+### D8. Await Plugin DB Save
+
+Requirement:
+
+* `setPluginStatus()` menjadi async dan await DB save.
+* UI/command hanya bilang sukses jika file dan DB save berhasil.
+
+Acceptance Criteria:
+
+* Jika DB save gagal, owner mendapat error.
+* State memory tidak berbeda dari DB tanpa warning.
+
+Priority: P2
+
+---
+
+## Epic E — Queue, State, Worker, Rate Limit
+
+### E1. Real Redis Support or Remove Redis Claim
+
+Requirement:
+
+* Jika `USE_REDIS=true`, queue dan state harus memakai Redis sungguhan.
+* Jika belum implement, hapus opsi Redis dari env/documentation untuk sementara.
+
+Acceptance Criteria:
+
+* `USE_REDIS=true` membuat Redis client connect.
+* Jika Redis gagal, startup gagal atau fallback eksplisit.
+* Queue job tidak hilang saat restart jika Redis enabled.
+
+Priority: P1
+
+---
+
+### E2. Durable Queue
+
+Requirement:
+
+* Heavy jobs downloader/HD/media harus masuk durable queue di production.
+* Simpan job status ke DB/Redis:
+
+  * waiting
+  * active
+  * completed
+  * failed
+  * cancelled
+
+Acceptance Criteria:
+
+* Restart bot tidak menghapus waiting jobs.
+* `/queue` menampilkan job status benar.
+* Active job punya cancellation strategy jika memungkinkan.
+
+Priority: P2
+
+---
+
+### E3. Better Rate Limiter
+
+Requirement:
+
+* Rate limit harus mendukung semua command category:
+
+  * general
+  * sticker
+  * media
+  * document
+  * audio
+  * downloader
+  * games
+  * economy
+  * AI
+* Config bisa diubah lewat owner command.
+
+Acceptance Criteria:
+
+* Command non-sticker tetap bisa dilimit.
+* Private bypass dan owner bypass tetap configurable.
+* Rate limit dapat memakai Redis jika production.
+
+Priority: P1
+
+---
+
+### E4. Persist Critical State
+
+Requirement:
+
+State berikut tidak boleh purely memory di production:
+
+* maintenance mode
+* pending broadcast confirmation
+* captcha sessions
+* mute/temp mute
+* queue job
+* rate limiter jika Redis enabled
+
+Acceptance Criteria:
+
+* Restart tidak menghapus maintenance mode.
+* Captcha bisa expire dengan benar.
+* Pending broadcast bisa expire aman.
+
+Priority: P2
+
+---
+
+### E5. Reminder Atomic Claim
+
+Requirement:
+
+* Worker reminder harus claim reminder sebelum kirim.
+* Tambahkan status:
+
+  * pending
+  * processing
+  * sent
+  * failed
+
+Acceptance Criteria:
+
+* Multi-instance tidak double-send reminder.
+* Failed reminder punya retry policy atau final failed reason.
+* Schema/comment status diperbarui.
+
+Priority: P1
+
+---
+
+### E6. Temp Admin Key Encoding
+
+Requirement:
+
+* Jangan simpan key dengan delimiter raw `:`.
+* Gunakan JSON value atau encode base64url untuk groupId/userId.
+
+Acceptance Criteria:
+
+* JID dengan colon/device suffix tidak merusak parsing.
+* Temp admin demote target benar.
+
+Priority: P2
+
+---
+
+### E7. Safe FileStateStore
+
+Requirement:
+
+* Ganti sync write dengan async queued write.
+* Cleanup expired keys saat load dan berkala.
+* Prevent overlapping writes.
+
+Acceptance Criteria:
+
+* High-frequency state update tidak blocking parah.
+* File state tidak corrupt saat concurrent set/delete.
+
+Priority: P2
+
+---
+
+## Epic F — Media, Sticker, Audio Commands
+
+### F1. Real Remove Background
+
+Requirement:
+
+* Pilih strategi:
+
+  1. Integrasi API remove.bg/Replicate jika token tersedia.
+  2. Local model optional.
+  3. Jika tidak tersedia, command harus bilang “fitur belum dikonfigurasi”, bukan pura-pura sukses.
+
+Acceptance Criteria:
+
+* `/removebg` benar-benar menghapus background jika provider aktif.
+* Jika provider tidak aktif, user mendapat pesan jelas.
+* Tidak lagi menyebut berhasil jika hanya ensure alpha.
+
+Priority: P1
+
+---
+
+### F2. Real Outline Effect
+
+Requirement:
+
+* Implement outline sticker nyata.
+* Gunakan alpha mask/dilate/blur/composite.
+* Gunakan warna argumen white/black.
+
+Acceptance Criteria:
+
+* `/outline white` menghasilkan outline putih.
+* `/outline black` menghasilkan outline hitam.
+* Visual berbeda dari input.
+
+Priority: P2
+
+---
+
+### F3. Sticker Metadata
+
+Requirement:
+
+* Implement WebP EXIF metadata untuk pack dan author.
+* Atau hapus argumen `pack:` dan `author:` dari UX jika belum bisa.
+
+Acceptance Criteria:
+
+* WhatsApp sticker info menampilkan pack/author.
+* Unit test buffer metadata jika memungkinkan.
+
+Priority: P2
+
+---
+
+### F4. Batch Sticker Real Flow
+
+Requirement:
+
+* Implement session batch:
+
+  * `/batchstiker start`
+  * user kirim beberapa gambar
+  * `/batchstiker done`
+* Atau ubah deskripsi command menjadi single sticker.
+
+Acceptance Criteria:
+
+* Batch benar-benar memproses lebih dari satu gambar.
+* Ada limit jumlah gambar.
+* Ada timeout session.
+
+Priority: P2
+
+---
+
+### F5. Split `/stiker` Image vs Video
+
+Requirement:
+
+* `/stiker` hanya untuk image/sticker.
+* `/vstiker` untuk video/gif.
+* Jika `/stiker` menerima video, arahkan ke `/vstiker`.
+
+Acceptance Criteria:
+
+* Video di `/stiker` tidak error Sharp.
+* Pesan user jelas.
+
+Priority: P1
+
+---
+
+### F6. Video Duration Guard
+
+Requirement:
+
+* Gunakan ffprobe sebelum processing video.
+* Jika durasi melebihi batas, tolak atau minta user pilih mode trim.
+* Jangan fallback 0 saat ffprobe gagal.
+
+Acceptance Criteria:
+
+* Video panjang ditolak jika command menyebut max duration.
+* Jika ffprobe missing, command gagal jelas.
+* `/vstiker`, `/togif`, `/reverse`, `/compress`, `/cut`, `/thumb` punya guard.
+
+Priority: P1
+
+---
+
+### F7. FFmpeg Timeout
+
+Requirement:
+
+* Tambahkan timeout dan kill process.
+* Config:
+
+  * `FFMPEG_TIMEOUT_SECONDS`
+  * default 120 detik
+
+Acceptance Criteria:
+
+* FFmpeg yang menggantung dibunuh.
+* Temp file tetap dibersihkan.
+* User mendapat error timeout.
+
+Priority: P1
+
+---
+
+### F8. Safer Resize
+
+Requirement:
+
+* Batasi dimensi maksimal:
+
+  * free: 3000x3000
+  * premium: 6000x6000
+* Batasi total pixel.
+
+Acceptance Criteria:
+
+* `/resize 99999x99999` ditolak.
+* Error jelas.
+
+Priority: P1
+
+---
+
+### F9. Timestamp Validation
+
+Requirement:
+
+* Validasi range:
+
+  * seconds/minutes 0-59 untuk MM:SS dan HH:MM:SS.
+  * angka raw seconds maksimal sesuai plan.
+  * tidak boleh negative.
+
+Acceptance Criteria:
+
+* `99:99:99` ditolak.
+* `00:01:30` diterima.
+* `90` diterima sesuai konteks.
+
+Priority: P2
+
+---
+
+### F10. Subtitle Command Honesty
+
+Requirement:
+
+Pilih salah satu:
+
+1. Implement subtitle otomatis sungguhan via STT.
+2. Rename menjadi `/captiondemo`.
+3. Jika STT belum aktif, tolak dengan pesan konfigurasi.
+
+Acceptance Criteria:
+
+* `/subtitle` tidak mengklaim otomatis jika hanya teks statis.
+* Jika STT aktif, transkripsi dipakai untuk subtitle.
+
+Priority: P2
+
+---
+
+### F11. TTS HTTPS
+
+Requirement:
+
+* Ubah Google TTS endpoint ke HTTPS atau provider TTS lain.
+* Tambahkan timeout.
+
+Acceptance Criteria:
+
+* `/tts` tidak memakai HTTP.
+* Request gagal tidak menggantung.
+
+Priority: P2
+
+---
+
+### F12. Audio File Validation
+
+Requirement:
+
+* Validasi ukuran sebelum write temp.
+* Validasi media type untuk command audio.
+* MIME output sesuai file.
+
+Acceptance Criteria:
+
+* Audio/video terlalu besar ditolak sebelum proses berat.
+* `/mp3` hanya menerima video.
+* `/voice`, `/speed`, `/slow`, `/cutaudio` hanya menerima audio/video.
+
+Priority: P1
+
+---
+
+## Epic G — Document, PDF, ZIP
+
+### G1. Reliable PDF Text Extraction
+
+Requirement:
+
+* Ganti regex PDF manual dengan library ekstraksi teks yang lebih benar atau external tool.
+* Jika tidak bisa ekstrak, beri pesan jujur.
+
+Acceptance Criteria:
+
+* PDF text normal terbaca.
+* PDF scanned image memberi pesan “OCR diperlukan”.
+* Tidak mengembalikan teks rusak seolah sukses.
+
+Priority: P2
+
+---
+
+### G2. Multi-Page TXT to PDF
+
+Requirement:
+
+* `txtToPdf` harus:
+
+  * wrap long lines
+  * create new page
+  * support basic font fallback
+  * limit total pages
+
+Acceptance Criteria:
+
+* Teks panjang tidak terpotong diam-diam.
+* File > batas diberi error.
+
+Priority: P2
+
+---
+
+### G3. Honest PDF Compression
+
+Requirement:
+
+* Jika hanya object stream optimize, ubah pesan menjadi “optimize PDF”.
+* Jika ingin compress nyata, implement image downsampling.
+
+Acceptance Criteria:
+
+* `/compresspdf` tidak misleading.
+* Output size comparison ditampilkan.
+* Jika size tidak turun, beri info.
+
+Priority: P2
+
+---
+
+### G4. PDF to Image Page Selection
+
+Requirement:
+
+* `/pdf2img [page]`
+* Default page 1.
+* Optional range premium.
+
+Acceptance Criteria:
+
+* `/pdf2img 3` render halaman 3.
+* Page out of range ditolak.
+
+Priority: P2
+
+---
+
+### G5. Merge PDF UX
+
+Requirement:
+
+* Buat session merge:
+
+  * `/mergepdf start`
+  * kirim beberapa PDF
+  * `/mergepdf done`
+* Atau dokumentasi flow dua PDF dibuat jelas.
+
+Acceptance Criteria:
+
+* User bisa merge lebih dari 2 PDF.
+* Ada limit file dan halaman.
+* Session timeout.
+
+Priority: P3
+
+---
+
+### G6. ZIP Guardrail
+
+Requirement:
+
+* Batasi:
+
+  * total ZIP size
+  * total uncompressed size
+  * number of entries
+  * nested directory depth
+* Detect suspicious compression ratio.
+
+Acceptance Criteria:
+
+* ZIP bomb sederhana ditolak.
+* ZIP dengan ribuan entry ditolak.
+* Extract tetap hanya file aman.
+
+Priority: P1
+
+---
+
+### G7. PDF Watermark Validation
+
+Requirement:
+
+* Batasi panjang watermark.
+* Escape/control font compatibility.
+* Optional opacity/position preset.
+
+Acceptance Criteria:
+
+* Teks terlalu panjang ditolak.
+* Watermark tidak membuat PDF gagal.
+
+Priority: P3
+
+---
+
+## Epic H — Dashboard, Backup, Observability
+
+### H1. `/doctor`
+
+Requirement:
+
+Tambahkan command owner:
+
+```text
+/doctor
+```
+
+Cek:
+
+* Node version.
+* DB connection.
+* Prisma provider.
+* DATABASE_URL persistence risk.
+* Baileys adapter mode.
+* WhatsApp socket status.
+* FFmpeg availability.
+* ffprobe availability.
+* pdftoppm availability.
+* Tesseract availability.
+* Temp folder writable.
+* Backup folder writable.
+* OWNER_IDS configured.
+* Dashboard config.
+* Redis config jika enabled.
+* Queue status.
+
+Acceptance Criteria:
+
+* Output ringkas dengan ✅/⚠️/❌.
+* Tidak membocorkan secret.
+* Bisa dipakai di private chat owner.
+
+Priority: P0
+
+---
+
+### H2. Startup Health Check
+
+Requirement:
+
+* Saat bootstrap, jalankan health check ringan.
+* Jika fatal, stop startup.
+* Jika nonfatal, log warning.
+
+Fatal examples:
+
+* Production `OWNER_IDS` kosong.
+* DB tidak connect.
+* Migration/schema missing.
+* Dashboard enabled tanpa password.
+
+Nonfatal examples:
+
+* FFmpeg missing saat media plugin enabled.
+* Poppler missing saat document plugin enabled.
+* STT command missing saat STT command dipakai.
+
+Acceptance Criteria:
+
+* Log startup jelas.
+* Tidak ada silent feature failure.
+
+Priority: P0
+
+---
+
+### H3. `/fiturstatus`
+
+Requirement:
+
+Command admin grup:
+
+```text
+/fiturstatus
+```
+
+Output fitur aktif/nonaktif dan plan grup.
+
+Acceptance Criteria:
+
+* Admin bisa lihat status fitur.
+* Menampilkan prefix, botEnabled, plan, quota.
+* Tidak perlu membuka dashboard.
+
+Priority: P2
+
+---
+
+### H4. `/repair group`
+
+Requirement:
+
+Command admin/owner:
+
+```text
+/repair group
+```
+
+Fungsi:
+
+* Validasi `featuresJson`.
+* Reset config rusak.
+* Optional reset prefix.
+* Optional restore default features.
+
+Acceptance Criteria:
+
+* Config rusak bisa diperbaiki tanpa akses DB manual.
+* Ada konfirmasi sebelum destructive reset.
+
+Priority: P1
+
+---
+
+### H5. Dashboard Input Validation
+
+Requirement:
+
+* Validate userId/JID.
+* Validate plan enum.
+* Validate days finite number.
+* Validate broadcast length.
+* Throttle dashboard broadcast.
+
+Acceptance Criteria:
+
+* `NaN`, negative days, invalid plan ditolak.
+* Broadcast dashboard punya delay per group.
+* Error tampil di UI.
+
+Priority: P1
+
+---
+
+### H6. Backup Observability
+
+Requirement:
+
+* Simpan backup result ke DB audit log.
+* Jika auto backup gagal, simpan error log.
+* `/doctor` menampilkan backup terakhir.
+
+Acceptance Criteria:
+
+* Owner bisa tahu backup terakhir sukses/gagal.
+* Auto backup tidak hanya console.
+
+Priority: P2
+
+---
+
+## 9. Non-Functional Requirements
+
+### 9.1 Security
+
+* Semua URL eksternal harus melalui safe URL validator.
+* Tidak ada secret raw di logs.
+* API key tidak dikirim ke grup.
+* Dashboard POST wajib CSRF.
+* Dashboard auth harus rate-limited dengan trust proxy config.
+* Command heavy harus punya rate limit.
+
+### 9.2 Reliability
+
+* Bot harus recover dari reconnect tanpa duplicate handlers.
+* Temp files harus selalu dibersihkan.
+* Worker harus aman multi-instance untuk reminder.
+* Queue production harus durable atau documented memory-only.
+
+### 9.3 Performance
+
+* Tidak boleh memuat file besar tanpa limit.
+* Sharp/FFmpeg/PDF processing harus punya timeout/size/page/duration limit.
+* DB query dalam route pesan harus diminimalkan atau di-cache aman.
+
+### 9.4 Observability
+
+* Semua error command punya error ID.
+* Usage log mencatat command, success, feature, duration jika memungkinkan.
+* `/doctor` dan dashboard memberi status runtime.
+
+---
+
+## 10. Acceptance Test Plan
+
+### 10.1 Build & Startup
+
+* `npm ci`
+* `npm run typecheck`
+* `npm run build`
+* `npx prisma migrate deploy`
+* `docker compose up --build`
+
+Expected:
+
+* Semua pass.
+* Tidak ada missing binary untuk fitur aktif.
+* DB persistent setelah container recreate.
+
+---
+
+### 10.2 WhatsApp Adapter Manual Test
+
+Test cases:
+
+1. Reply `/menu` ke pesan user.
+2. Kirim image dengan caption `/stiker`.
+3. Reply image dengan `/stiker`.
+4. Reply sticker dengan `/toimg`.
+5. Welcome message mention user.
+6. Kick/warn mention user.
+7. Simulasi reconnect 3 kali.
+
+Expected:
+
+* Response native reply benar.
+* Mentions benar.
+* Tidak ada duplicate response setelah reconnect.
+
+---
+
+### 10.3 Security Test
+
+Test URLs:
+
+* `http://localhost`
+* `http://127.0.0.1`
+* `http://169.254.169.254`
+* `http://10.0.0.1`
+* `http://192.168.1.1`
+* IPv6 local
+* URL public redirect ke private IP
+* URL public dengan content-length terlalu besar
+
+Expected:
+
+* Semua unsafe ditolak.
+* Safe public media tetap bisa diproses.
+
+---
+
+### 10.4 Quota & Rate Limit Test
+
+Scenario:
+
+* Free group kirim 60 command bersamaan.
+* Private free user kirim 25 command.
+* Premium user kirim command heavy.
+* Owner bypass on/off.
+
+Expected:
+
+* Quota tidak terlewati.
+* Usage log success/failure benar.
+* Rate limit berlaku sesuai config.
+
+---
+
+### 10.5 Command Correctness Test
 
 Commands:
 
-* `/error <errorId>`
-* `/errorstats`
-* `/clearerrors`
-
-## 9.3 State Store Abstraction
-
-Create:
-
-* `StateStore` interface
-* `MemoryStateStore`
-* `RedisStateStore`
-
-Operations:
-
-* `get`
-* `set`
-* `setex`
-* `del`
-* `incr`
-* `ttl`
-* `listPush`
-* `listRange`
-
-Use it for:
-
-* rate limit
-* cooldown
-* mute
-* dashboard session
-* quiz/session state where possible
-
-## 9.4 Queue Abstraction
-
-Create queue interface:
-
-* `add`
-* `cancel`
-* `status`
-* `list`
-* `retry`
-* `pause`
-* `resume`
-
-Implement:
-
-* `MemoryQueueV2`
-* optional future `BullMQQueue`
-
-Commands:
-
-* `/queue`
-* `/queue mine`
-* `/canceljob <id>`
-* `/job <id>`
-
-## 9.5 Security Commands
-
-Commands:
-
-* `/securitycheck`
-* `/setupcheck`
-* `/diagnose`
-* `/providerstatus`
-* `/dbstatus`
-
-Checks:
-
-* owner configured
-* dashboard password set
-* dashboard HTTPS warning
-* Redis status
-* DB status
-* FFmpeg availability
-* OCR availability
-* STT availability
-* temp folder writable
-* backup folder writable
-* session folder exists
-* plugin state persistence
-* active queue count
-
-## 10. Phase 1 — Core UX Improvements
-
-## 10.1 Status Commands
-
-Add:
-
-* `/ping`
-* `/statusbot`
-* `/health`
-* `/uptime`
-* `/workers`
-* `/workerstatus`
-
-Display:
-
-* latency
-* uptime
-* memory usage
-* adapter mode
-* WA connection status
-* DB status
-* Redis status
-* queue length
-* commands today
-* error count today
-* active groups
-
-## 10.2 Smart Help System
-
-Add:
-
-* `/help`
-* `/help <command>`
-* `/cmd <keyword>`
-* `/cari <keyword>`
-* `/menu search <keyword>`
-* `/menu <category>`
-* `/menu saya`
-* `/premiumguide`
-* `/start`
-
-Requirements:
-
-* Menu respects role.
-* Menu respects active group features.
-* Menu respects plugin status.
-* Menu respects plan restrictions.
-* Menu shows aliases, usage, examples, role, cooldown, premium status.
-* Menu recommends frequently used commands.
-
-## 10.3 Command Suggestion
-
-If user types unknown command:
-
-* Suggest closest command.
-* Show usage.
-* Do not spam suggestions repeatedly.
-
-Examples:
-
-* `/stikre` → “Maksud kamu /stiker?”
-* `/tranlsate` → “Maksud kamu /translate?”
-
-## 10.4 Custom Alias Per Group
-
-Commands:
-
-* `/addcmd /alias = /realcommand`
-* `/delcmd /alias`
-* `/listcmd`
-* `/cmdalias`
-
-Requirements:
-
-* Admin only.
-* Prevent overriding owner commands.
-* Resolve aliases before command execution.
-* Store aliases in database.
-
-## 10.5 Group Language and Persona
-
-Commands:
-
-* `/setlang id`
-* `/setlang en`
-* `/setlang jawa`
-* `/setlang sunda`
-* `/setpersona formal`
-* `/setpersona santai`
-* `/setpersona lucu`
-* `/setpersona islami`
-* `/setpersona sekolah`
-
-Requirements:
-
-* Store per group.
-* Default Indonesian.
-* Responses use localization layer.
-* Persona affects optional response style, not security messages.
-
-## 10.6 Setup Wizard
-
-Command:
-
-* `/setupwizard`
-
-Wizard asks:
-
-1. Enable welcome?
-2. Enable goodbye?
-3. Enable anti-link?
-4. Enable anti-spam?
-5. Enable badword filter?
-6. Enable captcha?
-7. Set prefix.
-8. Set punishment mode.
-9. Set group mode.
-10. Confirm settings.
-
-Also add:
-
-* `/setupcheck`
-* `/groupmode sekolah`
-* `/groupmode jualbeli`
-* `/groupmode gaming`
-* `/groupmode islami`
-* `/groupmode komunitas`
-* `/groupmode private`
-* `/groupmode publik`
-* `/groupmode event`
-
-## 10.7 Command Packs
-
-Commands:
-
-* `/pack sekolah`
-* `/pack jualan`
-* `/pack gaming`
-* `/pack islami`
-* `/pack komunitas`
-
-Each pack enables recommended features.
-
-## 11. Phase 2 — Moderation, Safety, and Group Protection
-
-## 11.1 Advanced Anti-Spam
-
-Features:
-
-* Anti-flood per group.
-* Anti-forwarded spam.
-* Anti-sticker spam by count and duplicate hash.
-* Anti-mention spam.
-* Anti-virtex.
-* Anti-link invite group.
-* Anti-media flood.
-* Anti-view-once.
-* Anti-executable file.
-* Anti-APK.
-* Anti-shortlink suspicious.
-* Anti-judi.
-* Anti-pinjol.
-* Anti-scam.
-* Anti-toxic with normalized words.
-* Anti-promosi rekening/e-wallet.
-* Anti-new-member link.
-
-Commands:
-
-* `/antispam on/off`
-* `/antitoxic on/off`
-* `/antijudi on/off`
-* `/antipinjol on/off`
-* `/antiscam on/off`
-* `/newmemberlinkblock on/off`
-* `/mediafilter on/off`
-* `/filtermedia apk on/off`
-* `/whitelistdomain add <domain>`
-* `/whitelistdomain list`
-* `/whitelistword add <word>`
-
-## 11.2 Risk Score Moderation
-
-Compute risk score from:
-
-* spam frequency
-* duplicate message
-* toxic words
-* links
-* suspicious shortlinks
-* forwarded message
-* new member age
-* mention count
-* media flood
-* previous warnings
-
-Actions:
-
-* score 30: delete
-* score 60: warn
-* score 80: mute
-* score 100: admin review or kick depending settings
-
-Commands:
-
-* `/risk @user`
-* `/riskconfig`
-* `/riskmode on/off`
-
-## 11.3 Silent Moderation
-
-Command:
-
-* `/silentmod on/off`
-
-Behavior:
-
-* Delete message silently.
-* DM warning to user.
-* Log to admin room.
-* Avoid public shaming.
-
-## 11.4 Auto Slow Mode
-
-Command:
-
-* `/autoslowmode on/off`
-
-Behavior when group is too noisy:
-
-* Tighten cooldowns.
-* Temporarily pause auto-reply.
-* Limit downloader/media.
-* Enable stricter anti-spam.
-
-## 11.5 Anti-Raid and Quarantine
-
-Commands:
-
-* `/raidmode on/off`
-* `/quarantine on/off`
-* `/lock <duration>`
-* `/lock media <duration>`
-* `/lock link <duration>`
-* `/lock sticker <duration>`
-* `/unlock`
-* `/setuju`
-
-Features:
-
-* Detect many joins in short time.
-* Auto-lock group.
-* Captcha member verification.
-* Read-rules confirmation.
-* Restrict new members for X hours.
-* Auto-kick if not verified after timeout.
-* Notify admin room.
-
-## 11.6 Welcome and Goodbye V2
-
-Commands:
-
-* `/welcome on/off`
-* `/goodbye on/off`
-* `/setwelcome <template>`
-* `/setgoodbye <template>`
-* `/welcomecard on/off`
-* `/captcha on/off`
-
-Template variables:
-
-* `{user}`
-* `{group}`
-* `{date}`
-* `{time}`
-* `{memberCount}`
-* `{rules}`
-* `{prefix}`
-
-Features:
-
-* Welcome image/card.
-* Auto-send rules.
-* Auto-tag new member.
-* Captcha verification.
-* Quiet-hours support.
-
-## 11.7 Admin Tools
-
-Commands:
-
-* `/tagall <message>`
-* `/hidetag <message>`
-* `/kick @user`
-* `/promote @user`
-* `/demote @user`
-* `/open`
-* `/close`
-* `/setname`
-* `/setdesc`
-* `/setppgc`
-* `/linkgc`
-* `/resetlink`
-* `/tempmute @user 10m`
-* `/tempadmin @user 1h`
-
-## 11.8 Admin Approval
-
-Commands:
-
-* `/approval on kick`
-* `/approval on broadcast`
-* `/approve <id>`
-* `/reject <id>`
-* `/kickvote @user`
-
-Sensitive actions need second admin approval if enabled.
-
-## 11.9 Evidence and Case Management
-
-Commands:
-
-* `/evidence @user`
-* `/evidence <caseId>`
-* `/case open @user <reason>`
-* `/case note <id> <note>`
-* `/case close <id>`
-* `/report @user <reason>`
-* `/reportmsg`
-* `/listreport`
-* `/closereport <id>`
-
-Store:
-
-* user
-* group
-* message excerpt if privacy mode allows
-* reason
-* action
-* admin
-* timestamp
-* evidence file reference if applicable
-
-## 11.10 Global and Shared Banlist
-
-Commands:
-
-* `/globalblacklist add @user <reason>`
-* `/globalblacklist remove @user`
-* `/globalblacklist check @user`
-* `/banlist join <network>`
-* `/banlist report @user`
-* `/banlist sync`
-
-## 11.11 Private Admin Room
-
-Commands:
-
-* `/setadminroom`
-* `/adminroom off`
-
-Send alerts for:
-
-* spam
-* raid
-* scam
-* user reports
-* failed jobs
-* high-risk user
-* subscription expiry
-* dashboard action
-
-## 12. Phase 3 — Analytics, Health, Logs, and Dashboard
-
-## 12.1 Group Stats
-
-Commands:
-
-* `/groupstats`
-* `/topchat`
-* `/topcmd`
-* `/topsticker`
-* `/topactive`
-* `/inactive 7d`
-* `/inactive 30d`
-* `/sentiment hariini`
-* `/grouphealth`
-* `/rekomendasigroup`
-* `/weeklyreport`
-
-Metrics:
-
-* total messages
-* command usage
-* active users
-* inactive users
-* warnings
-* top features
-* spam trend
-* toxic trend
-* mood/sentiment
-* engagement score
-* health score
-
-## 12.2 Admin Stats
-
-Commands:
-
-* `/adminstats`
-* `/topadmin`
-
-Track:
-
-* warns issued
-* mutes
-* kicks
-* reports handled
-* false positives reversed
-* settings changed
-
-## 12.3 Owner Analytics
-
-Commands:
-
-* `/analytics`
-* `/income`
-* `/activegroups`
-* `/expiredsoon`
-* `/topgroups`
-* `/errorstats`
-* `/coststats`
-* `/activefeatures`
-
-Dashboard pages:
-
-* usage chart
-* error chart
-* queue monitor
-* revenue/sewa stats
-* resource usage
-* group subscription status
-* provider status
-* broadcast report
-* admin audit log
-
-## 12.4 Dashboard Improvements
-
-Add pages:
-
-* Real-time status
-* Security check
-* Provider status
-* Queue jobs
-* Failed jobs
-* Group detail
-* Group settings
-* Welcome template editor
-* Badword editor
-* Warning log
-* Reports/cases
-* Premium/sewa manager
-* Reseller manager
-* Broadcast segmented
-* Backup/restore
-* Audit log
-* Privacy/data retention settings
-
-## 12.5 Admin Group Dashboard
-
-Add optional dashboard for group admins.
-
-Features:
-
-* OTP login via WhatsApp.
-* Only manage own group.
-* Toggle features.
-* Edit welcome/rules.
-* View warnings.
-* View logs.
-* Manage badwords.
-* Manage auto-reply.
-* View stats.
-
-## 13. Phase 4 — School and Learning Features
-
-## 13.1 School Mode
-
-Commands:
-
-* `/groupmode sekolah`
-* `/tugas add <mapel> <deadline> <deskripsi>`
-* `/tugas list`
-* `/tugas selesai <id>`
-* `/deadline`
-* `/rekaptugas`
-* `/jadwal hariini`
-* `/jadwal besok`
-* `/jadwalpelajaran`
-* `/ujian add <mapel> <tanggal>`
-* `/calendar add <event> <tanggal>`
-* `/calendar list`
-* `/calendar month`
-
-Features:
-
-* Task reminders.
-* Deadline countdown.
-* Assignment recap.
-* Late detection.
-* Export tasks.
-* Schedule reminders.
-
-## 13.2 Attendance V2
-
-Commands:
-
-* `/absen buka <judul>`
-* `/absen hadir`
-* `/absen izin <alasan>`
-* `/absen sakit <alasan>`
-* `/absen list`
-* `/absen tutup`
-* `/absen rekap`
-* `/absen export`
-
-Features:
-
-* Auto-close.
-* Late detection.
-* CSV/PDF export.
-* Permission per admin/bendahara.
-* Attendance stats.
-
-## 13.3 Learning AI
-
-Commands:
-
-* `/belajar <topik>`
-* `/jelaskan <topik>`
-* `/buatsoal <mapel> <level>`
-* `/latihan <mapel> <mudah|sedang|sulit>`
-* `/jawabsoal`
-* `/bahas`
-* `/koreksiesai`
-* `/flashcard`
-* `/quiz <mapel>`
-* `/rumus <topik>`
-* `/glossary add <term> <definition>`
-* `/glossary <term>`
-* `/glossary quiz`
-
-Features:
-
-* OCR image question to explanation.
-* Essay feedback.
-* Tiered practice questions.
-* Leaderboard belajar.
-* Flashcards.
-* Glossary per group.
-* Safe mode for school groups.
-
-## 13.4 Language Learning
-
-Commands:
-
-* `/kamus id en <word>`
-* `/kamus jawa id <word>`
-* `/kamus sunda id <word>`
-* `/grammar <sentence>`
-* `/vocab`
-* `/listening`
-* `/speaking`
-* `/translatequiz`
-* `/wordoftheday`
-
-## 13.5 Document Generators for Students
-
-Commands:
-
-* `/surat izin sakit`
-* `/surat lamaran`
-* `/surat resmi`
-* `/surat undangan`
-* `/cv buat`
-* `/cv exportpdf`
-* `/proposal kegiatan <tema>`
-* `/proposal usaha <tema>`
-* `/notulen`
-* `/actionitems`
-
-Outputs:
-
-* Text
-* PDF
-* DOCX if later supported
-
-## 14. Phase 5 — AI, Text, Audio, Media, and Document Tools
-
-## 14.1 AI Provider Abstraction
-
-Add provider system:
-
-* local/offline fallback
-* OpenAI-compatible endpoint
-* Gemini-compatible endpoint if configured
-* self-hosted provider
-* disabled mode
-
-Commands:
-
-* `/ai <question>`
-* `/chatmode on/off`
-* `/provider list`
-* `/provider set ai <provider>`
-* `/providerstatus`
-* `/quota`
-
-## 14.2 AI Text Tools
-
-Improve:
-
-* `/ringkas`
-* `/summarize`
-* `/ubah`
-* `/typo`
-* `/balas`
-* `/translate`
-* `/ocr cleanup`
-* `/rangkumchat 1h`
-* `/rangkumchat hariini`
-* `/rangkumchat 100`
-
-Add:
-
-* `/caption ig <tema>`
-* `/bio ig <gaya>`
-* `/idekonten <niche>`
-* `/hashtag <topik>`
-* `/scriptvideo <tema>`
-
-## 14.3 Audio/STT/Subtitle
-
-Commands:
-
-* `/transkrip`
-* `/vntext`
+* `/removebg`
+* `/outline`
+* `/batchstiker`
 * `/subtitle`
-* `/srt`
-* `/translateaudio`
-* `/ringkasaudio`
-
-Requirements:
-
-* Use `STT_COMMAND` or provider abstraction.
-* Generate real transcript, not static subtitle.
-* Support SRT output.
-* Timeouts and file size limits.
-* Premium gates for heavy processing.
-
-## 14.4 Image and Design Tools
-
-Commands:
-
-* `/poster <judul> | <deskripsi>`
-* `/sertifikat <nama>`
-* `/twibbon <nama>`
-* `/banner <teks>`
-* `/thumbnail <judul>`
-* `/profilecard`
-* `/checkimage`
-
-Features:
-
-* Generate simple image cards locally using SVG/Sharp.
-* Optional AI/image provider later.
-* Safety check for NSFW/phishing screenshots if provider enabled.
-
-## 14.5 File and Document Tools
-
-Existing document tools should be extended with:
-
+* `/compresspdf`
 * `/pdftext`
-* `/pdfsplit <range>`
-* `/pdfwatermark <text>`
-* `/docx2pdf`
-* `/txt2pdf`
-* `/ocrpdf`
-* `/ziplist`
-* `/fileinfo`
-* `/scanfile`
-* `/tableocr`
-* `/struk`
-* `/exportpdf`
-* `/exportexcel`
-* `/exportcsv`
-* `/exportjson`
+* `/resize 99999x99999`
+* `/vstiker` dengan video panjang
+* `/reverse` dengan video panjang
+* `/tts`
 
-Requirements:
+Expected:
 
-* Safe ZIP extraction.
-* Block executable files.
-* OCR table to Excel.
-* Receipt parsing.
-* File hash and MIME check.
-* QR safety scanner.
+* Tidak ada command misleading.
+* Jika dependency/provider tidak aktif, pesan user jelas.
+* Semua command punya guardrail.
 
-## 14.6 QR and Link Safety
+---
 
-Commands:
+## 11. Data Model Changes
 
-* `/qr <text>`
-* `/readqr`
-* `/readqr safe`
-* `/checklink <url>`
-* `/cekpenipuan`
+### 11.1 UsageLog
 
-Features:
+Tambahkan/aktifkan pemakaian field:
 
-* Decode QR.
-* If QR contains URL, run URL safety analysis.
-* Detect shortlink, redirects, APK links, phishing-like domains.
-* Analyze scam screenshots using OCR and keyword/risk scoring.
+* `command`
+* `success`
+* optional future:
 
-## 15. Phase 6 — Community, Productivity, and Knowledge Features
+  * `durationMs`
+  * `errorId`
 
-## 15.1 Notes, FAQ, Wiki, and Bookmarks
+### 11.2 Reminder
 
-Commands:
+Status resmi:
 
-* `/note add <key> <value>`
-* `/note get <key>`
-* `/note list`
-* `/note delete <key>`
-* `/faq add <key> <answer>`
-* `/faq <key>`
-* `/faq list`
-* `/wiki add <page> <content>`
-* `/wiki edit <page>`
-* `/wiki <page>`
-* `/wiki search <keyword>`
-* `/bookmark`
-* `/bookmarks`
-* `/bookmark delete <id>`
-* `/pinbot <message>`
-* `/pinlist`
-* `/unpinbot <id>`
+* `pending`
+* `processing`
+* `sent`
+* `failed`
 
-## 15.2 Reminders, Calendar, Countdown
+Tambahan optional:
 
-Commands:
+* `lastError`
+* `retryCount`
+* `processedAt`
 
-* `/remind <time> <message>`
-* `/ingat <natural language reminder>`
-* `/autoremind <name> setiap <time> <message>`
-* `/autoremind hapus <id>`
-* `/countdown <name> <date>`
-* `/countdownlist`
-* `/hariini`
-* `/besok`
-* `/quiethours 22:00-06:00`
-* `/autoclose 22:00`
-* `/autoopen 06:00`
+### 11.3 BotSetting
 
-## 15.3 Personal Assistant
+Gunakan untuk state durable:
 
-Private chat commands:
+* `maintenance_mode`
+* `rate_limit_config`
+* `dashboard_public_health`
+* `trust_proxy`
 
-* `/todo add`
-* `/todo list`
-* `/catatan`
-* `/jadwalpribadi`
-* `/targetharian`
-* `/fokus`
-* `/ringkashariini`
-* `/setnama`
-* `/setgaya`
-* `/preferensi`
-* `/memory`
-* `/deletememory`
+### 11.4 QueueJobRecord
 
-## 15.4 Productivity
+Gunakan untuk durable queue jika Redis belum dipakai penuh:
 
-Commands:
-
-* `/pomodoro start 25`
-* `/pomodoro break 5`
-* `/pomodoro stop`
-* `/habit add <name>`
-* `/habit done <name>`
-* `/habit streak`
-* `/habit leaderboard`
-* `/mood <mood>`
-* `/moodstat`
-* `/diary tulis <text>`
-* `/diary lihat`
-* `/diary hapus`
-
-## 15.5 Group Forms and Dynamic Forms
-
-Commands:
-
-* `/form create <title>`
-* `/form field <name> text`
-* `/form field <name> pilihan <options>`
-* `/form open`
-* `/form jawab`
-* `/form hasil`
-* `/form export`
-
-Use cases:
-
-* registration
-* survey
-* event signup
-* class data collection
-* voting
-* product orders
-
-## 16. Phase 7 — Economy, Games, Profile, Reputation
-
-## 16.1 Profile Card and Member Progression
-
-Commands:
-
-* `/profile`
-* `/profile @user`
-* `/achievements`
-* `/badge`
-* `/title`
-* `/role`
-* `/toprole`
-
-Profile includes:
-
-* name
-* level
-* XP
-* balance
-* badge
-* title
-* reputation
-* warnings
-* command count
-* join date if available
-
-## 16.2 Reputation and Trust
-
-Commands:
-
-* `/rep @user`
-* `/-rep @user`
-* `/rep`
-* `/toprep`
-* `/score`
-* `/topscore`
-* `/trustlevel`
-* `/audit @user`
-
-Trust levels:
-
-* New
-* Trusted
-* Active
-* Senior
-* VIP
-* Restricted
-
-Effects:
-
-* New members cannot send links.
-* Trusted users get higher limits.
-* Restricted users get stricter moderation.
-
-## 16.3 Daily Missions and Season Pass
-
-Commands:
-
-* `/mission`
-* `/claimmission`
-* `/season`
-* `/pass`
-* `/reward`
-* `/tier`
-
-Mission examples:
-
-* send 10 messages
-* use 3 commands
-* answer 1 quiz
-* make 1 sticker
-* login streak
-* help another member
-
-## 16.4 Game Expansion
-
-Add:
-
-* competitive game leaderboard
-* weekly reset
-* tournaments
-* bracket generator
-* game season
-* clan/guild system
-
-Commands:
-
-* `/tournament create <name>`
-* `/tournament join`
-* `/tournament bracket`
-* `/tournament win @team`
-* `/clan create <name>`
-* `/clan join <name>`
-* `/clan war`
-* `/clan top`
-* `/clan donate`
-
-## 16.5 Giveaway and Raffle
-
-Commands:
-
-* `/giveaway create <duration> <prize>`
-* `/giveaway join`
-* `/giveaway draw`
-* `/raffle 1-100`
-* `/tebakangka`
-* `/undi @user1 @user2`
-
-Requirements:
-
-* One entry per user.
-* Cooldown.
-* Anti-alt/spam basic detection.
-* Admin controls.
-
-## 16.6 Marketplace Economy
-
-Commands:
-
-* `/market sell <item> <price>`
-* `/market list`
-* `/market buy <id>`
-* `/lelang create`
-* `/lelang bid`
-* `/giftitem @user <item>`
-* `/dailyshop`
-
-Features:
-
-* marketplace listings
-* auction
-* rare items
-* tax
-* anti-cheat checks
-
-## 17. Phase 8 — Business, Jual-Beli, Kas, and Finance
-
-## 17.1 Jual-Beli Mode
-
-Commands:
-
-* `/jual <nama> | <harga> | <deskripsi>`
-* `/listjual`
-* `/cariitem <keyword>`
-* `/hapusjual <id>`
-* `/sold <id>`
-* `/formatjual <item> <harga> <kondisi>`
-* `/produk add <nama> | <harga> | <deskripsi>`
-* `/produk list`
-* `/produk cari <keyword>`
-* `/produk hapus <id>`
-
-Features:
-
-* listing moderation
-* seller rating
-* anti-scam keywords
-* blacklist nomor penipu
-* product catalog
-
-## 17.2 Kas Grup
-
-Commands:
-
-* `/kas masuk <amount> @user`
-* `/kas keluar <amount> <reason>`
-* `/kas saldo`
-* `/kas laporan`
-* `/kas export`
-
-Roles:
-
-* Admin
-* Bendahara
-* Owner
-
-## 17.3 Split Bill
-
-Commands:
-
-* `/split <amount> @user1 @user2`
-* `/splitadd <name> <amount>`
-* `/splitdone @user`
-* `/splitstatus`
-
-## 17.4 Personal Finance
-
-Commands:
-
-* `/catat <amount> <category>`
-* `/pengeluaran hariini`
-* `/pengeluaran bulanini`
-* `/budget add <category> <amount>`
-* `/budget status`
-
-## 17.5 Bills, Arisan, Iuran
-
-Commands:
-
-* `/tagihan add @user <name> <amount> deadline <date>`
-* `/tagihan list`
-* `/tagihan done <id>`
-* `/tagihan remind`
-* `/arisan add <amount>`
-* `/arisan undi`
-* `/arisan list`
-* `/iuran add`
-* `/iuran rekap`
-
-## 17.6 Invoice, Contract, CRM
-
-Commands:
-
-* `/invoice buat <item> | <amount> | <client>`
-* `/invoice list`
-* `/invoice paid <id>`
-* `/kontrak jualbeli`
-* `/kontrak jasa desain`
-* `/kontrak sewa bot`
-* `/customer add @user`
-* `/order add @user <product> <price>`
-* `/order status`
-
-## 17.7 Ongkir and Resi
-
-Commands:
-
-* `/ongkir <origin> <destination> <weight>`
-* `/resi <courier> <trackingNumber>`
-
-Provider should be optional and disabled by default until API configured.
-
-## 17.8 Escrow Simple
-
-Commands:
-
-* `/escrow create @seller @buyer <amount>`
-* `/escrow paid`
-* `/escrow release`
-* `/escrow dispute`
-
-Important:
-
-* Must include legal disclaimer.
-* No actual money handling unless a verified payment provider is added.
-* Store status only.
-
-## 18. Phase 9 — Premium, Sewa, Billing, Reseller
-
-## 18.1 Premium and Sewa V2
-
-Commands:
-
-* `/sewa`
-* `/ceksewa`
-* `/invoice`
-* `/remindersewa`
-* `/addsewa`
-* `/extendsewa`
-* `/delsewa`
-* `/listsewa`
-* `/setplan`
-* `/trial <feature> <duration>`
-
-Features:
-
-* Auto reminder before expiry.
-* Auto downgrade on expiry.
-* Trial group.
-* Plan feature matrix.
-* Premium onboarding guide.
-* Voucher/redeem code.
-
-## 18.2 Quota and Credits
-
-Commands:
-
-* `/quota`
-* `/credit`
-* `/buycredit`
-* `/giftcredit @user <amount>`
-* `/usage`
-* `/buyquota`
-
-Quotas:
-
-* AI requests
-* downloader
-* HD 4x
-* OCR
-* STT
-* PDF tools
-
-## 18.3 Usage-Based Billing
-
-Add billing model:
-
-* monthly plan
-* credits
-* add-ons
-* quota packs
-* feature trials
-
-## 18.4 Coupons and Referral
-
-Commands:
-
-* `/coupon create <code> <discount>`
-* `/coupon use <code>`
-* `/coupon list`
-* `/referral`
-* `/refclaim`
-
-Rewards:
-
-* premium days
-* command credits
-* badge
-* economy balance
-
-## 18.5 Reseller System
-
-Commands:
-
-* `/addreseller @user`
-* `/reseller balance`
-* `/resellerorder`
-* `/resellerextend`
-* `/resellerpanel`
-* `/reseller createorder`
-* `/reseller listgroups`
-
-Dashboard:
-
-* reseller customers
-* group expiry
-* commission
-* invoice
-* credit balance
-
-## 18.6 Bot Store and Add-ons
-
-Commands:
-
-* `/store`
-* `/buyaddon school`
-* `/addonlist`
-* `/trial ai 1h`
-* `/trial antiraid 1d`
-
-Add-ons:
-
-* AI pack
-* downloader pack
-* school pack
-* business pack
-* anti-raid pack
-* dashboard pack
-
-## 19. Phase 10 — Owner, Operations, Deployment
-
-## 19.1 Owner Security Commands
-
-Commands:
-
-* `/sessionstatus`
-* `/logoutwa`
-* `/restart`
-* `/maintenance on/off`
-* `/maintenance <feature> on/off`
-* `/blockcmd <command>`
-* `/allowgroup <groupId>`
-* `/denygroup <groupId>`
-* `/ownerlog`
-* `/exportdata`
-* `/panicmode`
-* `/sandbox on/off`
-* `/demomode on/off`
-* `/simulate <command>`
-
-## 19.2 Broadcast V2
-
-Commands:
-
-* `/broadcast preview`
-* `/broadcast confirm`
-* `/broadcast cancel`
-* `/broadcast premium <message>`
-* `/broadcast free <message>`
-* `/broadcast expired <message>`
-* `/broadcast active <message>`
-* `/broadcast group <id> <message>`
-* `/broadcasttemplate add <name>`
-* `/broadcasttemplate use <name>`
-* `/broadcasttemplate list`
-
-Requirements:
-
-* Preview target count.
-* Send gradually.
-* Delay between groups.
-* Cancel support.
-* Exclude groups.
-* Report success/failure.
-* Admin approval if configured.
-
-## 19.3 Backup and Safe Update
-
-Commands:
-
-* `/backup`
-* `/backupsend`
-* `/autobackup on/off`
-* `/backupgd`
-* `/update check`
-* `/update backup`
-* `/update apply`
-* `/update rollback`
-* `/updateannounce`
-* `/changelog`
-
-Requirements:
-
-* Backup before update.
-* Rollback on failure.
-* Changelog broadcast.
-* Optional cloud/Google Drive provider later.
-
-## 19.4 Maintenance and Provider Controls
-
-Commands:
-
-* `/provider list`
-* `/provider set translate libretranslate`
-* `/provider set ai openai`
-* `/providerstatus`
-* `/config set <key> <value>`
-* `/config reload`
-* `/resourceguard on/off`
-* `/lowresource on/off`
-
-Resource guard actions:
-
-* reduce queue concurrency
-* disable HD 4x
-* limit video duration
-* reject large files
-* activate slow mode
-* disable broken provider temporarily
-
-## 19.5 Auto-Disable Failing Commands
-
-If a command fails repeatedly:
-
-* disable it temporarily
-* notify owner/admin room
-* show fallback message to users
-* allow owner to re-enable
-
-Commands:
-
-* `/commandstatus`
-* `/enablecmd <command>`
-* `/disablecmd <command>`
-
-## 19.6 Crash Report and Diagnostics
-
-Features:
-
-* Store last fatal error.
-* On restart, notify owner.
-* Attach Error ID and recent system context.
-
-Commands:
-
-* `/diagnose`
-* `/repair temp`
-* `/repair plugins`
-* `/repair db`
-* `/repair session`
-
-## 20. Phase 11 — Automation and Workflow
-
-## 20.1 Automation Builder
-
-Commands:
-
-* `/auto when join send <message>`
-* `/auto when badword warn`
-* `/auto when 3warn kick`
-* `/auto list`
-* `/auto delete <id>`
-
-## 20.2 Custom Workflow
-
-Commands:
-
-* `/workflow create <name>`
-* `/workflow list`
-* `/workflow delete <id>`
-
-Example workflow:
-
-* when user_join
-* send rules
-* wait 5m
-* if not_verified kick
-
-Another example:
-
-* when link_detected
-* delete
-* warn
-* notify_admin
-
-## 20.3 Custom Variables
-
-Commands:
-
-* `/var set <key> <value>`
-* `/var get <key>`
-* `/var list`
-* `/var delete <key>`
-
-Variables can be used in templates:
-
-* `{sekolah}`
-* `{wali_kelas}`
-* `{rules}`
-* `{owner}`
-* `{plan}`
-* `{expired}`
-
-## 20.4 Smart Rules
-
-Commands:
-
-* `/rule tambah <natural language rule>`
-* `/rule list`
-* `/rule delete <id>`
-
-Example:
-
-* `/rule tambah jangan kirim link selain YouTube dan Instagram`
-* `/rule tambah kalau spam 5 kali mute 10 menit`
-
-Implementation:
-
-* Initially rule-based parser.
-* Later optional AI parser if provider configured.
-
-## 21. Phase 12 — Privacy, Data, Consent
-
-## 21.1 Privacy Mode
-
-Commands:
-
-* `/privacymode strict`
-* `/privacymode balanced`
-* `/privacymode off`
-
-Strict mode:
-
-* Do not store ordinary message content.
-* Mask logs.
-* Disable auto-summary unless admin explicitly consents.
-* Store metadata only.
-
-## 21.2 Data Retention
-
-Commands:
-
-* `/retention logs 30d`
-* `/retention messages off`
-* `/retention media 1h`
-* `/cleandb logs 30d`
-* `/cleandb temp`
-* `/cleandb usage 90d`
-
-## 21.3 User Data Rights
-
-Commands:
-
-* `/mydata`
-* `/deletemydata`
-
-Allow user to:
-
-* view stored profile
-* delete personal data where safe
-* preserve group moderation records if legally/operationally required
-
-## 21.4 Consent
-
-Commands:
-
-* `/consent autosummary on/off`
-* `/consent ai on/off`
-* `/consent analytics on/off`
-
-Consent required for:
-
-* auto-summary
-* AI analysis of chat
-* sentiment
-* conversation snapshot
-* advanced analytics involving message content
-
-## 21.5 Rules Versioning
-
-Commands:
-
-* `/generaterules sekolah`
-* `/generaterules jualbeli`
-* `/generaterules komunitas`
-* `/rules edit`
-* `/rules version`
-* `/rules rollback`
-* `/ruleslog`
-
-Features:
-
-* Store rule versions.
-* Track `/setuju` acceptance by user, group, rule version, timestamp.
-* Ask members to accept again when rules change.
-
-## 22. Phase 13 — Announcements and Communication
-
-Commands:
-
-* `/announce <message>`
-* `/announcements`
-* `/announcement <id>`
-
-Features:
-
-* Format announcement automatically.
-* Add title/time.
-* Mention selected roles.
-* Store announcement history.
-* Allow new members to read old announcements.
-
-## 23. Phase 14 — API, Webhook, Landing Page
-
-## 23.1 Landing Page
-
-Add optional public page:
-
-* feature list
-* pricing/sewa info
-* command docs
-* demo screenshots
-* bot status
-* contact owner
-* request sewa form
-
-## 23.2 Internal API
-
-Endpoints:
-
-* `GET /api/status`
-* `GET /api/groups`
-* `GET /api/usage`
-* `GET /api/errors`
-* `POST /api/broadcast`
-* `POST /api/group/:id/features`
-
-Requirements:
-
-* API key auth.
-* Audit log.
-* Rate limit.
-* Disabled by default.
-
-## 23.3 Webhooks
-
-Commands:
-
-* `/webhook set <url>`
-* `/webhook test`
-* `/webhook off`
-
-Events:
-
-* command used
-* group joined
-* high severity error
-* subscription expired
-* backup completed
-* raid detected
-* payment/invoice update
-
-## 24. Phase 15 — Scaling and Multi-Instance
-
-## 24.1 Server Cluster
-
-Architecture:
-
-* main bot process
-* media worker
-* downloader worker
-* AI worker
-* dashboard process
-* Redis queue
-* PostgreSQL database
-
-Commands:
-
-* `/workers`
-* `/workerstatus`
-
-## 24.2 Multi-Bot Instance
-
-Commands:
-
-* `/botinstance add <name>`
-* `/instance status`
-* `/movegroup <groupId> <instance>`
-
-Features:
-
-* manage multiple WA numbers
-* group assignment
-* instance health
-* load balancing
-
-## 24.3 Failover
-
-Commands:
-
-* `/failover status`
-
-Features:
-
-* heartbeat
-* backup session strategy
-* secondary bot notification
-* owner alert on failure
-
-## 25. Database Additions
-
-Codex should add models gradually as features are implemented.
-
-Recommended new models:
-
-* `BotSetting`
-* `PluginState`
-* `DashboardSession`
-* `AuditLog`
-* `CommandAlias`
-* `CommandPermissionOverride`
-* `GroupLanguageSetting`
-* `GroupPersonaSetting`
-* `GroupMode`
-* `GroupRule`
-* `GroupRuleAcceptance`
-* `WarningRule`
-* `ModerationCase`
-* `Evidence`
-* `Report`
-* `AdminRoom`
-* `RiskEvent`
-* `GlobalBlacklist`
-* `SharedBanlist`
-* `QueueJobRecord`
-* `ErrorRecord`
-* `UserCommandHistory`
-* `UserPreference`
-* `UserMemory`
-* `UserConsent`
-* `UserReputation`
-* `TrustLevel`
-* `DailyMission`
-* `Season`
-* `SeasonProgress`
-* `Giveaway`
-* `GiveawayEntry`
-* `GroupNote`
-* `GroupFAQ`
-* `WikiPage`
-* `Bookmark`
-* `VirtualPin`
-* `Form`
-* `FormField`
-* `FormResponse`
-* `GroupCalendarEvent`
-* `GroupTask`
-* `AttendanceRecord`
-* `KasTransaction`
-* `SplitBill`
-* `ProductListing`
-* `Invoice`
-* `Coupon`
-* `Referral`
-* `ResellerProfile`
-* `Addon`
-* `UsageQuota`
-* `CreditTransaction`
-* `Webhook`
-* `BroadcastTemplate`
-* `BroadcastJob`
-* `Workflow`
-* `WorkflowStep`
-* `CustomVariable`
-* `DataRetentionPolicy`
-
-Add indexes on:
-
+* `jobId`
+* `queue`
+* `status`
+* `command`
 * `groupId`
 * `userId`
+* `metadataJson`
 * `createdAt`
-* `status`
+* `updatedAt`
 * `expiresAt`
-* `command`
-* `feature`
-* `plan`
-* `errorId`
 
-## 26. Command Categories
+---
 
-The bot should organize commands into these categories:
+## 12. Migration Plan
 
-1. General
-2. Help/Menu
-3. Owner
-4. Admin
-5. Moderation
-6. Security
-7. Dashboard
-8. Group Setup
-9. Welcome
-10. Anti-Spam
-11. AI
-12. Text
-13. Audio
-14. Media
-15. Sticker
-16. Document
-17. Downloader
-18. School
-19. Productivity
-20. Community
-21. Economy
-22. Games
-23. Business
-24. Finance
-25. Premium/Sewa
-26. Reseller
-27. Analytics
-28. Automation
-29. Privacy
-30. Developer/Ops
+### Step 1 — Stabilize Config
 
-## 27. Acceptance Criteria for Codex Overall
+1. Fix `.env.example`.
+2. Fix Docker DB path.
+3. Add startup validation.
+4. Add `/doctor`.
 
-Codex must not produce a single giant unsafe PR. It must split implementation into phases.
+### Step 2 — Adapter Fix
 
-For every implemented feature:
+1. Extend `MessageContext`.
+2. Store raw message key.
+3. Implement quoted reply for all send methods.
+4. Implement reconnect cleanup.
 
-* Add command metadata.
-* Add permission metadata.
-* Add feature flag if group-scoped.
-* Add plugin mapping.
-* Add menu/help documentation.
-* Add rate limit config if needed.
-* Add tests where practical.
-* Add safe error handling.
-* Add audit log for admin/owner actions.
-* Add database migration if needed.
-* Add README or COMMANDS docs update.
+### Step 3 — URL & Download Security
 
-## 28. Priority Roadmap
+1. Build unified safe URL module.
+2. Replace all direct axios URL fetch.
+3. Add tests.
+4. Harden downloader stream.
 
-## P0 — Must Fix First
+### Step 4 — Quota & Logging
 
-1. Zod env validation.
-2. Mask sensitive logs.
-3. Permission service unification.
-4. Group-scoped moderation state.
-5. Dashboard hardening.
-6. URL/SSRF protection.
-7. Safe error ID system.
-8. CI/build/test scripts.
-9. Queue/state abstraction.
-10. Plugin state persistence outside source.
+1. Move usage log after command execution.
+2. Add success/failure.
+3. Add transaction/atomic quota handling.
+4. Use `maxDailyCmd`.
 
-## P1 — Core Product
+### Step 5 — Command Fixes
 
-1. `/ping`, `/statusbot`, `/health`.
-2. Smart `/menu` and `/help <command>`.
-3. `/setupwizard`.
-4. `/securitycheck`.
-5. `/queue`, `/canceljob`.
-6. Welcome/goodbye V2.
-7. Anti-spam/anti-toxic V2.
-8. Admin group tools.
-9. Broadcast V2.
-10. Dashboard analytics.
+1. Fix high-impact misleading commands.
+2. Add file/duration/dimension guard.
+3. Fix audio MIME and TTS HTTPS.
+4. Improve PDF/ZIP behavior.
 
-## P2 — Community and School
+### Step 6 — Queue/State
 
-1. School mode.
-2. Tasks/deadlines.
-3. Attendance V2.
-4. Calendar.
-5. Notes/FAQ/wiki.
-6. Group stats.
-7. Profile card.
-8. Reputation/trust level.
-9. Daily mission.
-10. Auto-summary.
+1. Decide Redis implementation or remove claim.
+2. Persist maintenance mode.
+3. Atomic reminder worker.
+4. Safer FileStateStore.
 
-## P3 — AI and Media
+### Step 7 — Dashboard/Backup
 
-1. AI provider abstraction.
-2. Real STT/transcript.
-3. Real subtitle/SRT.
-4. OCR PDF/table to Excel.
-5. QR safety scanner.
-6. Scam screenshot detection.
-7. Image safety check.
-8. Better document tools.
-9. Content creator commands.
-10. Study assistant commands.
+1. Validate dashboard forms.
+2. Throttle broadcast.
+3. Add backup status.
+4. Safe restore flow.
 
-## P4 — Monetization
+---
 
-1. Premium/sewa V2.
-2. Quota/credit system.
-3. Coupon/referral.
-4. Reseller dashboard.
-5. Add-on store.
-6. Usage-based billing.
-7. Cost stats.
-8. Resource guard.
-9. Segmented broadcast.
-10. Trial features.
+## 13. Release Criteria
 
-## P5 — Advanced Platform
+Release boleh dilakukan jika:
 
-1. Custom workflow.
-2. Automation builder.
-3. Smart rules.
-4. Admin approval.
-5. Evidence locker.
-6. Privacy mode.
-7. Internal API.
-8. Webhooks.
-9. Multi-instance support.
-10. Failover.
+1. Semua P0 selesai.
+2. Minimal 80% P1 selesai.
+3. Tidak ada known security bug P0/P1.
+4. Docker deployment berhasil dari fresh clone.
+5. `/doctor` tidak menampilkan error fatal.
+6. Manual WhatsApp smoke test pass.
+7. Build dan typecheck pass.
+8. README deployment diperbarui.
 
-## 29. Suggested First Codex Task
+---
 
-Implement P0 in small steps:
+## 14. Success Metrics
 
-1. Create env schema using Zod.
-2. Replace existing env export with validated env.
-3. Add mask utilities and remove sensitive logs.
-4. Create unified permission service.
-5. Change moderation state keys to group-scoped keys.
-6. Add safe error ID utility.
-7. Add tests for config, permission, and moderation keys.
+### Stability
 
-## 30. Definition of Done
+* Bot uptime 7 hari tanpa crash.
+* Tidak ada duplicate handler setelah reconnect.
+* Error command turun minimal 50%.
 
-A phase is done when:
+### Security
 
-* All new commands are registered.
-* All new commands appear in `/help`.
-* TypeScript typecheck passes.
-* Tests pass.
-* Bot starts in console mode.
-* Bot starts in Baileys mode if configured.
-* No sensitive data is printed by default.
-* Admin/owner actions are audited.
-* User-facing errors are safe.
-* README/COMMANDS docs are updated.
+* Semua SSRF test ditolak.
+* Tidak ada secret raw di error log.
+* File besar ditolak sebelum memory spike.
+
+### Product
+
+* Admin bisa self-service `/fiturstatus` dan `/repair`.
+* Owner bisa debug lewat `/doctor`.
+* Premium/quota lebih konsisten.
+
+### Engineering
+
+* Build/typecheck selalu pass.
+* Ada test untuk URL validator, quota, feature parser, JID normalization.
+* Docker image bisa dipakai production baseline.
+
+---
+
+## 15. Backlog Issue Breakdown
+
+### P0 Issues
+
+1. Fix Docker SQLite persistence.
+2. Add migration entrypoint.
+3. Install native dependencies in Docker.
+4. Add `/doctor`.
+5. Add startup health check.
+6. Fix quoted reply support.
+7. Fix mention support.
+8. Fix Baileys reconnect cleanup.
+9. Replace unsafe URL download flow.
+10. Validate extracted downloader URLs.
+11. Fail startup if production owner missing.
+12. Replace raw `JSON.parse(featuresJson)` with safe parser.
+
+### P1 Issues
+
+1. Implement robust JID normalization.
+2. Add transactional quota/usage logging.
+3. Use `maxDailyCmd`.
+4. Add real stream size limit.
+5. Add FFmpeg timeout.
+6. Fix ffprobe duration failure behavior.
+7. Add dashboard input validation.
+8. Add dashboard trust proxy config.
+9. Prevent API key delivery in group.
+10. Harden error redaction.
+11. Add reminder atomic claim.
+12. Add ZIP bomb guardrail.
+13. Fix `/stiker` video handling.
+14. Add media dimension limits.
+15. Fix audio MIME.
+16. Validate audio before temp write.
+17. Implement or honestly disable `/removebg`.
+
+### P2 Issues
+
+1. Implement real Redis or remove Redis claim.
+2. Persist maintenance mode.
+3. Persist captcha/session critical state.
+4. Improve rate limiter coverage.
+5. Fix `/outline`.
+6. Implement sticker metadata.
+7. Implement or rename `/batchstiker`.
+8. Make `/subtitle` honest or real.
+9. Use HTTPS TTS.
+10. Improve PDF text extraction.
+11. Improve `txtToPdf`.
+12. Improve `pdf2img` page selection.
+13. Improve backup observability.
+14. Await plugin DB save.
+15. Use warning rule duration.
+
+### P3 Issues
+
+1. Refactor legacy command registry remnants.
+2. Improve merge PDF UX.
+3. Add PDF watermark options.
+4. Make dashboard session durable if multi-instance needed.
+5. Add richer queue dashboard.
+6. Add command duration metrics.
+7. Improve plugin metadata test coverage.
+
+---
+
+## 16. Risks
+
+1. Fixing Baileys quoted reply may require changing `MessageContext` shape and many call sites.
+2. Real Redis queue may be larger than expected.
+3. Real remove background requires paid/external provider or local ML dependency.
+4. PDF text extraction can be hard for scanned PDFs.
+5. Docker native dependency image size will increase.
+6. Atomic quota on SQLite can be tricky under concurrency.
+
+---
+
+## 17. Open Questions
+
+1. Apakah production target tetap SQLite atau mau PostgreSQL?
+2. Apakah Redis wajib untuk production?
+3. Apakah fitur remove background boleh memakai API berbayar?
+4. Apakah dashboard akan diekspos publik lewat reverse proxy?
+5. Apakah bot akan dijalankan single-instance atau multi-instance?
+6. Apakah premium/sewa butuh payment integration nanti?
+
+---
+
+## 18. Recommendation
+
+Urutan kerja yang disarankan:
+
+1. Selesaikan P0 dulu, jangan tambah fitur baru.
+2. Setelah itu rilis versi `v1.1.0-hardening`.
+3. Lanjut P1 security dan quota.
+4. Baru setelah stabil, lanjut fitur baru seperti AI, payment, atau mini-app dashboard.
+
+Prioritas terbesar adalah:
+
+1. Docker + DB persistence.
+2. Baileys adapter.
+3. URL/downloader security.
+4. Runtime dependency health check.
+5. Quota/usage correctness.
+6. Command misleading fixes.

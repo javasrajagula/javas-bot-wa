@@ -15,11 +15,37 @@ import { WhatsAppAdapter, SendMessageOptions } from './whatsapp.adapter.js';
 import { MessageContext, MessageMedia } from './message.types.js';
 import { env } from '../config/env.js';
 
+function unwrapMessage(msg: any): any {
+  if (!msg) return msg;
+  if (msg.ephemeralMessage?.message) return unwrapMessage(msg.ephemeralMessage.message);
+  if (msg.viewOnceMessage?.message) return unwrapMessage(msg.viewOnceMessage.message);
+  if (msg.viewOnceMessageV2?.message) return unwrapMessage(msg.viewOnceMessageV2.message);
+  if (msg.documentWithCaptionMessage?.message) return unwrapMessage(msg.documentWithCaptionMessage.message);
+  if (msg.editedMessage?.message?.protocolMessage?.editedMessage) {
+    return unwrapMessage(msg.editedMessage.message.protocolMessage.editedMessage);
+  }
+  return msg;
+}
+
 export class BaileysAdapter extends WhatsAppAdapter {
   public sock: any;
   private reconnectAttempts = 0;
+  private messageKeyCache = new Map<string, any>();
 
   public async start(): Promise<void> {
+    if (this.sock) {
+      console.log('[WA] Closing old socket and clearing event listeners...');
+      try {
+        this.sock.ev.removeAllListeners('connection.update');
+        this.sock.ev.removeAllListeners('creds.update');
+        this.sock.ev.removeAllListeners('group-participants.update');
+        this.sock.ev.removeAllListeners('messages.upsert');
+        this.sock.end(new Error('Reconnecting socket'));
+      } catch (err) {
+        console.error('[WA] Error ending old socket:', err);
+      }
+    }
+
     const sessionDir = path.join(process.cwd(), env.WA_SESSION_NAME);
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
@@ -37,8 +63,9 @@ export class BaileysAdapter extends WhatsAppAdapter {
       syncFullHistory: false,
     });
 
-    this.sock.ev.on('connection.update', (update: any) => {
+    this.sock.ev.on('connection.update', async (update: any) => {
       const { connection, lastDisconnect, qr } = update;
+
       if (qr) {
         qrcode.generate(qr, { small: true });
         console.log('Scan the QR Code above to connect your bot to WhatsApp!');
@@ -50,10 +77,13 @@ export class BaileysAdapter extends WhatsAppAdapter {
         const shouldReconnect =
           statusCode !== DisconnectReason.loggedOut &&
           statusCode !== 405;
+
         console.log('Connection closed due to', error, ', reconnecting:', shouldReconnect);
+
         if (shouldReconnect) {
           const delayMs = Math.min(30_000, 1000 * 2 ** this.reconnectAttempts);
           this.reconnectAttempts++;
+
           setTimeout(() => {
             this.start().catch(err => console.error('Failed to reconnect WhatsApp:', err));
           }, delayMs);
@@ -63,6 +93,18 @@ export class BaileysAdapter extends WhatsAppAdapter {
       } else if (connection === 'open') {
         this.reconnectAttempts = 0;
         console.log('Successfully connected to WhatsApp!');
+
+        try {
+          const groups = await this.sock.groupFetchAllParticipating();
+
+          console.log('\n[DAFTAR GRUP BOT]');
+          for (const [id, group] of Object.entries(groups)) {
+            console.log(`${(group as any).subject} => ${id}`);
+          }
+          console.log('[END DAFTAR GRUP BOT]\n');
+        } catch (err) {
+          console.error('[DEBUG GROUP LIST ERROR]', err);
+        }
       }
     });
 
@@ -119,13 +161,27 @@ export class BaileysAdapter extends WhatsAppAdapter {
   }
 
   private async parseMessage(msg: WAMessage): Promise<MessageContext | null> {
-    const message = msg.message;
+    const message = unwrapMessage(msg.message);
     if (!message) return null;
 
     const chatId = msg.key.remoteJid!;
     const isGroup = chatId.endsWith('@g.us');
     const senderId = msg.key.participant || msg.key.remoteJid!;
     const senderName = msg.pushName || senderId;
+    console.log('[DEBUG CHAT ID]', {
+      chatId,
+      isGroup,
+      senderId,
+      senderName
+    });
+
+    if (msg.key.id) {
+      this.messageKeyCache.set(msg.key.id, msg.key);
+      if (this.messageKeyCache.size > 1000) {
+        const firstKey = this.messageKeyCache.keys().next().value;
+        if (firstKey) this.messageKeyCache.delete(firstKey);
+      }
+    }
 
     const msgType = Object.keys(message)[0];
 
@@ -139,6 +195,14 @@ export class BaileysAdapter extends WhatsAppAdapter {
       body = message.imageMessage?.caption || '';
     } else if (msgType === 'videoMessage') {
       body = message.videoMessage?.caption || '';
+    } else if (msgType === 'documentMessage') {
+      body = message.documentMessage?.caption || '';
+    } else if (msgType === 'buttonsResponseMessage') {
+      body = message.buttonsResponseMessage?.selectedButtonId || '';
+    } else if (msgType === 'listResponseMessage') {
+      body = message.listResponseMessage?.singleSelectReply?.selectedRowId || '';
+    } else if (msgType === 'templateButtonReplyMessage') {
+      body = message.templateButtonReplyMessage?.selectedId || '';
     }
 
     let media: MessageMedia | undefined;
@@ -167,25 +231,35 @@ export class BaileysAdapter extends WhatsAppAdapter {
           const downloadType = type === 'sticker' ? 'sticker' : type;
           const stream = await downloadContentFromMessage(mediaMessage as any, downloadType as any);
 
-          let buffer = Buffer.from([]);
+          const chunks: Buffer[] = [];
+          let totalBytes = 0;
+          const MAX_MEDIA_DOWNLOAD_BYTES = 50 * 1024 * 1024; // 50MB limit
 
           for await (const chunk of stream) {
-            buffer = Buffer.concat([buffer, chunk]);
+            totalBytes += chunk.length;
+            if (totalBytes > MAX_MEDIA_DOWNLOAD_BYTES) {
+              if (typeof (stream as any).destroy === 'function') {
+                (stream as any).destroy();
+              }
+              throw new Error('Ukuran media melebihi batas maksimal (50MB).');
+            }
+            chunks.push(chunk);
           }
 
-          return buffer;
+          return Buffer.concat(chunks);
         },
       };
     }
 
     let quotedMessage: MessageContext['quotedMessage'];
+    let rawQuotedMessageKey: any;
 
     const contextInfo =
       message.extendedTextMessage?.contextInfo ||
       (mediaMessage as any)?.contextInfo;
 
     if (contextInfo && contextInfo.quotedMessage) {
-      const quoted = contextInfo.quotedMessage;
+      const quoted = unwrapMessage(contextInfo.quotedMessage);
       const quotedMsgType = Object.keys(quoted)[0];
 
       let quotedBody = '';
@@ -198,6 +272,8 @@ export class BaileysAdapter extends WhatsAppAdapter {
         quotedBody = quoted.imageMessage?.caption || '';
       } else if (quotedMsgType === 'videoMessage') {
         quotedBody = quoted.videoMessage?.caption || '';
+      } else if (quotedMsgType === 'documentMessage') {
+        quotedBody = quoted.documentMessage?.caption || '';
       }
 
       let quotedMedia: MessageMedia | undefined;
@@ -229,13 +305,22 @@ export class BaileysAdapter extends WhatsAppAdapter {
               downloadType as any
             );
 
-            let buffer = Buffer.from([]);
+            const chunks: Buffer[] = [];
+            let totalBytes = 0;
+            const MAX_MEDIA_DOWNLOAD_BYTES = 50 * 1024 * 1024; // 50MB limit
 
             for await (const chunk of stream) {
-              buffer = Buffer.concat([buffer, chunk]);
+              totalBytes += chunk.length;
+              if (totalBytes > MAX_MEDIA_DOWNLOAD_BYTES) {
+                if (typeof (stream as any).destroy === 'function') {
+                  (stream as any).destroy();
+                }
+                throw new Error('Ukuran media melebihi batas maksimal (50MB).');
+              }
+              chunks.push(chunk);
             }
 
-            return buffer;
+            return Buffer.concat(chunks);
           },
         };
       }
@@ -245,6 +330,13 @@ export class BaileysAdapter extends WhatsAppAdapter {
         senderId: contextInfo.participant || '',
         body: quotedBody,
         media: quotedMedia,
+      };
+
+      rawQuotedMessageKey = {
+        remoteJid: isGroup ? chatId : senderId,
+        id: contextInfo.stanzaId,
+        fromMe: contextInfo.participant === jidNormalizedUser(this.sock.user?.id),
+        ...(isGroup ? { participant: contextInfo.participant } : {})
       };
     }
 
@@ -257,7 +349,26 @@ export class BaileysAdapter extends WhatsAppAdapter {
       body,
       media,
       quotedMessage,
+      rawMessageKey: msg.key,
+      rawQuotedMessageKey,
     };
+  }
+
+  private getQuotedOption(options?: SendMessageOptions): any {
+    if (!options) return undefined;
+    let key = options.quotedMessageKey;
+    if (!key && options.quotedMessageId) {
+      key = this.messageKeyCache.get(options.quotedMessageId);
+    }
+    if (key) {
+      return {
+        quoted: {
+          key,
+          message: { conversation: '' }
+        }
+      };
+    }
+    return undefined;
   }
 
   public async sendMessage(
@@ -266,11 +377,11 @@ export class BaileysAdapter extends WhatsAppAdapter {
     options?: SendMessageOptions
   ): Promise<void> {
     const mentions = options?.mentions || [];
-
+    const quotedOpt = this.getQuotedOption(options);
     await this.sock.sendMessage(chatId, {
       text,
       mentions,
-    });
+    }, { ...quotedOpt });
   }
 
   public async sendSticker(
@@ -278,9 +389,12 @@ export class BaileysAdapter extends WhatsAppAdapter {
     stickerBuffer: Buffer,
     options?: SendMessageOptions
   ): Promise<void> {
+    const mentions = options?.mentions || [];
+    const quotedOpt = this.getQuotedOption(options);
     await this.sock.sendMessage(chatId, {
       sticker: stickerBuffer,
-    });
+      mentions,
+    }, { ...quotedOpt });
   }
 
   public async sendImage(
@@ -289,10 +403,13 @@ export class BaileysAdapter extends WhatsAppAdapter {
     caption?: string,
     options?: SendMessageOptions
   ): Promise<void> {
+    const mentions = options?.mentions || [];
+    const quotedOpt = this.getQuotedOption(options);
     await this.sock.sendMessage(chatId, {
       image: imageBuffer,
       caption,
-    });
+      mentions,
+    }, { ...quotedOpt });
   }
 
   public async sendVideo(
@@ -301,10 +418,13 @@ export class BaileysAdapter extends WhatsAppAdapter {
     caption?: string,
     options?: SendMessageOptions
   ): Promise<void> {
+    const mentions = options?.mentions || [];
+    const quotedOpt = this.getQuotedOption(options);
     await this.sock.sendMessage(chatId, {
       video: videoBuffer,
       caption,
-    });
+      mentions,
+    }, { ...quotedOpt });
   }
 
   public async sendAudio(
@@ -313,13 +433,14 @@ export class BaileysAdapter extends WhatsAppAdapter {
     options?: SendMessageOptions
   ): Promise<void> {
     const mentions = options?.mentions || [];
-
+    const quotedOpt = this.getQuotedOption(options);
+    const mimetype = options?.mimetype || 'audio/mp4';
     await this.sock.sendMessage(chatId, {
       audio: audioBuffer,
-      mimetype: 'audio/mp4',
+      mimetype,
       ptt: false,
       mentions,
-    });
+    }, { ...quotedOpt });
   }
 
   public async sendVoiceNote(
@@ -328,13 +449,14 @@ export class BaileysAdapter extends WhatsAppAdapter {
     options?: SendMessageOptions
   ): Promise<void> {
     const mentions = options?.mentions || [];
-
+    const quotedOpt = this.getQuotedOption(options);
+    const mimetype = options?.mimetype || 'audio/mp4';
     await this.sock.sendMessage(chatId, {
       audio: audioBuffer,
-      mimetype: 'audio/mp4',
+      mimetype,
       ptt: true,
       mentions,
-    });
+    }, { ...quotedOpt });
   }
 
   public async sendDocument(
@@ -345,13 +467,13 @@ export class BaileysAdapter extends WhatsAppAdapter {
     options?: SendMessageOptions
   ): Promise<void> {
     const mentions = options?.mentions || [];
-
+    const quotedOpt = this.getQuotedOption(options);
     await this.sock.sendMessage(chatId, {
       document: buffer,
       fileName,
       mimetype: mimeType,
       mentions,
-    });
+    }, { ...quotedOpt });
   }
 
   public async deleteMessage(

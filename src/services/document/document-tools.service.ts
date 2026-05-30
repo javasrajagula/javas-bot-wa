@@ -42,8 +42,13 @@ export async function compressPdfBuffer(buffer: Buffer): Promise<Buffer> {
   return Buffer.from(await output.save({ useObjectStreams: true }));
 }
 
-export async function renderPdfFirstPage(buffer: Buffer): Promise<Buffer> {
-  await PDFDocument.load(buffer);
+export async function renderPdfPage(buffer: Buffer, pageNumber: number): Promise<Buffer> {
+  const doc = await PDFDocument.load(buffer);
+  const totalPages = doc.getPageCount();
+  if (pageNumber < 1 || pageNumber > totalPages) {
+    throw new Error(`Halaman ${pageNumber} di luar jangkauan (Total halaman: ${totalPages}).`);
+  }
+
   const input = getTempPath('pdf');
   const outputBase = getTempPath('pdf-page');
   const outputPng = `${outputBase}.png`;
@@ -51,7 +56,7 @@ export async function renderPdfFirstPage(buffer: Buffer): Promise<Buffer> {
 
   try {
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn('pdftoppm', ['-png', '-f', '1', '-singlefile', input, outputBase], {
+      const proc = spawn('pdftoppm', ['-png', '-f', String(pageNumber), '-l', String(pageNumber), '-singlefile', input, outputBase], {
         windowsHide: true
       });
       let stderr = '';
@@ -69,6 +74,42 @@ export async function renderPdfFirstPage(buffer: Buffer): Promise<Buffer> {
   } finally {
     safeDelete(input);
     safeDelete(outputPng);
+  }
+}
+
+export async function renderPdfFirstPage(buffer: Buffer): Promise<Buffer> {
+  return renderPdfPage(buffer, 1);
+}
+
+export async function extractTextFromPdfWithPoppler(buffer: Buffer): Promise<string> {
+  const input = getTempPath('pdf');
+  const outputTxt = getTempPath('txt');
+  await fs.promises.writeFile(input, buffer);
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn('pdftotext', [input, outputTxt], {
+        windowsHide: true
+      });
+      let stderr = '';
+      proc.stderr.on('data', chunk => { stderr += chunk.toString(); });
+      proc.on('error', () => reject(new Error('Poppler belum tersedia. Install Poppler dan pastikan `pdftotext` ada di PATH untuk memakai /pdftext.')));
+      proc.on('close', code => {
+        if (code !== 0) {
+          reject(new Error(stderr.trim() || `pdftotext gagal dengan exit code ${code}.`));
+          return;
+        }
+        resolve();
+      });
+    });
+    if (!fs.existsSync(outputTxt)) {
+      return '';
+    }
+    const text = await fs.promises.readFile(outputTxt, 'utf-8');
+    return text.trim();
+  } finally {
+    safeDelete(input);
+    safeDelete(outputTxt);
   }
 }
 

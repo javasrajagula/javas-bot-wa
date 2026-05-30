@@ -121,7 +121,8 @@ async function bootstrap() {
 
       // 1. Welcome Msg
       if (action === 'add') {
-        const { interpolateTemplate, captchaSessions } = await import('./commands/community/welcome.command.js');
+        const { interpolateTemplate } = await import('./commands/community/welcome.command.js');
+        const { stateStore } = await import('./services/state/state-store.js');
         const locale = await localizerService.getGroupLocale(groupId);
 
         for (const participant of participants) {
@@ -151,12 +152,12 @@ async function bootstrap() {
               welcomeText = await interpolateTemplate(rawWelcome, participant, groupId, adapter);
             }
 
-            const captchaKey = `${groupId}:${participant}`;
-            captchaSessions.set(captchaKey, {
+            const captchaKey = `captcha:${groupId}:${participant}`;
+            await stateStore.set(captchaKey, {
               answer,
               expiresAt: Date.now() + 120_000,
               welcomeText
-            });
+            }, 120); // 120s TTL
 
             await adapter.sendMessage(
               groupId,
@@ -165,9 +166,9 @@ async function bootstrap() {
             );
 
             setTimeout(async () => {
-              const activeSession = captchaSessions.get(captchaKey);
+              const activeSession = await stateStore.get<any>(captchaKey);
               if (activeSession) {
-                captchaSessions.delete(captchaKey);
+                await stateStore.delete(captchaKey);
                 try {
                   const socket = (adapter as any).sock;
                   if (socket && typeof socket.groupParticipantsUpdate === 'function') {

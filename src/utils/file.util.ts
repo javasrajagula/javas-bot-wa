@@ -50,15 +50,20 @@ export async function downloadToBuffer(url: string): Promise<Buffer> {
 export function safeDelete(filePath: string): void {
   try {
     if (filePath && fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+      const stat = fs.statSync(filePath);
+      if (stat.isDirectory()) {
+        fs.rmSync(filePath, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(filePath);
+      }
     }
   } catch (err) {
-    console.error(`Failed to delete file: ${filePath}`, err);
+    console.error(`Failed to delete file/directory: ${filePath}`, err);
   }
 }
 
 /**
- * Sweeps the temp folder deleting any files older than maxAgeMs (default: 15 minutes)
+ * Sweeps the temp folder deleting any files or directories older than maxAgeMs (default: 15 minutes)
  */
 export function cleanupTempFiles(maxAgeMs = 15 * 60 * 1000): void {
   try {
@@ -72,8 +77,12 @@ export function cleanupTempFiles(maxAgeMs = 15 * 60 * 1000): void {
       const age = now - stat.mtimeMs;
 
       if (age > maxAgeMs) {
-        fs.unlinkSync(filePath);
-        console.log(`[File Cleanup] Deleted old temp file: ${file} (${Math.round(age / 1000 / 60)}m old)`);
+        if (stat.isDirectory()) {
+          fs.rmSync(filePath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(filePath);
+        }
+        console.log(`[File Cleanup] Deleted old temp item: ${file} (${Math.round(age / 1000 / 60)}m old)`);
       }
     }
   } catch (err) {

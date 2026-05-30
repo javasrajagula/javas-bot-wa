@@ -9,8 +9,34 @@ import { pluginManager } from '../../config/plugins.js';
 import { logError } from '../../utils/logger.js';
 import { backupService } from '../../services/backup/backup.service.js';
 import fs from 'fs';
+import { stateStore } from '../../services/state/state-store.js';
 
 export let isMaintenanceMode = false;
+
+export async function getMaintenanceMode(): Promise<boolean> {
+  const cached = await stateStore.get<boolean>('bot:setting:maintenance');
+  if (cached !== null && cached !== undefined) {
+    isMaintenanceMode = cached;
+    return cached;
+  }
+  const setting = await prisma.botSetting.findUnique({
+    where: { key: 'maintenance' }
+  });
+  const value = setting ? JSON.parse(setting.valueJson).enabled === true : false;
+  await stateStore.set('bot:setting:maintenance', value, 300);
+  isMaintenanceMode = value;
+  return value;
+}
+
+export async function setMaintenanceMode(enabled: boolean): Promise<void> {
+  await prisma.botSetting.upsert({
+    where: { key: 'maintenance' },
+    create: { key: 'maintenance', valueJson: JSON.stringify({ enabled }) },
+    update: { valueJson: JSON.stringify({ enabled }) }
+  });
+  await stateStore.set('bot:setting:maintenance', enabled, 300);
+  isMaintenanceMode = enabled;
+}
 
 interface PendingBroadcast {
   text: string;
@@ -32,10 +58,10 @@ export class OwnerSuiteCommand implements Command {
     if (commandType === 'maintenance') {
       const mode = args[0]?.toLowerCase();
       if (mode === 'on') {
-        isMaintenanceMode = true;
+        await setMaintenanceMode(true);
         await adapter.sendMessage(ctx.chatId, '⚙️ Mode maintenance aktif. Hanya Owner yang bisa berinteraksi dengan bot sekarang.', { quotedMessageId: ctx.id });
       } else if (mode === 'off') {
-        isMaintenanceMode = false;
+        await setMaintenanceMode(false);
         await adapter.sendMessage(ctx.chatId, '⚙️ Mode maintenance dinonaktifkan. Bot dapat digunakan kembali oleh warga.', { quotedMessageId: ctx.id });
       } else {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/maintenance <on|off>`', { quotedMessageId: ctx.id });
@@ -54,9 +80,8 @@ export class OwnerSuiteCommand implements Command {
         return;
       }
 
-      const targetUserId = rawUser.includes('@') 
-        ? rawUser.replace('@', '').trim() + '@s.whatsapp.net'
-        : rawUser.trim();
+      const { normalizeJid } = await import('../../utils/jid.util.js');
+      const targetUserId = normalizeJid(rawUser);
 
       try {
         if (action === 'add') {
@@ -406,6 +431,10 @@ Brat: Max 10 requests / 1 minute
 
     // 6. /apikey
     if (commandType === 'apikey') {
+      if (ctx.isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Untuk alasan keamanan, pembuatan API Key hanya dapat dilakukan melalui Private Chat (PC) dengan bot.', { quotedMessageId: ctx.id });
+        return;
+      }
       try {
         const rawKey = 'javas_key_' + crypto.randomBytes(24).toString('hex');
         const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
@@ -492,6 +521,11 @@ Brat: Max 10 requests / 1 minute
       if (!groupId && ctx.isGroup) groupId = 'current';
       if (groupId === 'current') groupId = ctx.chatId;
 
+      if (groupId && groupId !== 'current') {
+        const { normalizeJid } = await import('../../utils/jid.util.js');
+        groupId = normalizeJid(groupId);
+      }
+
       if (!groupId || !['free', 'basic', 'premium'].includes(plan)) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/addsewa <groupId|current> [hari] [plan]`', { quotedMessageId: ctx.id });
         return;
@@ -513,6 +547,11 @@ Brat: Max 10 requests / 1 minute
       let groupId = args[0];
       if (!groupId && ctx.isGroup) groupId = 'current';
       if (groupId === 'current') groupId = ctx.chatId;
+
+      if (groupId && groupId !== 'current') {
+        const { normalizeJid } = await import('../../utils/jid.util.js');
+        groupId = normalizeJid(groupId);
+      }
 
       if (!groupId) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/delsewa <groupId|current>`', { quotedMessageId: ctx.id });
@@ -549,6 +588,11 @@ Brat: Max 10 requests / 1 minute
       if (!groupId && ctx.isGroup) groupId = 'current';
       if (groupId === 'current') groupId = ctx.chatId;
 
+      if (groupId && groupId !== 'current') {
+        const { normalizeJid } = await import('../../utils/jid.util.js');
+        groupId = normalizeJid(groupId);
+      }
+
       if (!groupId || isNaN(days)) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/extendsewa <groupId|current> <hari>`', { quotedMessageId: ctx.id });
         return;
@@ -579,6 +623,11 @@ Brat: Max 10 requests / 1 minute
 
       if (!groupId && ctx.isGroup) groupId = 'current';
       if (groupId === 'current') groupId = ctx.chatId;
+
+      if (groupId && groupId !== 'current') {
+        const { normalizeJid } = await import('../../utils/jid.util.js');
+        groupId = normalizeJid(groupId);
+      }
 
       if (!groupId || !['free', 'basic', 'premium'].includes(plan || '')) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/setplan <groupId|current> <free|basic|premium>`', { quotedMessageId: ctx.id });
