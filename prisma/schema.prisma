@@ -25,6 +25,9 @@ model UserProfile {
   language     String    @default("id")
   isPremium    Boolean   @default(false)
   premiumUntil DateTime?
+  title        String?
+  badgesJson   String    @default("[]")
+  cardBgUrl    String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 }
@@ -143,14 +146,21 @@ model GameStats {
 }
 
 model UserEconomy {
-  id        String    @id @default(uuid())
-  userId    String    @unique
-  balance   Int       @default(0)
-  xp        Int       @default(0)
-  level     Int       @default(1)
-  lastClaim DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  balance     Int       @default(0)
+  bank        Int       @default(0)
+  xp          Int       @default(0)
+  level       Int       @default(1)
+  lastClaim   DateTime?
+  lastWork    DateTime?
+  lastMining  DateTime?
+  lastFishing DateTime?
+  lastCrime   DateTime?
+  lastRob     DateTime?
+  claimStreak Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model ShopItem {
@@ -269,4 +279,52 @@ model Birthday {
   userId      String
   date        String   // "MM-DD" format
   createdAt   DateTime @default(now())
+}
+
+model EconomyTransaction {
+  id           String   @id @default(uuid())
+  userId       String
+  groupId      String?
+  type         String
+  amount       Int
+  metadataJson String   @default("{}")
+  createdAt    DateTime @default(now())
+}
+
+model RedeemCode {
+  id         String    @id @default(uuid())
+  code       String    @unique
+  rewardJson String
+  maxUses    Int
+  usedCount  Int       @default(0)
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model MarketListing {
+  id        String   @id @default(uuid())
+  sellerId  String
+  itemId    String
+  price     Int
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+}
+
+model Achievement {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String
+  rarity      String   // "common" | "rare" | "epic" | "legendary"
+  rewardJson  String   @default("{}") // e.g. {"balance": 1000, "badge": "🏆", "title": "Rich"}
+  createdAt   DateTime @default(now())
+}
+
+model UserAchievement {
+  id             String   @id @default(uuid())
+  userId         String
+  achievementKey String
+  unlockedAt     DateTime @default(now())
+
+  @@unique([userId, achievementKey])
 }

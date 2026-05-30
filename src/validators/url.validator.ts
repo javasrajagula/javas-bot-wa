@@ -82,3 +82,67 @@ export function isSafePublicUrl(url: string): boolean {
     throw new Error(`URL tidak aman: ${err.message}`);
   }
 }
+
+export function isAllowedYouTubeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(normalizeUrl(url));
+    const host = parsed.hostname.toLowerCase();
+    return host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be' || host.endsWith('.youtu.be');
+  } catch {
+    return false;
+  }
+}
+
+export function isAllowedFacebookUrl(url: string): boolean {
+  try {
+    const parsed = new URL(normalizeUrl(url));
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === 'facebook.com' || host.endsWith('.facebook.com') ||
+      host === 'fb.watch' || host.endsWith('.fb.watch') ||
+      host === 'fb.com' || host.endsWith('.fb.com')
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isAllowedTwitterUrl(url: string): boolean {
+  try {
+    const parsed = new URL(normalizeUrl(url));
+    const host = parsed.hostname.toLowerCase();
+    return host === 'twitter.com' || host.endsWith('.twitter.com') || host === 'x.com' || host.endsWith('.x.com');
+  } catch {
+    return false;
+  }
+}
+
+export function isAllowedThreadsUrl(url: string): boolean {
+  try {
+    const parsed = new URL(normalizeUrl(url));
+    const host = parsed.hostname.toLowerCase();
+    return host === 'threads.net' || host.endsWith('.threads.net');
+  } catch {
+    return false;
+  }
+}
+
+export function isAllowedPinterestUrl(url: string): boolean {
+  try {
+    const parsed = new URL(normalizeUrl(url));
+    const host = parsed.hostname.toLowerCase();
+    return host === 'pinterest.com' || host.endsWith('.pinterest.com') || host === 'pin.it' || host.endsWith('.pin.it');
+  } catch {
+    return false;
+  }
+}
+
+export function isAllowedCapCutUrl(url: string): boolean {
+  try {
+    const parsed = new URL(normalizeUrl(url));
+    const host = parsed.hostname.toLowerCase();
+    return host === 'capcut.com' || host.endsWith('.capcut.com') || host === 'capcut.net' || host.endsWith('.capcut.net');
+  } catch {
+    return false;
+  }
+}

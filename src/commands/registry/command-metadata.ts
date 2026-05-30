@@ -318,6 +318,76 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     usage: '/ig <url>',
     examples: ['/ig https://www.instagram.com/p/abcde/']
   },
+  {
+    name: 'ytmp3',
+    aliases: ['youtube-audio'],
+    category: 'downloader',
+    plugin: 'downloader',
+    featureFlag: 'downloader',
+    description: 'Mengunduh audio dari video YouTube dalam format MP3.',
+    usage: '/ytmp3 <url>',
+    examples: ['/ytmp3 https://www.youtube.com/watch?v=dQw4w9WgXcQ']
+  },
+  {
+    name: 'ytmp4',
+    aliases: ['youtube-video'],
+    category: 'downloader',
+    plugin: 'downloader',
+    featureFlag: 'downloader',
+    description: 'Mengunduh video dari YouTube dalam format MP4.',
+    usage: '/ytmp4 <url>',
+    examples: ['/ytmp4 https://www.youtube.com/watch?v=dQw4w9WgXcQ']
+  },
+  {
+    name: 'fb',
+    aliases: ['facebook', 'fbdown'],
+    category: 'downloader',
+    plugin: 'downloader',
+    featureFlag: 'downloader',
+    description: 'Mengunduh video dari postingan Facebook.',
+    usage: '/fb <url>',
+    examples: ['/fb https://www.facebook.com/watch/?v=123456']
+  },
+  {
+    name: 'twitter',
+    aliases: ['x', 'twtdl'],
+    category: 'downloader',
+    plugin: 'downloader',
+    featureFlag: 'downloader',
+    description: 'Mengunduh video dari postingan Twitter/X.',
+    usage: '/twitter <url>',
+    examples: ['/twitter https://twitter.com/user/status/123456']
+  },
+  {
+    name: 'threads',
+    aliases: ['thread'],
+    category: 'downloader',
+    plugin: 'downloader',
+    featureFlag: 'downloader',
+    description: 'Mengunduh video atau gambar dari postingan Threads.',
+    usage: '/threads <url>',
+    examples: ['/threads https://www.threads.net/@user/post/123456']
+  },
+  {
+    name: 'pinterest',
+    aliases: ['pin', 'pindl'],
+    category: 'downloader',
+    plugin: 'downloader',
+    featureFlag: 'downloader',
+    description: 'Mengunduh media (gambar/video) dari Pinterest.',
+    usage: '/pinterest <url>',
+    examples: ['/pinterest https://pin.it/abcde']
+  },
+  {
+    name: 'capcut',
+    aliases: ['cc'],
+    category: 'downloader',
+    plugin: 'downloader',
+    featureFlag: 'downloader',
+    description: 'Mengunduh video dari template CapCut tanpa watermark.',
+    usage: '/capcut <url>',
+    examples: ['/capcut https://www.capcut.com/template-detail/123456']
+  },
 
   // --- TEXT, OCR, TRANSLATE & STUDY TOOLS ---
   {
@@ -678,13 +748,43 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
   },
   {
     name: 'title',
+    aliases: ['settitle'],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'economy',
+    description: 'Melihat dan memasang title profil dari achievement atau item toko.',
+    usage: '/title atau /title set <nama_gelar>',
+    examples: ['/title', '/title set Petualang']
+  },
+  {
+    name: 'achievement',
+    aliases: ['achievements'],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'economy',
+    description: 'Melihat daftar achievement dan progres unlock.',
+    usage: '/achievement',
+    examples: ['/achievement', '/achievements all']
+  },
+  {
+    name: 'badge',
     aliases: [],
     category: 'economy',
     plugin: 'economy',
     featureFlag: 'economy',
-    description: 'Mengatur custom title profil.',
-    usage: '/title set <nama_gelar>',
-    examples: ['/title set Petualang']
+    description: 'Melihat dan memasang badge achievement ke profile card.',
+    usage: '/badge atau /badge set <nama_badge>',
+    examples: ['/badge', '/badge set FIRST']
+  },
+  {
+    name: 'setbadge',
+    aliases: [],
+    category: 'economy',
+    plugin: 'economy',
+    featureFlag: 'economy',
+    description: 'Mengatur badge custom untuk profile card.',
+    usage: '/setbadge <badge1> [badge2]',
+    examples: ['/setbadge FIRST STICKER']
   },
   {
     name: 'pet',

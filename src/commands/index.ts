@@ -4,6 +4,7 @@ import prisma from '../db/client.js';
 import { rateLimiter } from '../utils/rate-limit.util.js';
 import { isOwner } from '../bot/permission.js';
 import { DEFAULT_FEATURES } from '../config/feature-flags.js';
+import { achievementService } from '../services/achievement/achievement.service.js';
 
 // Cooldown overrides (stored in-memory or dynamically modified by /setcooldown)
 export const cooldownOverrides: Record<string, number> = {};
@@ -427,6 +428,8 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
       groupId: isGroup ? ctx.chatId : null,
       feature: featureKey
     }
+  }).then(() => {
+    checkCommandAchievements(ctx.senderId, isGroup, ctx.chatId, adapter, commandName, minRole);
   }).catch(err => console.error('Failed to save UsageLog:', err));
 
   // Auto-delete Command Message if cleancmd feature is enabled
@@ -444,6 +447,11 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   // 6. Execute Command
   try {
     await registeredCmd.execute(ctx, args, adapter);
+    achievementService.checkEconomyAchievements(
+      ctx.senderId,
+      adapter,
+      isGroup ? ctx.chatId : undefined
+    ).catch(err => console.error('[Achievement Economy Hook Failed]', err));
   } catch (err: any) {
     const { safeReplyError } = await import('../utils/logger.js');
     await safeReplyError(ctx.chatId, err, adapter, {
@@ -592,5 +600,55 @@ export async function executePunishment(
     // delete only
     const mention = `@${userId.split('@')[0]}`;
     await adapter.sendMessage(chatId, `⚠️ Pesan dari ${mention} dihapus otomatis karena: *${reason}*.`, { mentions: [userId] });
+  }
+}
+
+export async function checkCommandAchievements(
+  userId: string,
+  isGroup: boolean,
+  chatId: string,
+  adapter: WhatsAppAdapter,
+  commandName: string,
+  minRole: string
+) {
+  try {
+    const totalCmds = await prisma.usageLog.count({ where: { userId } });
+    if (totalCmds >= 1) {
+      await achievementService.unlockAchievement(userId, 'first_command', adapter, isGroup ? chatId : undefined);
+    }
+    if (totalCmds >= 100) {
+      await achievementService.unlockAchievement(userId, 'messages_100', adapter, isGroup ? chatId : undefined);
+    }
+    if (totalCmds >= 1000) {
+      await achievementService.unlockAchievement(userId, 'messages_1000', adapter, isGroup ? chatId : undefined);
+    }
+
+    // Check active days (active_7_days and active_30_days)
+    const logs = await prisma.usageLog.findMany({
+      where: { userId },
+      select: { createdAt: true }
+    });
+
+    const uniqueDays = new Set(logs.map(log => {
+      const d = new Date(log.createdAt);
+      return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    }));
+
+    if (uniqueDays.size >= 7) {
+      await achievementService.unlockAchievement(userId, 'active_7_days', adapter, isGroup ? chatId : undefined);
+    }
+    if (uniqueDays.size >= 30) {
+      await achievementService.unlockAchievement(userId, 'active_30_days', adapter, isGroup ? chatId : undefined);
+    }
+
+    // Check admin_helper
+    if (minRole === 'admin' || minRole === 'owner') {
+      const isSenderAdmin = await checkIfAdmin(chatId, userId, adapter);
+      if (isSenderAdmin) {
+        await achievementService.unlockAchievement(userId, 'admin_helper', adapter, isGroup ? chatId : undefined);
+      }
+    }
+  } catch (err) {
+    console.error('[Achievement Hook Failed]', err);
   }
 }

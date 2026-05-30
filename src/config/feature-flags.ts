@@ -25,6 +25,8 @@ export const DEFAULT_FEATURES: Record<string, any> = {
   reminder: false,
   miniGames: false,
   rpg: false,
+  crime: true,
+  rob: true,
   
   // Advanced Moderation Configurations
   antispamMode: 'warn', // delete, warn, mute, kick

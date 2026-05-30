@@ -30,11 +30,15 @@ import './commands/community/schedule.command.js';
 import './commands/games/games.command.js';
 import './commands/owner/owner.command.js';
 import { startReminderWorker } from './workers/reminder.worker.js';
+import { achievementService } from './services/achievement/achievement.service.js';
 
 async function bootstrap() {
   console.log('[System] Connecting to database...');
   await prisma.$connect();
   console.log('[System] Database connected successfully.');
+
+  console.log('[System] Initializing Achievements...');
+  await achievementService.initAchievements();
 
   console.log('[System] Initializing Werewolf Game Engine...');
   await werewolfEngine.boot();

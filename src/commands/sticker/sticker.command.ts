@@ -12,6 +12,7 @@ import { generateBratSticker } from '../../services/media/brat.service.js';
 import { requirePremium } from '../../validators/permission.validator.js';
 import { runFfmpeg } from '../../services/ffmpeg/ffmpeg.service.js';
 import { validateMediaSize } from '../../validators/media.validator.js';
+import { achievementService } from '../../services/achievement/achievement.service.js';
 
 // Helper to write WebP Exif metadata
 export async function addStickerMetadata(webpBuffer: Buffer, pack = 'Javas Bot', author = 'Bot WA'): Promise<Buffer> {
@@ -38,6 +39,7 @@ export class StickerSuiteCommand implements Command {
       }
       const buffer = await generateBratSticker(text, { mode: isClassic ? 'classic' : 'grid' });
       await adapter.sendSticker(ctx.chatId, buffer, { quotedMessageId: ctx.id });
+      unlockStickerMaker(ctx, adapter);
       return;
     }
 
@@ -66,6 +68,7 @@ export class StickerSuiteCommand implements Command {
 
       const webp = await sharp(Buffer.from(svg)).webp().toBuffer();
       await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+      unlockStickerMaker(ctx, adapter);
       return;
     }
 
@@ -87,6 +90,7 @@ export class StickerSuiteCommand implements Command {
         });
         const webp = await sharp(Buffer.from(response.data)).webp().toBuffer();
         await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+        unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal menggabungkan emoji. Emoji tidak didukung.', { quotedMessageId: ctx.id });
       }
@@ -131,6 +135,7 @@ export class StickerSuiteCommand implements Command {
       try {
         const noBgPng = await sharp(buffer).ensureAlpha().resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).webp().toBuffer();
         await adapter.sendSticker(ctx.chatId, noBgPng, { quotedMessageId: ctx.id });
+        unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal membuat stiker no-bg.', { quotedMessageId: ctx.id });
       }
@@ -150,6 +155,7 @@ export class StickerSuiteCommand implements Command {
           .webp()
           .toBuffer();
         await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+        unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal membuat stiker lingkaran.', { quotedMessageId: ctx.id });
       }
@@ -168,6 +174,7 @@ export class StickerSuiteCommand implements Command {
           .webp()
           .toBuffer();
         await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+        unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal menambahkan outline.', { quotedMessageId: ctx.id });
       }
@@ -216,6 +223,7 @@ export class StickerSuiteCommand implements Command {
           .toBuffer();
 
         await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+        unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal membuat meme.', { quotedMessageId: ctx.id });
       }
@@ -241,6 +249,7 @@ export class StickerSuiteCommand implements Command {
 
         const metaWebp = await addStickerMetadata(webp, pack, author);
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
+        unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal memproses stiker.', { quotedMessageId: ctx.id });
       }
@@ -301,6 +310,7 @@ export class StickerSuiteCommand implements Command {
 
         const webpOut = fs.readFileSync(tempOut);
         await adapter.sendSticker(ctx.chatId, webpOut, { quotedMessageId: ctx.id });
+        unlockStickerMaker(ctx, adapter);
       } catch (err: any) {
         console.error('[VideoSticker] Error converting:', err);
         await adapter.sendMessage(ctx.chatId, '❌ Gagal mengonversi video ke stiker. Pastikan format video valid.', { quotedMessageId: ctx.id });
@@ -320,6 +330,7 @@ export class StickerSuiteCommand implements Command {
           .webp()
           .toBuffer();
         await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+        unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal memproses batch stiker.', { quotedMessageId: ctx.id });
       }
@@ -331,6 +342,15 @@ export class StickerSuiteCommand implements Command {
 async function isPremiumUser(userId: string): Promise<boolean> {
   const { isPremium } = await import('../../bot/permission.js');
   return isPremium(userId);
+}
+
+function unlockStickerMaker(ctx: MessageContext, adapter: WhatsAppAdapter) {
+  achievementService.unlockAchievement(
+    ctx.senderId,
+    'sticker_maker',
+    adapter,
+    ctx.isGroup ? ctx.chatId : undefined
+  ).catch(err => console.error('[Achievement Sticker Hook Failed]', err));
 }
 
 function escapeXml(unsafe: string): string {

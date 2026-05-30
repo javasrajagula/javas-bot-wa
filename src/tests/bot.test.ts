@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { rateLimiter } from '../utils/rate-limit.util.js';
 import { isValidUrl } from '../services/downloader/downloader.service.js';
 import { werewolfEngine, Player } from '../services/werewolf/werewolf.engine.js';
@@ -375,6 +375,194 @@ describe('WhatsApp Bot System Tests', () => {
       expect(lusa?.getDate()).toBe(expectedLusa.getDate());
       expect(lusa?.getHours()).toBe(14);
       expect(lusa?.getMinutes()).toBe(30);
+    });
+  });
+
+  describe('Epic 12 Economy Expansion', () => {
+    const testUser = 'test-eco-user-epic12@s.whatsapp.net';
+    const testUser2 = 'test-eco-user-epic12-2@s.whatsapp.net';
+
+    beforeEach(async () => {
+      await prisma.groupConfig.upsert({
+        where: { groupId: 'test-chat@g.us' },
+        create: {
+          groupId: 'test-chat@g.us',
+          featuresJson: JSON.stringify({ economy: true, rpg: true })
+        },
+        update: {
+          featuresJson: JSON.stringify({ economy: true, rpg: true })
+        }
+      });
+    });
+
+    afterEach(async () => {
+      await prisma.groupConfig.deleteMany({ where: { groupId: 'test-chat@g.us' } });
+    });
+
+    it('should handle pet training correctly', async () => {
+      // Setup pet
+      await prisma.pet.deleteMany({ where: { userId: testUser } });
+      await prisma.userEconomy.deleteMany({ where: { userId: testUser } });
+
+      await prisma.userEconomy.create({
+        data: { userId: testUser, balance: 100 }
+      });
+      
+      await prisma.pet.create({
+        data: { userId: testUser, name: 'KochengTest', type: 'Kucing', hunger: 100, level: 1 }
+      });
+
+      // Import command and test execute for pet train
+      const { PetCommand } = await import('../commands/economy.command.js');
+      const cmd = new PetCommand();
+
+      const mockAdapter = {
+        sendMessage: async (chatId: string, text: string) => {
+          expect(text).toContain('KochengTest');
+          expect(text).toContain('berlatih');
+        }
+      } as any;
+
+      const mockContext = {
+        senderId: testUser,
+        senderName: 'TestUser',
+        chatId: 'test-chat@g.us',
+        isGroup: true,
+        body: '/pet train',
+        id: 'msg-id'
+      } as any;
+
+      await cmd.execute(mockContext, ['train'], mockAdapter);
+
+      // Verify DB state
+      const updatedPet = await prisma.pet.findUnique({ where: { userId: testUser } });
+      expect(updatedPet?.hunger).toBe(85);
+      expect(updatedPet?.xp).toBe(30);
+
+      const updatedEco = await prisma.userEconomy.findUnique({ where: { userId: testUser } });
+      expect(updatedEco?.balance).toBe(50); // 100 - 50 cost
+
+      // Clean up
+      await prisma.pet.deleteMany({ where: { userId: testUser } });
+      await prisma.userEconomy.deleteMany({ where: { userId: testUser } });
+    });
+
+    it('should handle crafting items correctly', async () => {
+      await prisma.userInventory.deleteMany({ where: { userId: testUser } });
+
+      // Add ingredients
+      await prisma.userInventory.createMany({
+        data: [
+          { userId: testUser, itemId: 'besi', quantity: 5 },
+          { userId: testUser, itemId: 'emas', quantity: 1 }
+        ]
+      });
+
+      const { CraftCommand } = await import('../commands/economy.command.js');
+      const cmd = new CraftCommand();
+
+      const mockAdapter = {
+        sendMessage: async (chatId: string, text: string) => {
+          expect(text).toContain('merakit');
+          expect(text).toContain('rod pancing premium');
+        }
+      } as any;
+
+      const mockContext = {
+        senderId: testUser,
+        chatId: 'test-chat@g.us',
+        isGroup: true,
+        body: '/craft rod pancing premium',
+        id: 'msg-id'
+      } as any;
+
+      await cmd.execute(mockContext, ['rod', 'pancing', 'premium'], mockAdapter);
+
+      // Verify materials are deducted and item is crafted
+      const besiCount = await prisma.userInventory.count({ where: { userId: testUser, itemId: 'besi' } });
+      const emasCount = await prisma.userInventory.count({ where: { userId: testUser, itemId: 'emas' } });
+      const craftedItem = await prisma.userInventory.findFirst({ where: { userId: testUser, itemId: 'rod pancing premium' } });
+
+      expect(besiCount).toBe(0);
+      expect(emasCount).toBe(0);
+      expect(craftedItem).toBeDefined();
+
+      await prisma.userInventory.deleteMany({ where: { userId: testUser } });
+    });
+
+    it('should handle market listings correctly', async () => {
+      await prisma.marketListing.deleteMany({});
+      await prisma.userInventory.deleteMany({ where: { userId: testUser } });
+      await prisma.userInventory.deleteMany({ where: { userId: testUser2 } });
+      await prisma.userEconomy.deleteMany({ where: { userId: testUser } });
+      await prisma.userEconomy.deleteMany({ where: { userId: testUser2 } });
+
+      // Setup seller with item and buyer with money
+      await prisma.userInventory.create({ data: { userId: testUser, itemId: 'emas', quantity: 1 } });
+      await prisma.userEconomy.create({ data: { userId: testUser2, balance: 1000 } });
+
+      const { MarketCommand } = await import('../commands/economy.command.js');
+      const cmd = new MarketCommand();
+
+      // Test listing item
+      const mockAdapter1 = {
+        sendMessage: async (chatId: string, text: string) => {
+          expect(text).toContain('emas');
+          expect(text).toContain('ke pasar');
+        }
+      } as any;
+
+      const mockContext1 = {
+        senderId: testUser,
+        chatId: 'test-chat@g.us',
+        isGroup: true,
+        body: '/market sell emas 500',
+        id: 'msg-id'
+      } as any;
+
+      await cmd.execute(mockContext1, ['sell', 'emas', '500'], mockAdapter1);
+
+      // Verify listed in DB
+      const listing = await prisma.marketListing.findFirst({ where: { sellerId: testUser } });
+      expect(listing).not.toBeNull();
+      expect(listing?.itemId).toBe('emas');
+      expect(listing?.price).toBe(500);
+
+      // Test buying item
+      const mockAdapter2 = {
+        sendMessage: async (chatId: string, text: string) => {
+          expect(text).toContain('membeli');
+          expect(text).toContain('emas');
+        }
+      } as any;
+
+      const mockContext2 = {
+        senderId: testUser2,
+        chatId: 'test-chat@g.us',
+        isGroup: true,
+        body: `/market buy ${listing!.id.slice(0, 8)}`,
+        id: 'msg-id'
+      } as any;
+
+      await cmd.execute(mockContext2, ['buy', listing!.id.slice(0, 8)], mockAdapter2);
+
+      // Verify ownership change & balances
+      const listingAfter = await prisma.marketListing.findFirst({ where: { id: listing!.id } });
+      expect(listingAfter).toBeNull();
+
+      const sellerEco = await prisma.userEconomy.findUnique({ where: { userId: testUser } });
+      const buyerEco = await prisma.userEconomy.findUnique({ where: { userId: testUser2 } });
+      expect(sellerEco?.balance).toBe(500);
+      expect(buyerEco?.balance).toBe(500);
+
+      const buyerItem = await prisma.userInventory.findFirst({ where: { userId: testUser2, itemId: 'emas' } });
+      expect(buyerItem).toBeDefined();
+
+      // Clean up
+      await prisma.userInventory.deleteMany({ where: { userId: testUser } });
+      await prisma.userInventory.deleteMany({ where: { userId: testUser2 } });
+      await prisma.userEconomy.deleteMany({ where: { userId: testUser } });
+      await prisma.userEconomy.deleteMany({ where: { userId: testUser2 } });
     });
   });
 });
