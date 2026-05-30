@@ -204,12 +204,133 @@ model ApiKey {
 
 model ErrorLog {
   id           String   @id @default(uuid())
+  errorId      String?  @unique
   scope        String?
   feature      String?
   message      String
   stack        String?
   metadataJson String   @default("{}")
   createdAt    DateTime @default(now())
+}
+
+model BotSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  valueJson String   @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PluginState {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  enabled   Boolean  @default(true)
+  stateJson String   @default("{}")
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorId      String?
+  groupId      String?
+  action       String
+  target       String?
+  metadataJson String   @default("{}")
+  createdAt    DateTime @default(now())
+}
+
+model ErrorRecord {
+  id           String   @id @default(uuid())
+  errorId      String   @unique
+  scope        String?
+  feature      String?
+  status       String   @default("open")
+  metadataJson String   @default("{}")
+  createdAt    DateTime @default(now())
+  resolvedAt   DateTime?
+}
+
+model QueueJobRecord {
+  id           String   @id @default(uuid())
+  jobId        String   @unique
+  queue        String
+  status       String
+  command      String?
+  groupId      String?
+  userId       String?
+  metadataJson String   @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  expiresAt    DateTime?
+}
+
+model CommandAlias {
+  id        String   @id @default(uuid())
+  groupId   String?
+  alias     String
+  command   String
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@unique([groupId, alias])
+}
+
+model CustomVariable {
+  id        String   @id @default(uuid())
+  groupId   String?
+  userId    String?
+  key       String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([groupId, userId, key])
+}
+
+model Webhook {
+  id        String   @id @default(uuid())
+  groupId   String?
+  url       String
+  eventsJson String @default("[]")
+  enabled   Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BroadcastTemplate {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  body      String
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DataRetentionPolicy {
+  id        String   @id @default(uuid())
+  groupId   String?
+  scope     String
+  duration  String
+  enabled   Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PrdStateRecord {
+  id           String   @id @default(uuid())
+  type         String
+  scope        String
+  ownerId      String?
+  status       String   @default("active")
+  text         String
+  metadataJson String   @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([type, scope])
+  @@index([ownerId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model GroupSubscription {

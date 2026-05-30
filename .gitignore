@@ -22,3 +22,4 @@ wa-session/
 
 # Local states
 src/config/plugins_state.json
+data/

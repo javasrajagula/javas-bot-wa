@@ -1,4 +1,6 @@
 import { URL } from 'url';
+import { lookup } from 'dns/promises';
+import net from 'net';
 
 export function normalizeUrl(url: string): string {
   let cleanUrl = url.trim();
@@ -39,6 +41,46 @@ export function blockPrivateIp(hostname: string): void {
   }
 }
 
+function isPrivateIpv4(host: string): boolean {
+  const parts = host.split('.').map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) return false;
+  const [a, b] = parts;
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    a === 0
+  );
+}
+
+function isPrivateIpv6(host: string): boolean {
+  const normalized = host.replace(/^\[|\]$/g, '').toLowerCase();
+  return (
+    normalized === '::1' ||
+    normalized === '::' ||
+    normalized.startsWith('fc') ||
+    normalized.startsWith('fd') ||
+    normalized.startsWith('fe80:') ||
+    normalized.startsWith('::ffff:127.') ||
+    normalized.startsWith('::ffff:10.') ||
+    normalized.startsWith('::ffff:192.168.') ||
+    normalized.startsWith('::ffff:172.')
+  );
+}
+
+export function blockUnsafeIp(hostname: string): void {
+  const host = hostname.toLowerCase().trim().replace(/^\[|\]$/g, '');
+  const family = net.isIP(host);
+  if (family === 4 && isPrivateIpv4(host)) {
+    throw new Error('Akses ke IP privat tidak diperbolehkan.');
+  }
+  if (family === 6 && isPrivateIpv6(host)) {
+    throw new Error('Akses ke IPv6 privat/link-local tidak diperbolehkan.');
+  }
+}
+
 export function isAllowedTikTokUrl(url: string): boolean {
   try {
     const parsed = new URL(normalizeUrl(url));
@@ -74,6 +116,7 @@ export function isSafePublicUrl(url: string): boolean {
 
     blockLocalhost(host);
     blockPrivateIp(host);
+    blockUnsafeIp(host);
 
     // Reject evil subdomains (e.g. instagram.com.evil.com)
     // parsed.hostname would end with '.evil.com', which won't match direct check unless allowed
@@ -81,6 +124,27 @@ export function isSafePublicUrl(url: string): boolean {
   } catch (err: any) {
     throw new Error(`URL tidak aman: ${err.message}`);
   }
+}
+
+export async function assertSafePublicUrl(url: string): Promise<string> {
+  const normalized = normalizeUrl(url);
+  const parsed = new URL(normalized);
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('Hanya URL HTTP/HTTPS yang diperbolehkan.');
+  }
+
+  blockLocalhost(parsed.hostname);
+  blockPrivateIp(parsed.hostname);
+  blockUnsafeIp(parsed.hostname);
+
+  const addresses = await lookup(parsed.hostname, { all: true, verbatim: true });
+  for (const address of addresses) {
+    blockUnsafeIp(address.address);
+    blockPrivateIp(address.address);
+  }
+
+  return parsed.toString();
 }
 
 export function isAllowedYouTubeUrl(url: string): boolean {

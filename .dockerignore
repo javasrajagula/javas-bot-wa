@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.env
+data
+temp
+temp_outputs
+backups
+wa-session
+*.db
+*.db-journal
+*.db-shm
+*.db-wal

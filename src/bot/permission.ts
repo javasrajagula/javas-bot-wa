@@ -1,6 +1,7 @@
 import { env } from '../config/env.js';
 import prisma from '../db/client.js';
 import { WhatsAppAdapter } from './whatsapp.adapter.js';
+import { maskPhone, redactSensitive } from '../utils/mask.util.js';
 
 function normalizePhone(value: string): string {
   return value
@@ -18,10 +19,12 @@ const ownerList = env.OWNER_IDS
       .filter(Boolean)
   : [];
 
-console.log('[OWNER CONFIG]', {
-  raw: env.OWNER_IDS,
-  ownerList
-});
+if (env.LOG_LEVEL === 'debug') {
+  console.log('[OWNER CONFIG]', {
+    raw: redactSensitive(env.OWNER_IDS),
+    ownerList: ownerList.map(maskPhone)
+  });
+}
 
 /**
  * Checks if a user is an owner of the bot based on phone number list in environment.
@@ -30,12 +33,14 @@ export function isOwner(userId: string): boolean {
   const number = normalizePhone(userId);
   const result = ownerList.includes(number);
 
-  console.log('[OWNER CHECK]', {
-    userId,
-    number,
-    ownerList,
-    result
-  });
+  if (env.LOG_LEVEL === 'debug') {
+    console.log('[OWNER CHECK]', {
+      userId: maskPhone(userId),
+      number: maskPhone(number),
+      ownerList: ownerList.map(maskPhone),
+      result
+    });
+  }
 
   return result;
 }

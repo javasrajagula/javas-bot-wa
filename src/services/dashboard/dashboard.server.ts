@@ -11,10 +11,14 @@ import { downloaderQueue, generalQueue, hdQueue } from '../../queues/queue.js';
 
 interface SessionData {
   createdAt: number;
+  csrfToken: string;
 }
 
 const sessions = new Map<string, SessionData>();
 const pendingBroadcasts = new Map<string, { text: string; createdAt: number }>();
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const BODY_LIMIT_BYTES = 32 * 1024;
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -41,8 +45,14 @@ function safePasswordEquals(input: string, expected: string): boolean {
 
 async function readBody(req: IncomingMessage): Promise<URLSearchParams> {
   const chunks: Buffer[] = [];
+  let size = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > BODY_LIMIT_BYTES) {
+      throw new Error('Request body terlalu besar.');
+    }
+    chunks.push(buffer);
   }
   return new URLSearchParams(Buffer.concat(chunks).toString('utf-8'));
 }
@@ -101,6 +111,33 @@ function renderPage(title: string, body: string): string {
     <main><h1>${escapeHtml(title)}</h1>${body}</main>
   </body>
   </html>`;
+}
+
+function injectCsrf(html: string, token: string): string {
+  return html.replace(/<form([^>]*)method="post"([^>]*)>/gi, `<form$1method="post"$2><input type="hidden" name="csrf" value="${escapeHtml(token)}">`);
+}
+
+function clientIp(req: IncomingMessage): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) return forwarded.split(',')[0].trim();
+  return req.socket.remoteAddress || 'unknown';
+}
+
+function isLoginLimited(req: IncomingMessage): boolean {
+  const ip = clientIp(req);
+  const now = Date.now();
+  const current = loginAttempts.get(ip);
+  if (!current || current.resetAt <= now) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + 10 * 60_000 });
+    return false;
+  }
+  current.count++;
+  return current.count > 10;
+}
+
+function sessionCookie(token: string, req: IncomingMessage): string {
+  const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+  return `dashboard_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`;
 }
 
 async function renderOverview() {
@@ -248,7 +285,9 @@ export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | n
       const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
       const cookies = parseCookies(req);
       const sessionId = cookies.dashboard_session;
-      const authed = Boolean(sessionId && sessions.has(sessionId));
+      const session = sessionId ? sessions.get(sessionId) : undefined;
+      const authed = Boolean(session && Date.now() - session.createdAt < SESSION_TTL_MS);
+      if (sessionId && session && !authed) sessions.delete(sessionId);
 
       if (url.pathname === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -256,13 +295,110 @@ export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | n
         return;
       }
 
+      if (url.pathname === '/api/status') {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({
+          ok: true,
+          adapter: env.ADAPTER_MODE,
+          dashboard: env.DASHBOARD_ENABLED,
+          time: new Date().toISOString()
+        }));
+        return;
+      }
+
+      if (url.pathname.startsWith('/api/')) {
+        if (!env.DASHBOARD_API_ENABLED || !env.DASHBOARD_API_KEY || req.headers.authorization !== `Bearer ${env.DASHBOARD_API_KEY}`) {
+          res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: false, error: 'unauthorized' }));
+          return;
+        }
+
+        if (url.pathname === '/api/groups') {
+          const groups = await prisma.groupConfig.findMany({ select: { groupId: true, botEnabled: true, prefix: true, updatedAt: true } });
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true, groups }));
+          return;
+        }
+        if (url.pathname === '/api/usage') {
+          const usage = await prisma.usageLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true, usage }));
+          return;
+        }
+        if (url.pathname === '/api/errors') {
+          const errors = await prisma.errorLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true, errors }));
+          return;
+        }
+        if (url.pathname === '/api/broadcast' && req.method === 'POST') {
+          const form = await readBody(req);
+          const text = String(form.get('text') || '').trim();
+          if (!text) {
+            res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ ok: false, error: 'text_required' }));
+            return;
+          }
+          const groups = await prisma.groupConfig.findMany({ select: { groupId: true } });
+          let sent = 0;
+          for (const group of groups) {
+            if (!adapter) break;
+            await adapter.sendMessage(group.groupId, `BROADCAST OWNER\n\n${text}`);
+            sent++;
+          }
+          await prisma.groupLog.create({
+            data: {
+              groupId: 'api',
+              type: 'broadcast',
+              action: adapter ? 'sent' : 'queued',
+              message: `API broadcast processed. Sent ${sent}/${groups.length}.`
+            }
+          }).catch(() => undefined);
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true, sent, total: groups.length }));
+          return;
+        }
+        const featureMatch = url.pathname.match(/^\/api\/group\/([^/]+)\/features$/);
+        if (featureMatch && req.method === 'POST') {
+          const groupId = decodeURIComponent(featureMatch[1]);
+          const form = await readBody(req);
+          const feature = String(form.get('feature') || '');
+          const value = form.get('value') === 'true' || form.get('value') === 'on';
+          const group = await prisma.groupConfig.findUnique({ where: { groupId } });
+          if (!group || !(feature in DEFAULT_FEATURES)) {
+            res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ ok: false, error: 'group_or_feature_not_found' }));
+            return;
+          }
+          const flags = parseFeatureFlags(group.featuresJson);
+          flags[feature] = value;
+          await prisma.groupConfig.update({ where: { groupId }, data: { featuresJson: JSON.stringify(flags) } });
+          await prisma.groupLog.create({
+            data: {
+              groupId,
+              type: 'api',
+              action: 'feature_update',
+              message: `${feature}=${value}`
+            }
+          }).catch(() => undefined);
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: true, feature, value }));
+          return;
+        }
+      }
+
       if (url.pathname === '/login' && req.method === 'POST') {
+        if (isLoginLimited(req)) {
+          res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Too many login attempts');
+          return;
+        }
         const form = await readBody(req);
         const password = form.get('password') || '';
         if (safePasswordEquals(password, env.OWNER_DASHBOARD_PASSWORD)) {
           const token = crypto.randomBytes(24).toString('hex');
-          sessions.set(token, { createdAt: Date.now() });
-          res.writeHead(303, { Location: '/overview', 'Set-Cookie': `dashboard_session=${token}; HttpOnly; SameSite=Lax; Path=/` });
+          sessions.set(token, { createdAt: Date.now(), csrfToken: crypto.randomBytes(24).toString('hex') });
+          res.writeHead(303, { Location: '/overview', 'Set-Cookie': sessionCookie(token, req) });
           res.end();
           return;
         }
@@ -287,6 +423,11 @@ export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | n
 
       if (req.method === 'POST') {
         const form = await readBody(req);
+        if (!session || form.get('csrf') !== session.csrfToken) {
+          res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('CSRF token tidak valid');
+          return;
+        }
         if (url.pathname === '/features/toggle') {
           const groupId = String(form.get('groupId') || '');
           const feature = String(form.get('feature') || '');
@@ -376,9 +517,10 @@ export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | n
       else if (url.pathname === '/group-logs') html = await renderGroupLogs();
       else if (url.pathname === '/broadcast') html = await renderBroadcast(sessionId!);
       else if (url.pathname === '/backup') html = await renderBackup();
-      else if (url.pathname === '/settings') html = await renderSettings();
+      else if (url.pathname === '/settings' || url.pathname === '/dashboard/security') html = await renderSettings();
       else html = renderPage('Not Found', '<p>Halaman tidak ditemukan.</p>');
 
+      if (session) html = injectCsrf(html, session.csrfToken);
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
     } catch (err: any) {
@@ -388,8 +530,8 @@ export function startDashboardServer(adapter?: WhatsAppAdapter): http.Server | n
     }
   });
 
-  server.listen(env.DASHBOARD_PORT, () => {
-    console.log(`[Dashboard] Owner dashboard listening on http://localhost:${env.DASHBOARD_PORT}`);
+  server.listen(env.DASHBOARD_PORT, env.DASHBOARD_HOST, () => {
+    console.log(`[Dashboard] Owner dashboard listening on http://${env.DASHBOARD_HOST}:${env.DASHBOARD_PORT}`);
   });
   return server;
 }

@@ -4,11 +4,17 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx src/app.ts",
-    "test": "vitest run",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/app.js",
+    "lint": "tsc --noEmit",
+    "test": "vitest run src/tests",
     "typecheck": "tsc --noEmit",
     "dashboard": "tsx src/cli-dashboard.ts",
     "webdashboard": "tsx src/app.ts",
-    "docs:commands": "tsx src/scripts/generate-command-docs.ts"
+    "docs:commands": "tsx src/scripts/generate-command-docs.ts",
+    "db:migrate": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio"
   },
   "keywords": [],
   "author": "",

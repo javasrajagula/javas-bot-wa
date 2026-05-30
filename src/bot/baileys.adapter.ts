@@ -59,9 +59,13 @@ export class BaileysAdapter extends WhatsAppAdapter {
           const selfIds = [this.sock.user?.id, this.sock.user?.lid]
             .filter(Boolean)
             .map((jid) => jidNormalizedUser(jid));
-          const targetParticipants = participants.filter(
-            (participant: string) => !selfIds.includes(jidNormalizedUser(participant))
-          );
+          const targetParticipants = participants
+            .map((participant: any) => {
+              if (typeof participant === 'string') return participant;
+              return participant?.id || participant?.phoneNumber || '';
+            })
+            .filter(Boolean)
+            .filter((participant: string) => !selfIds.includes(jidNormalizedUser(participant)));
           if (targetParticipants.length === 0) return;
 
           await this.groupUpdateHandler({ groupId: id, participants: targetParticipants, action });

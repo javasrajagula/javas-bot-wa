@@ -29,6 +29,7 @@ import './commands/community/community.command.js';
 import './commands/community/schedule.command.js';
 import './commands/games/games.command.js';
 import './commands/owner/owner.command.js';
+import './commands/prd/prd-coverage.command.js';
 import { startReminderWorker } from './workers/reminder.worker.js';
 import { achievementService } from './services/achievement/achievement.service.js';
 import { backupService } from './services/backup/backup.service.js';

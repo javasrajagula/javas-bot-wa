@@ -224,3 +224,29 @@ Pengujian ini mencakup validasi:
 4. Logika validasi regex tautan downloader.
 5. Pembaruan config dynamic flags di dalam SQLite database.
 6. Toggle status plugin dan otentikasi hashing API key.
+
+---
+
+## PRD Stabilization Layer
+
+PRD fase lanjutan didukung oleh lapisan command coverage aman:
+- daftar command dibaca dari `prd.md` dan command yang belum punya handler khusus otomatis terdaftar;
+- handler fallback tidak melakukan aksi berisiko tanpa konfigurasi provider atau izin admin/owner;
+- state fitur produktivitas, workflow, finance, webhook, dan catatan sederhana disimpan di `data/state.json`;
+- plugin state dipindahkan ke `data/plugins_state.json`, bukan lagi source code;
+- error user-facing memakai Error ID, sementara metadata log dimasking.
+
+Build dan validasi:
+```bash
+npm run typecheck
+npm run test
+npm run build
+```
+
+Database helper:
+```bash
+npm run db:push
+npm run db:studio
+```
+
+Dashboard web sekarang memiliki login rate limit, session TTL, cookie `HttpOnly`, CSRF token untuk POST, limit body request, host binding via `DASHBOARD_HOST`, health endpoint, dan API internal opsional dengan `DASHBOARD_API_ENABLED=true` serta `DASHBOARD_API_KEY`.

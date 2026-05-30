@@ -1,14 +1,20 @@
 import fs from 'fs';
 import path from 'path';
 import { COMMAND_METADATA_LIST } from '../commands/registry/command-metadata.js';
+import { loadPrdCommandMetadata } from '../commands/prd/prd-command-catalog.js';
 
 const docsDir = path.join(process.cwd(), 'docs');
 if (!fs.existsSync(docsDir)) {
   fs.mkdirSync(docsDir, { recursive: true });
 }
 
+const commandMap = new Map<string, (typeof COMMAND_METADATA_LIST)[number]>();
+for (const command of [...COMMAND_METADATA_LIST, ...loadPrdCommandMetadata()]) {
+  commandMap.set(command.name, command);
+}
+
 const grouped = new Map<string, typeof COMMAND_METADATA_LIST>();
-for (const command of COMMAND_METADATA_LIST) {
+for (const command of commandMap.values()) {
   const list = grouped.get(command.category) || [];
   list.push(command);
   grouped.set(command.category, list);

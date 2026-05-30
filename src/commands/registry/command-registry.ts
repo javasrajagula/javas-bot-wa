@@ -72,6 +72,28 @@ class CommandRegistry {
     }
   }
 
+  public ensureMetadata(metadata: CommandMetadata): void {
+    const primary = metadata.name.toLowerCase();
+    const existing = this.registry.get(primary);
+
+    if (existing) {
+      existing.metadata = {
+        ...metadata,
+        aliases: [...new Set([...(existing.metadata.aliases || []), ...(metadata.aliases || [])])]
+      };
+    } else {
+      this.registry.set(primary, {
+        metadata,
+        isRegistered: false
+      });
+    }
+
+    this.aliasMap.set(primary, primary);
+    for (const alias of metadata.aliases) {
+      this.aliasMap.set(alias.toLowerCase(), primary);
+    }
+  }
+
   public get(nameOrAlias: string): RegisteredCommand | undefined {
     const primary = this.aliasMap.get(nameOrAlias.toLowerCase());
 

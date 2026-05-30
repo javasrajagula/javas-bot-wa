@@ -9,7 +9,7 @@ export interface PluginMetadata {
   category: string;
 }
 
-const STATE_FILE = path.join(process.cwd(), 'src', 'config', 'plugins_state.json');
+const STATE_FILE = path.join(process.cwd(), 'data', 'plugins_state.json');
 
 const INITIAL_PLUGINS: PluginMetadata[] = [
   {
@@ -115,6 +115,7 @@ class PluginManager {
 
   private saveState() {
     try {
+      fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
       const stateToSave = this.plugins.map(p => ({ name: p.name, enabled: p.enabled }));
       fs.writeFileSync(STATE_FILE, JSON.stringify(stateToSave, null, 2), 'utf-8');
     } catch (err) {
