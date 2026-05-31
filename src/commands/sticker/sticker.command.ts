@@ -277,6 +277,8 @@ export class StickerSuiteCommand implements Command {
 
     // 9. /stiker or /s (normal conversion)
     if (cmd === 'stiker' || cmd === 's') {
+      let sharpDone = false;
+      let metaDone = false;
       try {
         // Use env defaults; allow per-message override via pack:/author: args
         let pack = env.STICKER_PACK_NAME || 'Javas Bot WA';
@@ -292,13 +294,21 @@ export class StickerSuiteCommand implements Command {
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
           .webp()
           .toBuffer();
+        sharpDone = true;
 
         const metaWebp = await addStickerMetadata(webp, pack, author);
+        metaDone = true;
+
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err: any) {
-        console.error('[Sticker] Error:', err);
-        await adapter.sendMessage(ctx.chatId, '❌ Gagal memproses stiker.', { quotedMessageId: ctx.id });
+        const stage = !sharpDone ? 'konversi-webp' : !metaDone ? 'exif-inject' : 'kirim-stiker';
+        console.error(`[Sticker] Error at stage=${stage}:`, err?.message || err);
+        await adapter.sendMessage(
+          ctx.chatId,
+          `❌ Gagal memproses stiker (${stage}): ${err?.message || 'unknown error'}`,
+          { quotedMessageId: ctx.id }
+        );
       }
       return;
     }
