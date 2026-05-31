@@ -44,8 +44,9 @@ model UsageLog {
   durationMs Int?
   createdAt  DateTime @default(now())
 
-  @@index([userId, createdAt])
   @@index([groupId, createdAt])
+  @@index([userId, groupId, createdAt])
+  @@index([feature, createdAt])
 }
 
 model PremiumUser {
@@ -83,8 +84,7 @@ model Blacklist {
   createdBy String?
   createdAt DateTime @default(now())
 
-  @@index([userId, scope])
-  @@index([groupId, scope])
+  @@index([scope, groupId, userId])
 }
 
 model AutoReply {
@@ -95,6 +95,8 @@ model AutoReply {
   matchType String   @default("exact") // "exact" or "contains"
   createdBy String?
   createdAt DateTime @default(now())
+
+  @@index([groupId, trigger])
 }
 
 model Poll {
@@ -395,8 +397,7 @@ model InfractionLog {
   createdBy String?
   createdAt DateTime @default(now())
 
-  @@index([groupId, userId])
-  @@index([groupId, createdAt])
+  @@index([groupId, userId, createdAt])
 }
 
 model GroupLog {
@@ -409,8 +410,8 @@ model GroupLog {
   metadataJson String @default("{}")
   createdAt   DateTime @default(now())
 
-  @@index([groupId, type])
   @@index([groupId, createdAt])
+  @@index([type, createdAt])
 }
 
 model Task {

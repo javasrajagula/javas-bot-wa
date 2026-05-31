@@ -20,18 +20,23 @@ export class WerewolfCommand implements Command {
         `├ \`/ww vote @user\` - Memilih pemain (fase siang)\n` +
         `└ \`/ww stop\` - Menghentikan paksa game\n\n` +
         `Perintah di Chat Pribadi (Malam Hari):\n` +
-        `├ \`/ww kill @user\` - (Werewolf) Bunuh warga\n` +
+        `├ \`/ww kill @user\` - (Werewolf/Black Wolf) Bunuh warga\n` +
+        `├ \`/ww infect @user\` - (Black Wolf) Menginfeksi warga\n` +
         `├ \`/ww protect @user\` - (Doctor) Lindungi warga\n` +
-        `└ \`/ww check @user\` - (Seer) Terawang peran`;
+        `├ \`/ww check @user\` - (Seer) Terawang peran\n` +
+        `├ \`/ww poison @user\` - (Witch) Meracuni warga\n` +
+        `├ \`/ww heal\` - (Witch) Menyembuhkan korban\n` +
+        `└ \`/ww pass\` - (Witch) Lewati giliran`;
       await adapter.sendMessage(ctx.chatId, helpMsg, { quotedMessageId: ctx.id });
       return;
     }
 
-    // Handle Private commands (kill, protect, check)
+    // Handle Private commands (kill, protect, check, poison, heal, infect, pass)
     if (!ctx.isGroup) {
-      if (sub === 'kill' || sub === 'protect' || sub === 'check') {
+      const isNightAction = ['kill', 'protect', 'check', 'poison', 'heal', 'infect', 'pass'].includes(sub);
+      if (isNightAction) {
         const targetUsername = args.slice(1).join(' ').trim();
-        if (!targetUsername) {
+        if (!targetUsername && sub !== 'heal' && sub !== 'pass') {
           await adapter.sendMessage(ctx.chatId, `⚠️ Format salah. Contoh: \`/ww ${sub} @username\``);
           return;
         }

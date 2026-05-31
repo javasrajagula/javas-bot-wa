@@ -272,6 +272,17 @@ export class GamesSuiteCommand implements Command {
       await adapter.sendMessage(ctx.chatId, response, { mentions: [user1, user2], quotedMessageId: ctx.id });
       return;
     }
+
+    if (cmd === 'jawab') {
+      const { activeQuizzes, textSuite } = await import('../text/text.command.js');
+      const hasActiveQuiz = activeQuizzes.has(ctx.chatId);
+      if (hasActiveQuiz) {
+        await textSuite.execute(ctx, args, adapter);
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada game (Tebak Kata/Kuis) yang aktif di grup ini saat ini. Mulai dengan `/tebakkata` atau `/quiz`.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
   }
 }
 

@@ -219,13 +219,19 @@ export class BackupService {
       });
     }
 
+    const { normalizePremiumUserId } = await import('../premium/premium.service.js');
     for (const pu of premiumUsers) {
       if (!pu.userId) continue;
-      await prisma.premiumUser.upsert({
-        where: { userId: pu.userId },
-        create: { userId: pu.userId, expiresAt: pu.expiresAt ? new Date(pu.expiresAt) : new Date(0) },
-        update: { expiresAt: pu.expiresAt ? new Date(pu.expiresAt) : new Date(0) }
-      });
+      try {
+        const normalizedUserId = normalizePremiumUserId(pu.userId);
+        await prisma.premiumUser.upsert({
+          where: { userId: normalizedUserId },
+          create: { userId: normalizedUserId, expiresAt: pu.expiresAt ? new Date(pu.expiresAt) : new Date(0) },
+          update: { expiresAt: pu.expiresAt ? new Date(pu.expiresAt) : new Date(0) }
+        });
+      } catch (err) {
+        console.warn(`[Backup Service] Skipping invalid premium user import for: ${pu.userId}`);
+      }
     }
 
     for (const wr of warningRules) {

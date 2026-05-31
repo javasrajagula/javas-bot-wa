@@ -30,6 +30,20 @@ export async function addStickerMetadata(
   }
 }
 
+// Helper to validate WebP Sticker buffer size and format
+export function validateStickerBuffer(buffer: Buffer): void {
+  if (!buffer || buffer.length === 0) {
+    throw new Error('Buffer stiker kosong.');
+  }
+  const isWebP = buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+  if (!isWebP) {
+    throw new Error('File hasil konversi bukan format WebP yang valid.');
+  }
+  if (buffer.length > 1024 * 1024) {
+    throw new Error(`Ukuran stiker melebihi batas 1MB (Ukuran: ${(buffer.length / 1024).toFixed(1)} KB).`);
+  }
+}
+
 export class StickerSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
     const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
@@ -299,6 +313,8 @@ export class StickerSuiteCommand implements Command {
         const metaWebp = await addStickerMetadata(webp, pack, author);
         metaDone = true;
 
+        validateStickerBuffer(metaWebp);
+
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err: any) {
@@ -367,6 +383,9 @@ export class StickerSuiteCommand implements Command {
 
         const webpOut = fs.readFileSync(tempOut);
         const metaWebp = await addStickerMetadata(webpOut);
+
+        validateStickerBuffer(metaWebp);
+
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err: any) {

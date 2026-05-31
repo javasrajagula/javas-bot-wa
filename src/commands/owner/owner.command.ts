@@ -10,6 +10,8 @@ import { logError } from '../../utils/logger.js';
 import { backupService } from '../../services/backup/backup.service.js';
 import fs from 'fs';
 import { stateStore } from '../../services/state/state-store.js';
+import path from 'path';
+import { env } from '../../config/env.js';
 
 export let isMaintenanceMode = false;
 
@@ -80,27 +82,106 @@ export class OwnerSuiteCommand implements Command {
         return;
       }
 
-      const { normalizeJid } = await import('../../utils/jid.util.js');
-      const targetUserId = normalizeJid(rawUser);
-
       try {
+        const { addPremiumUser, removePremiumUser } = await import('../../services/premium/premium.service.js');
         if (action === 'add') {
-          const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-          await prisma.premiumUser.upsert({
-            where: { userId: targetUserId },
-            create: { userId: targetUserId, expiresAt },
-            update: { expiresAt }
-          });
-          await adapter.sendMessage(ctx.chatId, `✅ Berhasil menambahkan Premium untuk @${targetUserId.split('@')[0]} selama ${days} hari (Hingga ${expiresAt.toLocaleDateString()}).`, { quotedMessageId: ctx.id });
+          const res = await addPremiumUser(rawUser, days, ctx.senderId);
+          await adapter.sendMessage(ctx.chatId, `✅ Berhasil menambahkan/memperpanjang Premium untuk @${res.userId.split('@')[0]} selama ${days} hari (Hingga ${res.expiresAt.toLocaleDateString('id-ID')}).`, { quotedMessageId: ctx.id });
         } else {
-          await prisma.premiumUser.deleteMany({
-            where: { userId: targetUserId }
-          });
-          await adapter.sendMessage(ctx.chatId, `✅ Berhasil menghapus status Premium untuk @${targetUserId.split('@')[0]}.`, { quotedMessageId: ctx.id });
+          await removePremiumUser(rawUser, ctx.senderId);
+          await adapter.sendMessage(ctx.chatId, `✅ Berhasil menghapus status Premium untuk @${rawUser.replace(/^@/, '').split('@')[0]}.`, { quotedMessageId: ctx.id });
         }
       } catch (err: any) {
-        await logError('OwnerCommand', 'premium', err, { targetUserId, action });
+        await logError('OwnerCommand', 'premium', err, { rawUser, action });
         await adapter.sendMessage(ctx.chatId, `❌ Gagal mengatur premium: ${err.message}`, { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    // 2b. /cekpremium @user
+    if (commandType === 'cekpremium') {
+      const targetUser = args[0];
+      if (!targetUser) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Harap masukkan user. Contoh: `/cekpremium @user`', { quotedMessageId: ctx.id });
+        return;
+      }
+      try {
+        const { getPremiumStatus } = await import('../../services/premium/premium.service.js');
+        const status = await getPremiumStatus(targetUser);
+        let msg = `💎 *STATUS PREMIUM USER* 💎\n\n`;
+        msg += `• *User:* ${targetUser}\n`;
+        msg += `• *Status:* ${status.isPremium ? '🟢 PREMIUM' : '🔴 FREE'}\n`;
+        if (status.isPremium) {
+          msg += `• *Expired:* ${status.expiresAt ? status.expiresAt.toLocaleDateString('id-ID') : 'Lifetime (Owner)'}\n`;
+          msg += `• *Sisa Hari:* ${status.daysLeft} hari\n`;
+        }
+        await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal mengecek premium: ${err.message}`, { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    // 2c. /listpremium
+    if (commandType === 'listpremium') {
+      try {
+        const activePremium = await prisma.premiumUser.findMany({
+          where: { expiresAt: { gt: new Date() } }
+        });
+        if (activePremium.length === 0) {
+          await adapter.sendMessage(ctx.chatId, 'ℹ️ Tidak ada user premium aktif.', { quotedMessageId: ctx.id });
+          return;
+        }
+        let msg = `📋 *DAFTAR USER PREMIUM AKTIF* 📋\n\n`;
+        activePremium.forEach((pu, index) => {
+          msg += `${index + 1}. @${pu.userId.split('@')[0]} (s.d. ${pu.expiresAt.toLocaleDateString('id-ID')})\n`;
+        });
+        const mentions = activePremium.map(pu => pu.userId);
+        await adapter.sendMessage(ctx.chatId, msg, { mentions, quotedMessageId: ctx.id });
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal memuat daftar premium: ${err.message}`, { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    // 2d. /fixpremiumids
+    if (commandType === 'fixpremiumids') {
+      try {
+        const { normalizePremiumRecords } = await import('../../services/premium/premium.service.js');
+        const res = await normalizePremiumRecords();
+        await adapter.sendMessage(ctx.chatId, `✅ Normalisasi selesai. Berhasil menyinkronkan & menggabungkan ${res.updatedCount} record premium user.`, { quotedMessageId: ctx.id });
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal menormalisasi JID premium: ${err.message}`, { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    // 2e. /dbinfo
+    if (commandType === 'dbinfo') {
+      try {
+        const url = env.DATABASE_URL;
+        const provider = url.startsWith('file:') ? 'SQLite' : 'Postgres/MySQL';
+        let dbPath = url;
+        let sizeText = 'N/A';
+
+        if (url.startsWith('file:')) {
+          const relativePath = url.replace('file:', '');
+          const absolutePath = path.resolve(process.cwd(), relativePath);
+          dbPath = absolutePath;
+          if (fs.existsSync(absolutePath)) {
+            const stats = fs.statSync(absolutePath);
+            const sizeKb = Math.ceil(stats.size / 1024);
+            sizeText = `${sizeKb} KB`;
+          }
+        }
+
+        let msg = `🗄️ *DATABASE PATH INFO* 🗄️\n\n`;
+        msg += `• *Provider:* ${provider}\n`;
+        msg += `• *Database Path:* \`${dbPath}\`\n`;
+        msg += `• *Ukuran Database:* ${sizeText}\n`;
+        await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal mengambil info database: ${err.message}`, { quotedMessageId: ctx.id });
       }
       return;
     }
@@ -658,6 +739,6 @@ Brat: Max 10 requests / 1 minute
 
 const ownerSuite = new OwnerSuiteCommand();
 registerCommand(
-  ['maintenance', 'premium', 'broadcast', 'bcaddtemplate', 'bcdeltemplate', 'bclisttemplate', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan', 'backup', 'backupdb', 'backupconfig', 'listbackup', 'restorebackup', 'exportconfig', 'importconfig'],
+  ['maintenance', 'premium', 'broadcast', 'bcaddtemplate', 'bcdeltemplate', 'bclisttemplate', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan', 'backup', 'backupdb', 'backupconfig', 'listbackup', 'restorebackup', 'exportconfig', 'importconfig', 'cekpremium', 'listpremium', 'fixpremiumids', 'dbinfo'],
   ownerSuite
 );

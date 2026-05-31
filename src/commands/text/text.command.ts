@@ -11,7 +11,7 @@ import {
   translateText
 } from '../../services/text/text.service.js';
 
-const activeQuizzes = new Map<string, {
+export const activeQuizzes = new Map<string, {
   question: string;
   answer: string;
   explanation: string;
@@ -70,7 +70,9 @@ export class TextSuiteCommand implements Command {
         const translated = await translateText(textToTranslate, targetLang);
         await adapter.sendMessage(ctx.chatId, `🌐 *Hasil Terjemahan (${translated.provider}):*\n\n${translated.text}`, { quotedMessageId: ctx.id });
       } catch (err: any) {
-        await adapter.sendMessage(ctx.chatId, `❌ Gagal menerjemahkan: ${err.message || err}`, { quotedMessageId: ctx.id });
+        const { logError } = await import('../../utils/logger.js');
+        const errorId = await logError('TextCommand', 'translate', err, { textToTranslate, targetLang });
+        await adapter.sendMessage(ctx.chatId, `❌ Layanan sedang bermasalah. Coba lagi nanti atau gunakan teks yang lebih pendek. (Error ID: ${errorId})`, { quotedMessageId: ctx.id });
       }
       return;
     }
@@ -389,7 +391,7 @@ Format response harus berupa JSON mentah saja dengan schema berikut (tanpa markd
   }
 }
 
-const textSuite = new TextSuiteCommand();
+export const textSuite = new TextSuiteCommand();
 registerCommand(
   ['ocr', 'translate', 'tr', 'ringkas', 'summarize', 'ubah', 'typo', 'koreksi', 'balas', 'jelaskan', 'rangkum', 'quiz', 'belajar', 'jawab', 'buatsoal', 'latihan', 'bahas', 'koreksiesai', 'flashcard'],
   textSuite

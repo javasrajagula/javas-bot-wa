@@ -1,6 +1,6 @@
 import prisma from '../../db/client.js';
 
-export type Role = 'Werewolf' | 'Seer' | 'Doctor' | 'Hunter' | 'Villager';
+export type Role = 'Werewolf' | 'BlackWolf' | 'Witch' | 'Fool' | 'Seer' | 'Doctor' | 'Hunter' | 'Villager';
 export type Phase = 'lobby' | 'night' | 'day_discuss' | 'day_vote';
 export type GameStatus = 'lobby' | 'playing' | 'finished';
 
@@ -9,6 +9,9 @@ export interface Player {
   name: string;
   isAlive: boolean;
   role: Role;
+  hasPoison?: boolean;
+  hasHeal?: boolean;
+  hasInfect?: boolean;
 }
 
 export interface Vote {
@@ -20,6 +23,10 @@ export interface NightActions {
   killTarget?: string;
   protectTarget?: string;
   checkTarget?: string;
+  poisonTarget?: string;
+  healUsed?: boolean;
+  infectTarget?: string;
+  witchPassed?: boolean;
 }
 
 interface WerewolfNotificationCallbacks {
@@ -95,7 +102,7 @@ async function saveGameSession(groupId: string, data: Partial<WerewolfGameData>)
 }
 
 async function createGameSession(groupId: string, hostId: string, hostName: string, expiresAt: Date) {
-  const players = [{ id: hostId, name: hostName, isAlive: true, role: 'Villager' }];
+  const players: Player[] = [{ id: hostId, name: hostName, isAlive: true, role: 'Villager' }];
   const state = {
     phase: 'lobby',
     hostUserId: hostId,
@@ -121,6 +128,25 @@ async function createGameSession(groupId: string, hostId: string, hostName: stri
       expiresAt
     }
   });
+}
+
+function getRolesForCount(count: number): Role[] {
+  if (count === 5) {
+    return ['Werewolf', 'Seer', 'Doctor', 'Fool', 'Villager'];
+  }
+  if (count === 6) {
+    return ['Werewolf', 'Seer', 'Doctor', 'Fool', 'Witch', 'Villager'];
+  }
+  if (count === 7) {
+    return ['Werewolf', 'BlackWolf', 'Seer', 'Doctor', 'Fool', 'Witch', 'Hunter'];
+  }
+  if (count === 8) {
+    return ['Werewolf', 'BlackWolf', 'Seer', 'Doctor', 'Fool', 'Witch', 'Hunter', 'Villager'];
+  }
+  if (count === 9) {
+    return ['Werewolf', 'Werewolf', 'BlackWolf', 'Seer', 'Doctor', 'Fool', 'Witch', 'Hunter', 'Villager'];
+  }
+  return ['Werewolf', 'Werewolf', 'BlackWolf', 'Seer', 'Doctor', 'Fool', 'Witch', 'Hunter', 'Villager', 'Villager'];
 }
 
 class WerewolfEngine {
@@ -310,17 +336,7 @@ class WerewolfEngine {
       throw new Error('Pemain kurang! Minimal 5 pemain diperlukan untuk memulai.');
     }
 
-    const roles: Role[] = [];
-    let wwCount = count >= 10 ? 3 : (count >= 7 ? 2 : 1);
-    let hasHunter = count >= 8;
-
-    for (let i = 0; i < wwCount; i++) roles.push('Werewolf');
-    roles.push('Seer');
-    roles.push('Doctor');
-    if (hasHunter) roles.push('Hunter');
-    while (roles.length < count) {
-      roles.push('Villager');
-    }
+    const roles = getRolesForCount(count);
 
     for (let i = roles.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -329,6 +345,12 @@ class WerewolfEngine {
 
     players.forEach((p, idx) => {
       p.role = roles[idx];
+      if (p.role === 'Witch') {
+        p.hasPoison = true;
+        p.hasHeal = true;
+      } else if (p.role === 'BlackWolf') {
+        p.hasInfect = true;
+      }
     });
 
     const expiresAt = this.setTimer(groupId, 'night', 90);
@@ -345,10 +367,19 @@ class WerewolfEngine {
     for (const p of players) {
       let roleMsg = `ℹ️ Peran Anda dalam game di grup: *${p.role}*\n`;
       if (p.role === 'Werewolf') {
-        const team = players.filter(ot => ot.role === 'Werewolf' && ot.id !== p.id).map(ot => `@${ot.id.split('@')[0]}`).join(', ');
+        const team = players.filter(ot => (ot.role === 'Werewolf' || ot.role === 'BlackWolf') && ot.id !== p.id).map(ot => `@${ot.id.split('@')[0]}`).join(', ');
         roleMsg += `Tugas Anda: Habisi warga saat malam hari.`;
-        if (team) roleMsg += `\nKawan Werewolf Anda: ${team}`;
+        if (team) roleMsg += `\nKawan Serigala Anda: ${team}`;
         roleMsg += `\n\nUntuk membunuh, balas chat bot ini dengan: \`/ww kill @username\``;
+      } else if (p.role === 'BlackWolf') {
+        const team = players.filter(ot => (ot.role === 'Werewolf' || ot.role === 'BlackWolf') && ot.id !== p.id).map(ot => `@${ot.id.split('@')[0]}`).join(', ');
+        roleMsg += `Tugas Anda: Habisi warga saat malam hari. Sebagai Serigala Hitam (Black Wolf), Anda memiliki 1x kesempatan untuk menginfeksi warga agar menjadi Werewolf.\n\n`;
+        if (team) roleMsg += `Kawan Serigala Anda: ${team}\n\n`;
+        roleMsg += `Untuk membunuh: \`/ww kill @username\`\nUntuk menginfeksi: \`/ww infect @username\``;
+      } else if (p.role === 'Witch') {
+        roleMsg += `Tugas Anda: Anda memiliki 1 ramuan racun untuk membunuh seseorang dan 1 ramuan penyembuh untuk menyelamatkan korban.\n\nUntuk membunuh: \`/ww poison @username\`\nUntuk menyembuhkan korban malam ini: \`/ww heal\`\nUntuk melewati giliran: \`/ww pass\``;
+      } else if (p.role === 'Fool') {
+        roleMsg += `Tugas Anda: Buat warga menuduh dan membakar Anda (vote out) di siang hari! Jika Anda dibakar warga, Anda menang seketika.`;
       } else if (p.role === 'Doctor') {
         roleMsg += `Tugas Anda: Lindungi satu pemain setiap malam dari serangan Werewolf.\n\nUntuk melindungi, balas chat bot ini dengan: \`/ww protect @username\``;
       } else if (p.role === 'Seer') {
@@ -365,7 +396,7 @@ class WerewolfEngine {
 
   public async setNightAction(
     groupId: string,
-    action: 'kill' | 'protect' | 'check',
+    action: 'kill' | 'protect' | 'check' | 'poison' | 'heal' | 'infect' | 'pass',
     actorId: string,
     targetUsername: string
   ): Promise<string> {
@@ -382,8 +413,11 @@ class WerewolfEngine {
       throw new Error('Anda tidak berpartisipasi atau sudah mati.');
     }
 
-    if (action === 'kill' && actor.role !== 'Werewolf') {
+    if (action === 'kill' && actor.role !== 'Werewolf' && actor.role !== 'BlackWolf') {
       throw new Error('Hanya Werewolf yang bisa membunuh.');
+    }
+    if (action === 'infect' && actor.role !== 'BlackWolf') {
+      throw new Error('Hanya Serigala Hitam yang bisa menginfeksi.');
     }
     if (action === 'protect' && actor.role !== 'Doctor') {
       throw new Error('Hanya Doctor yang bisa menyembuhkan.');
@@ -391,54 +425,109 @@ class WerewolfEngine {
     if (action === 'check' && actor.role !== 'Seer') {
       throw new Error('Hanya Seer yang bisa menerawang.');
     }
-
-    const cleanUsername = targetUsername.replace('@', '').trim().toLowerCase();
-    const target = players.find(p => {
-      const parts = p.id.split('@');
-      return parts[0].toLowerCase() === cleanUsername || p.name.toLowerCase() === cleanUsername;
-    });
-
-    if (!target) {
-      throw new Error(`Pemain "${targetUsername}" tidak ditemukan.`);
+    if ((action === 'poison' || action === 'heal' || action === 'pass') && actor.role !== 'Witch') {
+      throw new Error('Hanya Witch yang bisa melakukan tindakan ini.');
     }
 
-    if (!target.isAlive) {
-      throw new Error('Target sudah mati.');
+    let target: Player | undefined;
+    if (action !== 'heal' && action !== 'pass') {
+      const cleanUsername = targetUsername.replace('@', '').trim().toLowerCase();
+      target = players.find(p => {
+        const parts = p.id.split('@');
+        return parts[0].toLowerCase() === cleanUsername || p.name.toLowerCase() === cleanUsername;
+      });
+
+      if (!target) {
+        throw new Error(`Pemain "${targetUsername}" tidak ditemukan.`);
+      }
+
+      if (!target.isAlive) {
+        throw new Error('Target sudah mati.');
+      }
     }
 
     const actions: NightActions = JSON.parse(game.nightActionsJson);
 
     if (action === 'kill') {
-      actions.killTarget = target.id;
+      actions.killTarget = target!.id;
+      // Notify Witch if she has a heal potion
+      const witch = players.find(p => p.role === 'Witch' && p.isAlive);
+      if (witch && witch.hasHeal) {
+        await this.notifyPrivate(
+          witch.id,
+          `⚠️ Serigala memilih untuk membunuh @${target!.id.split('@')[0]} malam ini.\n\nKetik \`/ww heal\` jika ingin menyelamatkannya.`
+        );
+      }
+    } else if (action === 'infect') {
+      if (!actor.hasInfect) {
+        throw new Error('Anda sudah menggunakan skill infeksi Anda.');
+      }
+      actions.infectTarget = target!.id;
+      actions.killTarget = undefined; // Infect replaces kill target
+      actor.hasInfect = false;
     } else if (action === 'protect') {
-      actions.protectTarget = target.id;
+      actions.protectTarget = target!.id;
     } else if (action === 'check') {
-      actions.checkTarget = target.id;
+      actions.checkTarget = target!.id;
+    } else if (action === 'poison') {
+      if (!actor.hasPoison) {
+        throw new Error('Anda sudah menggunakan ramuan racun Anda.');
+      }
+      actions.poisonTarget = target!.id;
+      actor.hasPoison = false;
+    } else if (action === 'heal') {
+      if (!actor.hasHeal) {
+        throw new Error('Anda sudah menggunakan ramuan penyembuh Anda.');
+      }
+      if (!actions.killTarget) {
+        throw new Error('Belum ada korban dari Serigala malam ini yang bisa disembuhkan.');
+      }
+      actions.healUsed = true;
+      actor.hasHeal = false;
+    } else if (action === 'pass') {
+      actions.witchPassed = true;
     }
 
     await saveGameSession(groupId, {
+      playersJson: JSON.stringify(players),
       nightActionsJson: JSON.stringify(actions)
     });
 
     await this.checkAllNightActionsDone(groupId, players, actions);
 
     if (action === 'check') {
-      return `🔮 Hasil teropong: @${target.id.split('@')[0]} adalah *${target.role === 'Werewolf' ? 'Werewolf' : 'Warga Baik/Spesial'}*.`;
+      return `🔮 Hasil teropong: @${target!.id.split('@')[0]} adalah *${(target!.role === 'Werewolf' || target!.role === 'BlackWolf') ? 'Werewolf' : 'Warga Baik/Spesial'}*.`;
     }
 
     return `Aksi malam berhasil direkam.`;
   }
 
   private async checkAllNightActionsDone(groupId: string, players: Player[], actions: NightActions) {
-    const hasWwAlive = players.some(p => p.role === 'Werewolf' && p.isAlive);
+    const hasWwAlive = players.some(p => (p.role === 'Werewolf' || p.role === 'BlackWolf') && p.isAlive);
     const hasDocAlive = players.some(p => p.role === 'Doctor' && p.isAlive);
     const hasSeerAlive = players.some(p => p.role === 'Seer' && p.isAlive);
+    const hasWitchAlive = players.some(p => p.role === 'Witch' && p.isAlive);
 
-    const wwDone = !hasWwAlive || !!actions.killTarget;
+    const wwDone = !hasWwAlive || !!actions.killTarget || !!actions.infectTarget;
     const docDone = !hasDocAlive || !!actions.protectTarget;
     const seerDone = !hasSeerAlive || !!actions.checkTarget;
 
-    if (wwDone && docDone && seerDone) {
+    let witchDone = true;
+    if (hasWitchAlive) {
+      const witch = players.find(p => p.role === 'Witch' && p.isAlive)!;
+      const canHeal = witch.hasHeal && !!actions.killTarget;
+      const canPoison = witch.hasPoison;
+
+      if (actions.witchPassed) {
+        witchDone = true;
+      } else {
+        const healDone = !canHeal || !!actions.healUsed;
+        const poisonDone = !canPoison || !!actions.poisonTarget;
+        witchDone = healDone && poisonDone;
+      }
+    }
+
+    if (wwDone && docDone && seerDone && witchDone) {
       console.log(`[Werewolf Engine] All actions complete. Advancing to day...`);
       this.clearTimer(groupId);
       await this.transitToDay(groupId);
@@ -453,23 +542,56 @@ class WerewolfEngine {
     let players: Player[] = JSON.parse(game.playersJson);
     const actions: NightActions = JSON.parse(game.nightActionsJson);
 
-    let deadPlayerId: string | null = null;
-    if (actions.killTarget && actions.killTarget !== actions.protectTarget) {
-      deadPlayerId = actions.killTarget;
+    const deadPlayersThisNight: string[] = [];
+    let infectAnnounced = false;
+
+    // 1. Resolve Werewolf Kill
+    if (actions.killTarget) {
+      if (actions.healUsed) {
+        // Saved by Witch!
+      } else if (actions.killTarget === actions.protectTarget) {
+        // Saved by Doctor!
+      } else {
+        deadPlayersThisNight.push(actions.killTarget);
+      }
+    }
+
+    // 2. Resolve Black Wolf Infect
+    if (actions.infectTarget) {
+      const target = players.find(p => p.id === actions.infectTarget);
+      if (target && target.isAlive) {
+        target.role = 'Werewolf';
+        infectAnnounced = true;
+        await this.notifyPrivate(
+          target.id,
+          `💥 *ANDA TELAH TERINFEKSI!* 💥\n\nSerigala Hitam menginfeksi Anda tadi malam. Peran Anda sekarang berubah menjadi *Werewolf*.\nBekerjasamalah dengan kawanan serigala Anda untuk menghabisi warga!`
+        );
+      }
+    }
+
+    // 3. Resolve Witch Poison
+    if (actions.poisonTarget) {
+      deadPlayersThisNight.push(actions.poisonTarget);
     }
 
     let reportMsg = '🌅 Pagi hari telah tiba.\n\n';
 
-    if (deadPlayerId) {
-      const deadPlayer = players.find(p => p.id === deadPlayerId)!;
-      deadPlayer.isAlive = false;
-      reportMsg += `☠️ Berita duka! Semalam @${deadPlayerId.split('@')[0]} (${deadPlayer.role}) telah dicabik-cabik oleh serigala.`;
-      
-      if (deadPlayer.role === 'Hunter') {
-        reportMsg += `\n\n🎯 @${deadPlayerId.split('@')[0]} adalah seorang *Hunter*! Dia memiliki waktu 30 detik untuk membalas menembak mati 1 pemain dengan command: \`/ww kill @username\` di grup ini.`;
+    if (deadPlayersThisNight.length > 0) {
+      for (const deadId of deadPlayersThisNight) {
+        const deadPlayer = players.find(p => p.id === deadId)!;
+        deadPlayer.isAlive = false;
+        reportMsg += `☠️ Berita duka! Semalam @${deadId.split('@')[0]} (${deadPlayer.role}) ditemukan tewas mengenaskan.\n`;
+        
+        if (deadPlayer.role === 'Hunter') {
+          reportMsg += `🎯 @${deadId.split('@')[0]} adalah seorang *Hunter*! Dia memiliki waktu 30 detik untuk membalas menembak mati 1 pemain dengan command: \`/ww kill @username\` di grup ini.\n`;
+        }
       }
     } else {
-      reportMsg += '🛡️ Luar biasa! Semalam tidak ada korban jiwa.';
+      reportMsg += '🛡️ Luar biasa! Semalam tidak ada korban jiwa.\n';
+    }
+
+    if (infectAnnounced) {
+      reportMsg += `🌌 Semalam aura kegelapan yang pekat menyelimuti desa... Seseorang tampaknya telah dikutuk/terinfeksi!\n`;
     }
 
     const isGameOver = this.checkWinCondition(players);
@@ -478,7 +600,7 @@ class WerewolfEngine {
       return;
     }
 
-    const discussSeconds = deadPlayerId && players.find(p => p.id === deadPlayerId)?.role === 'Hunter' ? 30 : 180;
+    const discussSeconds = deadPlayersThisNight.some(id => players.find(p => p.id === id)?.role === 'Hunter') ? 30 : 180;
     const expiresAt = this.setTimer(groupId, 'day_discuss', discussSeconds);
 
     await saveGameSession(groupId, {
@@ -646,6 +768,11 @@ class WerewolfEngine {
       const victim = players.find(p => p.id === targetToHangId)!;
       victim.isAlive = false;
       resultMsg += `\n⚖️ Warga sepakat membakar @${targetToHangId.split('@')[0]} hidup-hidup! Dia adalah seorang *${victim.role}*.`;
+      
+      if (victim.role === 'Fool') {
+        await this.endGame(groupId, players, resultMsg, 'Fool', victim.id);
+        return;
+      }
     } else {
       resultMsg += '\n⚖️ Suara berimbang atau tidak ada voting. Tidak ada warga yang dieksekusi hari ini.';
     }
@@ -671,11 +798,11 @@ class WerewolfEngine {
   }
 
   public checkWinCondition(players: Player[]): boolean {
-    const wwAlive = players.filter(p => p.role === 'Werewolf' && p.isAlive).length;
-    const nonWwAlive = players.filter(p => p.role !== 'Werewolf' && p.isAlive).length;
+    const wwAlive = players.filter(p => (p.role === 'Werewolf' || p.role === 'BlackWolf') && p.isAlive).length;
+    const nonWwAlive = players.filter(p => p.role !== 'Werewolf' && p.role !== 'BlackWolf' && p.role !== 'Fool' && p.isAlive).length;
 
     if (wwAlive === 0) {
-      return true; // Villagers win
+      return true; // Citizens win
     }
     if (wwAlive >= nonWwAlive) {
       return true; // Werewolves win
@@ -684,17 +811,68 @@ class WerewolfEngine {
     return false;
   }
 
-  private async endGame(groupId: string, players: Player[], resultPrefix: string) {
+  private async endGame(groupId: string, players: Player[], resultPrefix: string, forceWinner?: 'Citizens' | 'Werewolves' | 'Fool', foolId?: string) {
     this.clearTimer(groupId);
 
-    const wwAlive = players.filter(p => p.role === 'Werewolf' && p.isAlive).length;
-    const winnerTeam = wwAlive === 0 ? 'Warga' : 'Werewolf';
+    let winnerTeam: 'Citizens' | 'Werewolves' | 'Fool' = 'Citizens';
+    if (forceWinner) {
+      winnerTeam = forceWinner;
+    } else {
+      const wwAlive = players.filter(p => (p.role === 'Werewolf' || p.role === 'BlackWolf') && p.isAlive).length;
+      winnerTeam = wwAlive === 0 ? 'Citizens' : 'Werewolves';
+    }
 
-    let finalMsg = `${resultPrefix}\n\n🎉 *Permainan Berakhir! Kemenangan untuk Tim ${winnerTeam}!* 🎉\n\n`;
+    let finalMsg = `${resultPrefix}\n\n🎉 *Permainan Berakhir! Kemenangan untuk Tim ${winnerTeam === 'Citizens' ? 'Warga (Citizens)' : winnerTeam === 'Werewolves' ? 'Serigala (Werewolf)' : 'Fool (Jester)'}!* 🎉\n\n`;
     finalMsg += '📋 *Peran Semua Pemain:* \n';
     players.forEach(p => {
       finalMsg += `- @${p.id.split('@')[0]}: ${p.role} (${p.isAlive ? '🏆 Hidup' : '💀 Mati'})\n`;
     });
+
+    const rewardPromises: Promise<any>[] = [];
+    players.forEach(p => {
+      let coins = 0;
+      let xp = 0;
+      let isWinner = false;
+
+      if (winnerTeam === 'Citizens') {
+        if (p.role !== 'Werewolf' && p.role !== 'BlackWolf' && p.role !== 'Fool') {
+          coins = 50;
+          xp = 25;
+          isWinner = true;
+        }
+      } else if (winnerTeam === 'Werewolves') {
+        if (p.role === 'Werewolf' || p.role === 'BlackWolf') {
+          coins = 100;
+          xp = 50;
+          isWinner = true;
+        }
+      } else if (winnerTeam === 'Fool') {
+        if (p.id === foolId) {
+          coins = 150;
+          xp = 75;
+          isWinner = true;
+        }
+      }
+
+      if (isWinner) {
+        rewardPromises.push(
+          prisma.userEconomy.upsert({
+            where: { userId: p.id },
+            create: { userId: p.id, balance: coins, xp },
+            update: { balance: { increment: coins }, xp: { increment: xp } }
+          }).catch(err => console.error(`[WW Economy Reward Fail] for user ${p.id}:`, err))
+        );
+      }
+    });
+
+    if (rewardPromises.length > 0) {
+      try {
+        await Promise.all(rewardPromises);
+        finalMsg += `\n💰 *Hadiah koin & XP telah dikreditkan ke profil pemenang!*`;
+      } catch (err) {
+        console.error('[Werewolf Reward Error]', err);
+      }
+    }
 
     await saveGameSession(groupId, {
       status: 'finished',

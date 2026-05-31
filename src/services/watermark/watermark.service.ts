@@ -71,59 +71,71 @@ export async function watermarkVideo(buffer: Buffer, text: string): Promise<Buff
   const cleanText = text.replace(/[^a-zA-Z0-9\s.,!?-]/g, '');
 
   let tempOverlay: string | null = null;
+
+  const runOverlayFallback = async () => {
+    const fontSize = 24;
+    const svgWidth = 400;
+    const svgHeight = 50;
+    const escapedText = escapeXml(cleanText);
+
+    const svg = `
+      <svg width="${svgWidth}" height="${svgHeight}">
+        <text x="${svgWidth - 10}" y="${fontSize + 5}" font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" font-weight="bold" fill="white" opacity="0.6" text-anchor="end" stroke="black" stroke-width="2">
+          ${escapedText}
+        </text>
+      </svg>
+    `;
+
+    const overlayBuffer = await sharp({
+      create: {
+        width: svgWidth,
+        height: svgHeight,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 }
+      }
+    })
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .png()
+    .toBuffer();
+
+    tempOverlay = getTempPath('png');
+    fs.writeFileSync(tempOverlay, overlayBuffer);
+
+    const args = [
+      '-y',
+      '-i', tempIn,
+      '-i', tempOverlay,
+      '-filter_complex', 'overlay=W-w-10:H-h-10',
+      '-codec:a', 'copy',
+      tempOut
+    ];
+    await runFfmpeg(args);
+  };
+
   try {
+    let success = false;
     if (env.FONT_FILE_PATH && fs.existsSync(env.FONT_FILE_PATH)) {
-      const escapedText = escapeFfmpegDrawtext(cleanText);
-      const escapedFontPath = env.FONT_FILE_PATH.replace(/\\/g, '/').replace(/:/g, '\\:');
-      const filter = `drawtext=text='${escapedText}':x=w-tw-10:y=h-th-10:fontsize=24:fontcolor=white@0.6:fontfile='${escapedFontPath}'`;
+      try {
+        const escapedText = escapeFfmpegDrawtext(cleanText);
+        const escapedFontPath = env.FONT_FILE_PATH.replace(/\\/g, '/').replace(/:/g, '\\:');
+        const filter = `drawtext=text='${escapedText}':x=w-tw-10:y=h-th-10:fontsize=24:fontcolor=white@0.6:fontfile='${escapedFontPath}'`;
 
-      const args = [
-        '-y',
-        '-i', tempIn,
-        '-vf', filter,
-        '-codec:a', 'copy',
-        tempOut
-      ];
-      await runFfmpeg(args);
-    } else {
-      // Fallback: Create transparent PNG overlay with Sharp and overlay it using FFmpeg
-      const fontSize = 24;
-      const svgWidth = 400;
-      const svgHeight = 50;
-      const escapedText = escapeXml(cleanText);
+        const args = [
+          '-y',
+          '-i', tempIn,
+          '-vf', filter,
+          '-codec:a', 'copy',
+          tempOut
+        ];
+        await runFfmpeg(args);
+        success = true;
+      } catch (err) {
+        console.warn('[Watermark] FFmpeg drawtext failed, falling back to overlay image.', err);
+      }
+    }
 
-      const svg = `
-        <svg width="${svgWidth}" height="${svgHeight}">
-          <text x="${svgWidth - 10}" y="${fontSize + 5}" font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" font-weight="bold" fill="white" opacity="0.6" text-anchor="end" stroke="black" stroke-width="2">
-            ${escapedText}
-          </text>
-        </svg>
-      `;
-
-      const overlayBuffer = await sharp({
-        create: {
-          width: svgWidth,
-          height: svgHeight,
-          channels: 4,
-          background: { r: 0, g: 0, b: 0, alpha: 0 }
-        }
-      })
-      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-      .png()
-      .toBuffer();
-
-      tempOverlay = getTempPath('png');
-      fs.writeFileSync(tempOverlay, overlayBuffer);
-
-      const args = [
-        '-y',
-        '-i', tempIn,
-        '-i', tempOverlay,
-        '-filter_complex', 'overlay=W-w-10:H-h-10',
-        '-codec:a', 'copy',
-        tempOut
-      ];
-      await runFfmpeg(args);
+    if (!success) {
+      await runOverlayFallback();
     }
 
     return fs.readFileSync(tempOut);

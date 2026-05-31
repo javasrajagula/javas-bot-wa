@@ -26,16 +26,15 @@ export class AudioSuiteCommand implements Command {
         return;
       }
 
-      const tempOut = getTempPath('mp3');
       try {
-        const url = `http://translate.google.com/translate_tts?ie=UTF-8&tl=id&client=tw-ob&q=${encodeURIComponent(text)}`;
-        const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
-        await fs.promises.writeFile(tempOut, response.data);
-        await adapter.sendVoiceNote(ctx.chatId, await fs.promises.readFile(tempOut), { quotedMessageId: ctx.id });
+        const { generateTts } = await import('../../services/tts/tts.service.js');
+        const result = await generateTts(text, 'id');
+        await adapter.sendAudio(ctx.chatId, result.buffer, {
+          quotedMessageId: ctx.id,
+          mimetype: result.mimeType || 'audio/mpeg'
+        });
       } catch (err: any) {
         await adapter.sendMessage(ctx.chatId, `❌ Gagal memproses TTS: ${err.message}`, { quotedMessageId: ctx.id });
-      } finally {
-        safeDelete(tempOut);
       }
       return;
     }

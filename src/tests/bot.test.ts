@@ -74,7 +74,7 @@ describe('WhatsApp Bot System Tests', () => {
 
     it('should identify premium users correctly', async () => {
       const { isPremium } = await import('../bot/permission.js');
-      const testUserId = 'test-premium-user@s.whatsapp.net';
+      const testUserId = '1234567890@s.whatsapp.net';
       
       // Clean up first
       await prisma.premiumUser.deleteMany({ where: { userId: testUserId } });

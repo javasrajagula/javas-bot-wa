@@ -73,12 +73,17 @@ OWNER_DASHBOARD_PASSWORD="ganti-password-kuat"
 ```
 Buka `http://localhost:8787`. Mencakup overview, groups, feature flags, plugins, premium users, subscriptions, queue monitor, usage stats, error logs, broadcast, backup/restore, dan settings.
 
-### 8. Backup, Restore & Utility Offline
+### 8. Backup, Restore, Utility Offline & Diagnostik
 ```
 /backup  /backupdb  /backupconfig  /listbackup  /restorebackup <id>
 /exportconfig  /importconfig
+/dbinfo  /checkdeps
 ```
 Backup disimpan di `backups/`, tidak menyertakan `.env` atau session WA.
+
+Diagnostik & Utility Dependencies:
+- `/checkdeps`: Mengecek status instalasi semua dependensi sistem (FFmpeg, Poppler, Tesseract, OCR, STT, dll).
+- `/dbinfo`: Menampilkan lokasi file database SQLite dan disk usage saat ini.
 
 Utility non-paid AI & Offline System Dependencies:
 - **FFmpeg & FFprobe**: Wajib untuk stiker video, GIF, reverse, watermark, dan konversi audio/video.
@@ -321,7 +326,7 @@ Utility non-paid AI & Offline System Dependencies:
 | `/math` | Game matematika cepat | User |
 | `/family100` | Kuis survey Family 100 | User |
 | `/couple` / `/jodoh` | Cek kecocokan antar member | User |
-| `/ww [create/join/start/stop]` | Werewolf game | User |
+| `/ww [create/join/start/stop/poison/heal/infect]` | Werewolf game (Witch, Black Wolf, Jester/Fool, night actions, and RPG economy rewards) | User |
 | `/balance` / `/bal` | Cek saldo & level | User |
 | `/claim` / `/daily` | Klaim bonus harian | User |
 | `/transfer @user <jumlah>` | Transfer saldo virtual | User |
@@ -350,6 +355,11 @@ Utility non-paid AI & Offline System Dependencies:
 |:--------|:----------|:------|
 | `/maintenance [on/off]` | Mode pemeliharaan global | Owner |
 | `/premium add/remove @user` | Kelola status premium user | Owner |
+| `/cekpremium @user` | Cek status, sisa durasi, dan detail premium user | Owner |
+| `/listpremium` | Tampilkan daftar seluruh user premium aktif | Owner |
+| `/fixpremiumids` | Normalisasi data database premium ke JID format canonical | Owner |
+| `/dbinfo` | Tampilkan path database SQLite dan ukuran file disk | Owner |
+| `/checkdeps` | Cek status instalasi seluruh system dependencies (ffmpeg, poppler, tesseract, ocr, stt, dll) | Owner |
 | `/broadcast <pesan>` | Siarkan pesan ke seluruh grup | Owner |
 | `/stats` | Statistik server, queue, error | Owner |
 | `/errorlog` | Log error terbaru | Owner |
@@ -405,7 +415,7 @@ Test suite (Vitest) mencakup:
 - Bisnis, Keuangan, Reseller
 - Coupon, Quota, Subscription
 
-**Total: 137+ tests passing**
+**Total: 148 tests passing**
 
 ---
 

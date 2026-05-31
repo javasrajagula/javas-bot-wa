@@ -5,113 +5,105 @@ import prisma from '../../db/client.js';
 import { isUniqueConstraintError } from '../../utils/prisma-error.util.js';
 
 export async function updateGroupUserStats(groupId: string, userId: string) {
+  const now = new Date();
   try {
-    const now = new Date();
-    await prisma.groupUserStats.upsert({
-      where: {
-        groupId_userId: {
-          groupId,
-          userId
-        }
-      },
-      update: {
+    // 1. Try to update
+    const updated = await prisma.groupUserStats.updateMany({
+      where: { groupId, userId },
+      data: {
         messageCount: {
           increment: 1
         },
         lastActiveAt: now
-      },
-      create: {
-        groupId,
-        userId,
-        messageCount: 1,
-        lastActiveAt: now
       }
     });
-  } catch (err) {
-    if (isUniqueConstraintError(err)) {
-      const now = new Date();
+
+    // 2. If not found, try to create
+    if (updated.count === 0) {
       try {
-        await prisma.groupUserStats.upsert({
-          where: {
-            groupId_userId: {
-              groupId,
-              userId
-            }
-          },
-          update: {
-            messageCount: {
-              increment: 1
-            },
-            lastActiveAt: now
-          },
-          create: {
+        await prisma.groupUserStats.create({
+          data: {
             groupId,
             userId,
             messageCount: 1,
             lastActiveAt: now
           }
         });
-      } catch (retryErr) {
-        console.error('[Stats Update Fail after retry]', retryErr);
+      } catch (createErr) {
+        if (isUniqueConstraintError(createErr)) {
+          // 3. Update on conflict
+          await prisma.groupUserStats.update({
+            where: {
+              groupId_userId: {
+                groupId,
+                userId
+              }
+            },
+            data: {
+              messageCount: {
+                increment: 1
+              },
+              lastActiveAt: now
+            }
+          });
+        } else {
+          throw createErr;
+        }
       }
-      return;
     }
+  } catch (err) {
     console.error('[Stats Update Fail]', err);
   }
 }
 
 export async function updateGroupUserCommandStats(groupId: string, userId: string) {
+  const now = new Date();
   try {
-    const now = new Date();
-    await prisma.groupUserStats.upsert({
-      where: {
-        groupId_userId: {
-          groupId,
-          userId
-        }
-      },
-      update: {
+    // 1. Try to update
+    const updated = await prisma.groupUserStats.updateMany({
+      where: { groupId, userId },
+      data: {
         commandCount: {
           increment: 1
         },
         lastActiveAt: now
-      },
-      create: {
-        groupId,
-        userId,
-        commandCount: 1,
-        lastActiveAt: now
       }
     });
-  } catch (err) {
-    if (isUniqueConstraintError(err)) {
-      const now = new Date();
+
+    // 2. If not found, try to create
+    if (updated.count === 0) {
       try {
-        await prisma.groupUserStats.upsert({
-          where: {
-            groupId_userId: {
-              groupId,
-              userId
-            }
-          },
-          update: {
-            commandCount: {
-              increment: 1
-            },
-            lastActiveAt: now
-          },
-          create: {
+        await prisma.groupUserStats.create({
+          data: {
             groupId,
             userId,
             commandCount: 1,
             lastActiveAt: now
           }
         });
-      } catch (retryErr) {
-        console.error('[Command Stats Update Fail after retry]', retryErr);
+      } catch (createErr) {
+        if (isUniqueConstraintError(createErr)) {
+          // 3. Update on conflict
+          await prisma.groupUserStats.update({
+            where: {
+              groupId_userId: {
+                groupId,
+                userId
+              }
+            },
+            data: {
+              commandCount: {
+                increment: 1
+              },
+              lastActiveAt: now
+            }
+          });
+        } else {
+          throw createErr;
+        }
       }
-      return;
     }
+  } catch (err) {
     console.error('[Command Stats Update Fail]', err);
   }
 }

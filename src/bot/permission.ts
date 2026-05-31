@@ -38,28 +38,13 @@ export function isOwner(userId: string): boolean {
   return result;
 }
 
-import { normalizeJid } from '../utils/jid.util.js';
+import { isPremiumUser } from '../services/premium/premium.service.js';
 
 /**
  * Checks if a user has active premium status in the database.
  */
 export async function isPremium(userId: string): Promise<boolean> {
-  // Owners are implicitly premium
-  if (isOwner(userId)) return true;
-
-  const canonicalId = normalizeJid(userId);
-
-  const premium = await prisma.premiumUser.findFirst({
-    where: {
-      OR: [
-        { userId: canonicalId },
-        { userId }
-      ]
-    }
-  });
-
-  if (!premium) return false;
-  return premium.expiresAt.getTime() > Date.now();
+  return isPremiumUser(userId);
 }
 
 /**

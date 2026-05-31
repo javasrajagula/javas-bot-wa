@@ -1,11 +1,12 @@
 import { Command, registerCommand } from './index.js';
 import { MessageContext } from '../bot/message.types.js';
 import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
-import { getUserRole } from '../bot/permission.js';
+import { getUserRole, isOwner } from '../bot/permission.js';
 import { commandRegistry } from './registry/command-registry.js';
 import { pluginManager } from '../config/plugins.js';
 import { DEFAULT_FEATURES } from '../config/feature-flags.js';
 import prisma from '../db/client.js';
+import { env } from '../config/env.js';
 
 type Role = 'owner' | 'admin' | 'premium' | 'user';
 
@@ -412,14 +413,62 @@ export class MenuCommand implements Command {
   ) {
     const grouped = this.groupByCategory(commands);
 
+    // Calculate quota remaining
+    let quotaText = 'Unlimited (Owner/Premium)';
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const isPremiumOrOwner = role === 'owner' || role === 'premium';
+
+    if (!isPremiumOrOwner) {
+      if (ctx.isGroup) {
+        let maxCmd = 50;
+        if (groupPlan === 'basic') maxCmd = 200;
+        else if (groupPlan === 'premium') maxCmd = 999999;
+        
+        const usageCount = await prisma.usageLog.count({
+          where: {
+            groupId: ctx.chatId,
+            createdAt: { gte: startOfDay }
+          }
+        });
+        const left = Math.max(0, maxCmd - usageCount);
+        quotaText = `${left} / ${maxCmd} (Grup)`;
+      } else {
+        const maxCmd = parseInt(env.PRIVATE_DAILY_CMD_LIMIT || '20', 10);
+        const usageCount = await prisma.usageLog.count({
+          where: {
+            userId: ctx.senderId,
+            groupId: null,
+            createdAt: { gte: startOfDay }
+          }
+        });
+        const left = Math.max(0, maxCmd - usageCount);
+        quotaText = `${left} / ${maxCmd} (PC)`;
+      }
+    } else if (role === 'premium' && !ctx.isGroup) {
+      const maxCmd = parseInt(env.PREMIUM_PRIVATE_DAILY_CMD_LIMIT || '200', 10);
+      const usageCount = await prisma.usageLog.count({
+        where: {
+          userId: ctx.senderId,
+          groupId: null,
+          createdAt: { gte: startOfDay }
+        }
+      });
+      const left = Math.max(0, maxCmd - usageCount);
+      quotaText = `${left} / ${maxCmd} (PC Premium)`;
+    }
+
     let text = [
       `╔════════════════════════╗`,
       `║       *JAVAS BOT WA*       ║`,
       `╚════════════════════════╝`,
       `✦ Halo, *${ctx.senderName || 'User'}* 👋`,
       `✦ Role: *${role.toUpperCase()}*` + (ctx.isGroup ? ` | Plan: *${groupPlan.toUpperCase()}*` : ''),
+      `✦ Sisa Kuota: *${quotaText}*`,
+      `✦ Prefix Bot: *${prefix}*`,
       `─────────────────────────`,
-      `*Pilih kategori command:*`,
+      `*KATEGORI MENU:*`,
       ``
     ].join('\n');
 
@@ -429,7 +478,16 @@ export class MenuCommand implements Command {
 
       const info = CATEGORY_INFO[category] || CATEGORY_INFO.general;
 
-      text += `${info.emoji} *${info.title}* (${categoryCommands.length} command)\n`;
+      let statusLabel = '🟢 Free';
+      if (category === 'downloader' || category === 'media' || category === 'document') {
+        statusLabel = '💎 Premium';
+      } else if (category === 'owner') {
+        statusLabel = '👑 Owner Only';
+      } else if (category === 'admin') {
+        statusLabel = '🛡️ Admin Only';
+      }
+
+      text += `${info.emoji} *${info.title}* [${statusLabel}]\n`;
       text += `└ _${info.desc}_\n`;
       text += `└ Ketik: \`${prefix}menu ${category}\`\n\n`;
     }
@@ -580,6 +638,11 @@ export class MenuCommand implements Command {
         text += `\n\n`;
       }
 
+      text += `─────────────────────────\n`;
+      text += `💳 *METODE PEMBAYARAN PREMIUM* 💳\n`;
+      text += `• *Provider:* ${env.PREMIUM_PAYMENT_METHOD || 'GoPay'}\n`;
+      text += `• *Nomor:* \`${env.PREMIUM_PAYMENT_NUMBER || '085338123425'}\`\n`;
+      text += `• Hubungi owner dengan ketik \`${prefix}owner\` untuk aktivasi/konfirmasi.\n`;
       text += `─────────────────────────\n`;
       text += `💡 Ketik \`${prefix}help <command>\` untuk detail.`;
     }

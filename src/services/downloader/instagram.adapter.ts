@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { env } from '../../config/env.js';
 
 export interface InstagramMediaResult {
   type: 'video' | 'image' | 'carousel';
@@ -7,11 +8,24 @@ export interface InstagramMediaResult {
 }
 
 /**
+ * Normalizes Instagram URL to strip tracking/search queries.
+ */
+export function normalizeInstagramUrl(url: string): string {
+  try {
+    const parsed = new URL(url.trim());
+    parsed.search = '';
+    return parsed.toString();
+  } catch {
+    return url.trim().split('?')[0];
+  }
+}
+
+/**
  * Extracts public Instagram post or Reel links.
  * Calls VKrDownloader and falls back to regex scraping of HTML tags.
  */
 export async function extractInstagramMedia(url: string): Promise<InstagramMediaResult> {
-  const cleanUrl = url.trim();
+  const cleanUrl = normalizeInstagramUrl(url);
   console.log(`[Instagram Downloader] Extracting URL: ${cleanUrl}`);
 
   // 1. Try VKrDownloader API
@@ -54,10 +68,16 @@ export async function extractInstagramMedia(url: string): Promise<InstagramMedia
 
   // 2. Fallback to basic HTML regex scraper
   try {
+    const headers: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    };
+
+    if (env.INSTAGRAM_COOKIES) {
+      headers['Cookie'] = env.INSTAGRAM_COOKIES;
+    }
+
     const htmlRes = await axios.get(cleanUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      },
+      headers,
       timeout: 10000
     });
     const html = htmlRes.data;

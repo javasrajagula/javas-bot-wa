@@ -1,491 +1,218 @@
-# PRD Addendum: Fix Media, Sticker, Game, OCR/STT, Translate, and Text Reliability
+# PRD Final — Stabilization, Reliability, Premium, Media, Game, Menu UX, and Payment Update
+
+## Javas Bot WA
 
 ## 1. Ringkasan
 
-Beberapa fitur bot belum berfungsi stabil:
+Javas Bot WA membutuhkan stabilisasi menyeluruh karena beberapa fitur inti dan fitur tambahan belum berjalan konsisten. Masalah utama mencakup private chat tidak merespons, status premium kadang hilang setelah bot restart, dependency seperti Poppler/OCR/STT belum terdeteksi dengan jelas, fitur media/stiker rusak atau output kosong, beberapa command game belum tersedia, downloader tidak stabil, dan tampilan menu terlalu padat.
 
-1. `/hd` tidak berfungsi.
-2. Game Werewolf tidak bisa jalan karena command tidak tersedia/terdaftar.
-3. `/vstiker` menghasilkan area hitam karena video belum dipotong/crop dengan benar.
-4. `/removebg` tidak berfungsi.
-5. Stiker belum memiliki metadata nama bot “Javas Bot WA”.
-6. Teks meme tidak jelas.
-7. `/wm` gagal menambahkan watermark.
-8. STT offline belum dikonfigurasi.
-9. `/togif` error dengan `jidDecode(...) is undefined`.
-10. `/translate` atau fitur text provider kadang menghasilkan `internal-server-error`.
-11. `/pdf2img` gagal karena Poppler belum tersedia.
-12. Jawaban game tebak kata tidak direspons.
-13. OCR otomatis gagal karena Tesseract atau `OCR_COMMAND` belum tersedia.
-14. `/ringkas` hasilnya belum jelas dan sering tidak akurat.
-
-PRD ini bertujuan memperbaiki reliability fitur-fitur tersebut dengan pendekatan: preflight dependency check, command registry validation, media pipeline standar, graceful fallback, dan test coverage.
+PRD ini menggabungkan seluruh kebutuhan perbaikan menjadi satu rencana final untuk membuat bot lebih stabil, mudah digunakan, aman, dan siap dipakai oleh user umum, admin grup, dan owner.
 
 ---
 
-## 2. Tujuan
+# 2. Tujuan Utama
 
-1. Semua command yang ditampilkan di menu benar-benar terdaftar dan bisa dijalankan.
-2. Fitur media menghasilkan output yang bersih, playable, dan sesuai format WhatsApp.
-3. Fitur eksternal seperti OCR, STT, Poppler, removebg, translate, dan ringkas memiliki preflight check yang jelas.
-4. Error teknis tidak bocor ke user sebagai stack trace atau pesan mentah.
-5. Game berbasis session, seperti tebak kata dan Werewolf, dapat menerima jawaban non-command.
-6. Bot tidak crash karena JID invalid atau `jidDecode()` gagal.
-7. Dokumentasi `.env.example` dan README menjelaskan dependency wajib/opsional.
-
----
-
-## 3. Non-Goals
-
-1. Tidak mengganti seluruh library Baileys.
-2. Tidak membuat AI provider baru yang kompleks.
-3. Tidak membangun dashboard baru.
-4. Tidak membuat semua fitur premium baru.
-5. Tidak melakukan rewrite total semua command game.
+1. Bot berjalan normal di grup dan chat pribadi.
+2. Semua command yang muncul di menu benar-benar tersedia dan bisa digunakan.
+3. Status premium tidak hilang setelah bot di-stop atau restart.
+4. Fitur media seperti `/stiker`, `/vstiker`, `/hd`, `/togif`, `/wm`, `/removebg`, `/meme`, dan TTS berjalan stabil.
+5. Stiker tidak kosong, tidak corrupt, dan memiliki metadata `Javas Bot WA`.
+6. Game seperti Werewolf dan Tebak Kata berjalan dengan command/session handler yang benar.
+7. Dependency seperti FFmpeg, Poppler, Tesseract, OCR, STT, dan RemoveBG dapat dicek melalui `/checkdeps`.
+8. Error teknis tidak ditampilkan mentah ke user.
+9. Menu bot dibuat lebih rapi, interaktif, tidak sesak, dan mudah dibaca.
+10. Payment premium diperbarui ke GoPay `085338123425`.
 
 ---
 
-# 4. Functional Requirements
+# 3. Non-Goals
+
+1. Tidak membuat payment gateway otomatis.
+2. Tidak mengganti Baileys dengan library lain.
+3. Tidak membuat dashboard SaaS penuh.
+4. Tidak mengganti database engine utama.
+5. Tidak membuat seluruh fitur AI baru dari nol.
+6. Tidak rewrite total semua command; fokus pada stabilisasi, UX, dan reliability.
 
 ---
 
-## FR-001 — Fix `/hd` Reliability
+# 4. Prioritas Masalah
 
-### Problem
+## P0 — Critical
 
-Command `/hd` tersedia, tetapi tidak berfungsi stabil. Kemungkinan penyebab:
+1. Bot tidak jalan di chat pribadi.
+2. Crash `jidDecode(...) is undefined`.
+3. Prisma `P2002` pada `GroupConfig` dan stats.
+4. Premium kadang hilang setelah bot restart.
+5. Command yang ada di menu belum tentu terdaftar.
+6. Game Tebak Kata tidak merespons jawaban non-command.
+7. Error `internal-server-error` muncul mentah.
 
-1. service HD gagal diam-diam,
-2. dependency image processing tidak siap,
-3. input media tidak valid,
-4. output terlalu besar,
-5. error tidak cukup jelas.
+## P1 — High
 
-### Required Changes
+1. `/pdf2img` gagal karena Poppler missing.
+2. `/hd` tidak berfungsi.
+3. `/stiker` membalas tetapi stiker kosong/corrupt.
+4. `/vstiker` memiliki area hitam.
+5. `/removebg` tidak berfungsi.
+6. `/wm` gagal.
+7. `/togif` bermasalah.
+8. STT/OCR belum dikonfigurasi dengan jelas.
+9. Instagram downloader tidak stabil.
+10. TTS tidak stabil.
 
-Target file:
+## P2 — Medium
+
+1. Meme text tidak jelas.
+2. Ringkasan `/ringkas` belum rapi.
+3. Translate error handling buruk.
+4. Menu terlalu padat.
+5. Payment premium perlu diperbarui.
+
+## P3 — Documentation
+
+1. README belum lengkap.
+2. `.env.example` belum mencakup semua dependency.
+3. Belum ada `/checkdeps`.
+4. Belum ada `/dbinfo`.
+5. Belum ada command diagnostik premium.
+
+---
+
+# 5. Functional Requirements
+
+---
+
+## FR-001 — Refactor Router agar Private Chat Berjalan
+
+### Masalah
+
+Bot tidak merespons command di chat pribadi karena eksekusi command kemungkinan masih berada di dalam blok khusus grup.
+
+### Requirement
+
+Router harus memisahkan:
+
+1. common checks,
+2. group-only checks,
+3. private-only checks,
+4. command execution.
+
+### Flow Baru
 
 ```txt
-src/commands/media/media.command.ts
-src/services/hd/hd.service.ts
+1. Terima pesan.
+2. Tentukan apakah pesan dari grup atau private.
+3. Jika grup, load/upsert groupConfig.
+4. Tentukan prefix.
+5. Jika pesan non-command, proses game answer/autoreply/moderation.
+6. Resolve command.
+7. Jalankan common checks.
+8. Jika grup, jalankan group checks.
+9. Jika private, jalankan private quota checks.
+10. Execute command untuk grup dan private.
+11. Log usage.
+12. Tangani error dengan pesan user-friendly.
 ```
-
-Tambahkan:
-
-1. Validasi input hanya image/sticker yang bisa diproses.
-2. Validasi ukuran file sebelum HD.
-3. Preflight untuk dependency HD.
-4. Fallback sederhana jika enhancer utama gagal:
-
-   * upscale dengan Sharp,
-   * sharpen,
-   * normalize,
-   * output PNG/JPEG.
-5. Error message user-friendly.
 
 ### Acceptance Criteria
 
-1. `/hd` pada gambar valid mengirim gambar hasil enhancement.
-2. `/hd 2x` bekerja untuk free user sesuai limit.
-3. `/hd 4x` hanya untuk premium.
-4. Jika enhancer gagal, fallback Sharp tetap mencoba.
-5. Jika semua gagal, user mendapat pesan jelas, bukan stack trace.
+1. `/menu` berjalan di private chat.
+2. `/help` berjalan di private chat.
+3. `/tts halo` berjalan di private chat.
+4. `/translate en halo` berjalan di private chat.
+5. Group command tetap berjalan.
+6. GroupConfig tidak dibuat untuk private chat.
+7. Private quota branch reachable.
+8. Tidak ada silent failure di private chat.
 
 ---
 
-## FR-002 — Register and Implement Werewolf Commands
+## FR-002 — Atomic GroupConfig Initialization
 
-### Problem
+### Masalah
 
-Werewolf tidak bisa jalan karena tidak ada command yang benar-benar terdaftar atau command registry tidak sinkron dengan metadata/menu.
+`GroupConfig.create()` bisa terkena `P2002` saat beberapa pesan dari grup baru masuk bersamaan.
 
-### Required Changes
+### Requirement
 
-Target files:
-
-```txt
-src/commands/games/werewolf.command.ts
-src/commands/games/index.ts
-src/commands/registry/command-metadata.ts
-src/config/plugins.ts
-```
-
-Tambahkan command minimal:
-
-```txt
-/ww start
-/ww join
-/ww leave
-/ww begin
-/ww vote
-/ww status
-/ww stop
-/ww help
-```
-
-Aliases:
-
-```txt
-/werewolf
-/ww
-```
-
-Pastikan command didaftarkan:
+Gunakan `upsert`, bukan `findUnique lalu create`.
 
 ```ts
-registerCommand(['ww', 'werewolf'], new WerewolfCommand());
-```
-
-Pastikan plugin `games` mencakup:
-
-```txt
-ww, werewolf, wwrank, wwstats
-```
-
-### Acceptance Criteria
-
-1. `/ww help` menampilkan bantuan.
-2. `/ww start` membuat lobby.
-3. `/ww join` menambah pemain.
-4. `/ww begin` memulai game jika pemain cukup.
-5. `/ww status` menampilkan fase game.
-6. Command muncul di menu dan benar-benar bisa dipakai.
-7. Jika command belum lengkap, menu harus menandainya sebagai beta, bukan fitur final.
-
----
-
-## FR-003 — Fix `/vstiker` Black Area
-
-### Problem
-
-Video sticker memiliki area hitam karena pipeline belum melakukan crop/scale/pad dengan benar.
-
-### Required Changes
-
-Target files:
-
-```txt
-src/commands/sticker/sticker.command.ts
-src/services/sticker/sticker.service.ts
-```
-
-Gunakan pipeline FFmpeg yang konsisten untuk video sticker:
-
-```txt
-scale=512:512:force_original_aspect_ratio=increase,
-crop=512:512,
-fps=15,
-format=yuva420p
-```
-
-Output:
-
-```txt
-webp animated sticker
-```
-
-Contoh filter:
-
-```bash
--vf "fps=15,scale=512:512:force_original_aspect_ratio=increase,crop=512:512,format=yuva420p"
-```
-
-Tambahkan durasi maksimal:
-
-* free: 5 detik
-* premium: 10 detik
-
-### Acceptance Criteria
-
-1. `/vstiker` menghasilkan sticker 512x512.
-2. Tidak ada area hitam akibat aspect ratio.
-3. Video terlalu panjang dipotong otomatis sesuai limit.
-4. Output bisa dikirim sebagai sticker WhatsApp.
-5. File temp dibersihkan.
-
----
-
-## FR-004 — Fix `/removebg`
-
-### Problem
-
-`/removebg` tidak berfungsi. Kemungkinan penyebab:
-
-1. API key removebg belum dikonfigurasi,
-2. provider tidak tersedia,
-3. tidak ada fallback,
-4. error tidak jelas,
-5. output image tidak valid.
-
-### Required Changes
-
-Target files:
-
-```txt
-src/commands/sticker/sticker.command.ts
-src/services/removebg/removebg.service.ts
-src/config/env.schema.ts
-.env.example
-README.md
-```
-
-Tambahkan env:
-
-```env
-REMOVEBG_PROVIDER="none"
-REMOVEBG_API_KEY=""
-REMOVEBG_COMMAND=""
-```
-
-Provider mode:
-
-1. `none` — fitur dinonaktifkan dengan pesan jelas.
-2. `api` — pakai remove.bg API atau provider HTTP.
-3. `local` — pakai command lokal seperti rembg.
-
-Jika provider tidak dikonfigurasi, user harus menerima:
-
-```txt
-⚠️ Remove background belum dikonfigurasi. Set REMOVEBG_PROVIDER dan REMOVEBG_API_KEY atau REMOVEBG_COMMAND.
+const groupConfig = await prisma.groupConfig.upsert({
+  where: { groupId: ctx.chatId },
+  update: {},
+  create: {
+    groupId: ctx.chatId,
+    prefix: '/',
+    botEnabled: true,
+    featuresJson: JSON.stringify(DEFAULT_FEATURES)
+  }
+});
 ```
 
 ### Acceptance Criteria
 
-1. `/removebg` pada gambar valid berhasil jika provider tersedia.
-2. Jika provider belum tersedia, bot tidak crash.
-3. Error user jelas.
-4. `.env.example` menjelaskan konfigurasi removebg.
-5. Output PNG transparan valid.
+1. Tidak ada `P2002` pada `GroupConfig`.
+2. Existing config tidak overwrite.
+3. Group config hanya dibuat untuk grup.
+4. Prefix existing tetap dipakai.
 
 ---
 
-## FR-005 — Add Sticker Metadata: Bot Name and Author
+## FR-003 — Fix Stats Race Condition
 
-### Problem
+### Masalah
 
-Stiker belum memiliki nama pack/author “Javas Bot WA”.
+Stats user/grup terkena unique constraint pada `groupId`, `userId`, dan `key`.
 
-### Required Changes
+### Requirement
 
-Target files:
+Buat model khusus:
 
-```txt
-src/services/sticker/sticker.service.ts
-src/commands/sticker/sticker.command.ts
-src/config/env.schema.ts
-.env.example
-```
+```prisma
+model GroupUserStats {
+  id           String   @id @default(uuid())
+  groupId      String
+  userId       String
+  messageCount Int      @default(0)
+  commandCount Int      @default(0)
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-Tambahkan env:
-
-```env
-STICKER_PACK_NAME="Javas Bot WA"
-STICKER_AUTHOR_NAME="Javas"
-```
-
-Gunakan library atau util untuk embed EXIF WebP sticker metadata.
-
-Jika belum ada util, tambahkan:
-
-```txt
-src/services/sticker/sticker-metadata.service.ts
+  @@unique([groupId, userId])
+  @@index([groupId, messageCount])
+  @@index([groupId, lastActiveAt])
+}
 ```
 
 ### Acceptance Criteria
 
-1. Stiker yang dibuat memiliki pack name `Javas Bot WA`.
-2. Author default `Javas`.
-3. Owner bisa mengubah lewat env.
-4. Metadata berlaku untuk stiker gambar dan video sticker.
-5. Jika metadata injection gagal, sticker tetap dikirim dan warning dicatat.
+1. Tidak ada `P2002` pada stats.
+2. Message count tetap naik.
+3. Stats update aman saat pesan masuk paralel.
+4. Stats tidak mengganggu command utama.
 
 ---
 
-## FR-006 — Improve Meme Text Readability
+## FR-004 — Safe JID Decode
 
-### Problem
+### Masalah
 
-Teks meme tidak jelas.
-
-### Required Changes
-
-Target files:
-
-```txt
-src/commands/sticker/sticker.command.ts
-src/services/meme/meme.service.ts
-```
-
-Tambahkan standar rendering:
-
-1. Font bold.
-2. Uppercase optional.
-3. White text.
-4. Black stroke/outline.
-5. Auto-wrap.
-6. Dynamic font size.
-7. Safe margin.
-8. Top and bottom text support.
-9. Minimum contrast.
-
-Untuk Sharp/SVG:
-
-```txt
-stroke="black"
-stroke-width="4"
-fill="white"
-font-weight="700"
-text-anchor="middle"
-```
-
-### Acceptance Criteria
-
-1. Teks meme terbaca pada gambar terang dan gelap.
-2. Teks panjang otomatis wrap.
-3. Teks tidak keluar frame.
-4. Top dan bottom text bisa dibaca jelas.
-
----
-
-## FR-007 — Fix `/wm` Watermark Failure
-
-### Problem
-
-`/wm` gagal menambahkan watermark.
-
-Kemungkinan penyebab:
-
-1. FFmpeg `drawtext` tidak menemukan font.
-2. Teks tidak di-escape.
-3. Watermark video memakai filter yang tidak kompatibel.
-4. Watermark image pakai SVG yang gagal dirender.
-5. Media type tidak ditangani dengan jelas.
-
-### Required Changes
-
-Target files:
-
-```txt
-src/commands/media/media.command.ts
-src/services/watermark/watermark.service.ts
-```
-
-Pisahkan logic:
-
-1. `watermarkImage(buffer, text)`
-2. `watermarkVideo(buffer, text)`
-
-Untuk video:
-
-* escape `:`, `'`, `\`, `%`
-* gunakan fontfile jika tersedia
-* tambahkan env:
-
-```env
-FONT_FILE_PATH=""
-```
-
-Jika `FONT_FILE_PATH` tidak ada, fallback ke image overlay watermark, bukan drawtext.
-
-### Acceptance Criteria
-
-1. `/wm teks` berhasil pada gambar.
-2. `/wm teks` berhasil pada video.
-3. Teks dengan tanda baca tidak merusak FFmpeg filter.
-4. Error font tidak membuat command crash.
-5. User mendapat pesan jelas jika watermark gagal.
-
----
-
-## FR-008 — STT Offline Dependency Handling
-
-### Problem
-
-STT gagal dengan pesan:
-
-```txt
-⚠️ STT offline belum dikonfigurasi. Set STT_COMMAND ke wrapper Whisper/Vosk lokal yang menerima path file audio dan mencetak teks ke stdout.
-```
-
-### Required Changes
-
-Target files:
-
-```txt
-src/services/stt/stt.service.ts
-src/config/env.schema.ts
-.env.example
-README.md
-```
-
-Tambahkan preflight:
-
-1. Saat bot start, cek apakah `STT_COMMAND` tersedia jika fitur transkrip aktif.
-2. Jika tidak tersedia, tandai fitur STT disabled.
-3. Command `/transkrip` harus memberi pesan konfigurasi yang jelas.
-4. Tambahkan contoh wrapper Whisper/Vosk di dokumentasi.
-
-Env:
-
-```env
-STT_COMMAND=""
-STT_TIMEOUT_SECONDS="120"
-```
-
-Contoh dokumentasi:
-
-```bash
-STT_COMMAND="python scripts/whisper_stt.py"
-```
-
-Wrapper contract:
-
-```txt
-Input: path file audio sebagai argumen pertama
-Output: teks transkripsi ke stdout
-Exit code 0: sukses
-Exit code non-zero: gagal
-```
-
-### Acceptance Criteria
-
-1. `/transkrip` tidak crash saat STT belum dikonfigurasi.
-2. User menerima pesan setup yang jelas.
-3. Jika `STT_COMMAND` valid, transkripsi berjalan.
-4. Timeout STT bekerja.
-5. README memberi contoh konfigurasi.
-
----
-
-## FR-009 — Fix `/togif` JID Decode Crash
-
-### Problem
-
-`/togif` memicu error:
+Bot crash dengan error:
 
 ```txt
 Cannot destructure property 'user' of jidDecode(...) as it is undefined.
 ```
 
-Ini menunjukkan ada kode yang memanggil `jidDecode(jid)` lalu langsung destructuring tanpa cek hasil. Jika JID invalid, undefined, atau format non-WhatsApp, bot crash.
+### Requirement
 
-### Required Changes
-
-Target files:
-
-```txt
-src/utils/jid.util.ts
-src/bot/permission.ts
-src/commands/index.ts
-src/services/achievement/*
-src/commands/media/media.command.ts
-```
-
-Tambahkan helper aman:
+Tambahkan helper:
 
 ```ts
-export function safeJidDecode(jid: string | undefined | null) {
-  if (!jid) return null;
+export function safeJidDecode(jid?: string | null) {
+  if (!jid || typeof jid !== 'string') return null;
 
   try {
     const decoded = jidDecode(jid);
@@ -497,217 +224,631 @@ export function safeJidDecode(jid: string | undefined | null) {
 }
 ```
 
-Larangan:
+### Larangan
 
 ```ts
 const { user } = jidDecode(jid);
 ```
 
-Harus diganti:
+### Wajib
 
 ```ts
 const decoded = safeJidDecode(jid);
 if (!decoded) {
-  // fallback
+  return fallback;
 }
 ```
 
 ### Acceptance Criteria
 
-1. `/togif` tidak menyebabkan routeMessage crash.
-2. JID invalid tidak membuat bot mati.
-3. Semua penggunaan `jidDecode` dicek.
-4. Error log menyebut JID invalid secara masked, bukan raw.
-5. Command media tetap mengirim hasil atau error user-friendly.
+1. Invalid JID tidak crash.
+2. `/togif` tidak membuat routeMessage fatal.
+3. Semua penggunaan `jidDecode` aman.
+4. JID mentah tidak bocor ke log publik.
 
 ---
 
-## FR-010 — Poppler Dependency Handling for `/pdf2img`
+## FR-005 — Premium Persistence
 
-### Problem
+### Masalah
 
-PDF conversion gagal:
+Premium kadang hilang saat bot di-stop atau restart.
+
+### Penyebab Potensial
+
+1. Database path berubah.
+2. SQLite berada di storage sementara.
+3. Import config tidak memulihkan `premiumUsers`.
+4. JID premium tersimpan dalam format berbeda.
+5. Ada duplicate premium user.
+6. Bot memakai database baru setelah restart.
+
+### Requirement
+
+Buat service:
 
 ```txt
-Poppler belum tersedia. Install Poppler dan pastikan pdftoppm ada di PATH untuk memakai /pdf2img.
+src/services/premium/premium.service.ts
 ```
 
-### Required Changes
+### Interface
 
-Target files:
+```ts
+addPremiumUser(inputUserId, days, actorId)
+removePremiumUser(inputUserId, actorId)
+isPremiumUser(inputUserId)
+getPremiumStatus(inputUserId)
+normalizePremiumRecords()
+```
+
+### Canonical Premium User ID
+
+```ts
+export function normalizePremiumUserId(input: string): string {
+  const raw = String(input || '').trim().replace(/^@/, '');
+  const noDomain = raw.split('@')[0];
+  const noDevice = noDomain.split(':')[0];
+  const phone = noDevice.replace(/\D/g, '');
+
+  if (!phone) throw new Error('User ID premium tidak valid.');
+
+  return `${phone}@s.whatsapp.net`;
+}
+```
+
+### New Owner Commands
 
 ```txt
-src/services/document/document-tools.service.ts
-src/services/system/dependency-check.service.ts
-README.md
-.env.example
+/cekpremium @user
+/listpremium
+/fixpremiumids
+/dbinfo
 ```
 
-Tambahkan startup dependency check untuk:
+### Acceptance Criteria
+
+1. Premium tetap aktif setelah restart.
+2. `/cekpremium` menampilkan status benar.
+3. `/listpremium` menampilkan user premium aktif.
+4. `/dbinfo` menampilkan database path.
+5. Import config memulihkan premium.
+6. Duplicate premium digabung dengan expiry terpanjang.
+7. `/premium add` memperpanjang dari expiry lama jika masih aktif.
+
+---
+
+## FR-006 — Payment Premium Update
+
+### Requirement
+
+Semua pesan, invoice, guide, dan menu premium harus menggunakan payment method baru:
+
+```txt
+GoPay: 085338123425
+```
+
+### Target Commands
+
+```txt
+/premium
+/premiumguide
+/invoice
+/menu premium
+/help premium
+```
+
+### Format Pesan Premium
+
+```txt
+💎 Javas Bot WA Premium
+
+Benefit:
+• Limit lebih besar
+• Akses fitur berat
+• Prioritas proses
+• Fitur premium tertentu
+
+Pembayaran:
+GoPay: 085338123425
+
+Setelah transfer, kirim bukti pembayaran ke owner/admin.
+```
+
+### Acceptance Criteria
+
+1. Semua info premium memakai GoPay `085338123425`.
+2. Tidak ada nomor/payment lama tersisa.
+3. `/premiumguide` menampilkan instruksi jelas.
+4. `/invoice` memakai payment method baru.
+5. Menu premium mudah dibaca.
+
+---
+
+## FR-007 — Backup/Import Config Lengkap
+
+### Requirement
+
+Import config harus memulihkan:
+
+1. groups,
+2. subscriptions,
+3. premiumUsers,
+4. warningRules,
+5. shopItems,
+6. achievements.
+
+### Acceptance Criteria
+
+1. Export lalu import memulihkan premium users.
+2. Output `/importconfig` menampilkan count semua entity.
+3. Duplicate digabung aman.
+4. Unsupported backup version ditolak.
+
+---
+
+## FR-008 — Plugin Registry Valid
+
+### Requirement
+
+Tambahkan plugin:
+
+```ts
+{
+  name: 'general',
+  commands: ['menu', 'help', 'start', 'cmd', 'cari', 'ping', 'status'],
+  enabled: true,
+  permission: 'USER',
+  category: 'General'
+}
+```
+
+Tambahkan plugin `downloader` untuk:
+
+```txt
+tt, tiktok, ig, instagram, ytmp3, ytmp4, fb, twitter, x, threads, pinterest, capcut
+```
+
+### Unknown Plugin Behavior
+
+```ts
+if (!plugin) {
+  console.warn(`[Plugins] Unknown plugin requested: ${pluginName}`);
+  return env.NODE_ENV === 'production' ? false : true;
+}
+```
+
+### Acceptance Criteria
+
+1. Tidak ada warning `help`.
+2. `/menu` dan `/help` tetap berjalan.
+3. Downloader bisa dimatikan lewat plugin.
+4. Unknown plugin fail-closed di production.
+
+---
+
+## FR-009 — Poppler Dependency Handling
+
+### Masalah
+
+`/pdf2img` gagal karena Poppler missing.
+
+### Requirement
+
+Cek binary:
 
 ```txt
 pdftoppm
 pdftotext
 ```
 
-Tambahkan command owner:
+Jika missing, tampilkan:
+
+```txt
+⚠️ Poppler belum terinstall, jadi /pdf2img belum bisa dipakai.
+
+Install:
+• Windows: choco install poppler
+• Ubuntu/Debian: sudo apt install poppler-utils
+
+Setelah install, restart bot dan cek dengan /checkdeps.
+```
+
+### Acceptance Criteria
+
+1. `/pdf2img` tidak mengeluarkan stack panjang.
+2. `/pdftext` juga menangani Poppler missing.
+3. `/checkdeps` menunjukkan status Poppler.
+4. Error tidak menjadi fatal routeMessage.
+
+---
+
+## FR-010 — Add `/checkdeps`
+
+### Requirement
+
+Owner command:
 
 ```txt
 /checkdeps
 ```
 
-Output:
+Harus mengecek:
 
 ```txt
-FFmpeg: OK
-FFprobe: OK
-Poppler pdftoppm: Missing
-Poppler pdftotext: Missing
-Tesseract: Missing
-STT_COMMAND: Missing
-OCR_COMMAND: Missing
+ffmpeg
+ffprobe
+pdftoppm
+pdftotext
+tesseract
+OCR_COMMAND
+STT_COMMAND
+REMOVEBG_COMMAND
+FONT_FILE_PATH
+TTS_PROVIDER
+REMOVEBG_PROVIDER
+```
+
+### Output Example
+
+```txt
+🧩 Dependency Check
+
+Media:
+• ffmpeg: OK
+• ffprobe: OK
+• font file: Missing
+
+PDF:
+• pdftoppm: Missing
+• pdftotext: Missing
+
+OCR/STT:
+• tesseract: Missing
+• OCR_COMMAND: Missing
+• STT_COMMAND: Missing
+
+External:
+• REMOVEBG_PROVIDER: none
+• TTS_PROVIDER: google
 ```
 
 ### Acceptance Criteria
 
-1. `/pdf2img` gagal dengan pesan singkat dan jelas jika Poppler missing.
-2. `/checkdeps` menunjukkan status Poppler.
-3. README memberi instruksi install Poppler di Windows/Linux.
-4. Error tidak masuk routeMessage sebagai internal-server-error.
+1. `/checkdeps` hanya owner.
+2. Missing dependency tidak membuat bot crash.
+3. README sesuai hasil checkdeps.
 
 ---
 
-## FR-011 — Fix `/translate` and Text Provider Internal Server Error
+## FR-011 — Fix `/hd`
 
-### Problem
+### Requirement
 
-`/translate` mengalami:
-
-```txt
-internal-server-error
-```
-
-Kemungkinan penyebab:
-
-1. provider translate eksternal gagal,
-2. AI/text service tidak punya fallback,
-3. error tidak dipetakan ke pesan user,
-4. input kosong atau format tidak valid.
-
-### Required Changes
-
-Target files:
-
-```txt
-src/commands/text/text.command.ts
-src/services/text/text.service.ts
-src/services/translate/translate.service.ts
-```
-
-Tambahkan provider abstraction:
-
-```ts
-translateText(input, targetLang, sourceLang?)
-summarizeText(input)
-rewriteText(input, style)
-```
-
-Untuk translate:
-
-1. Validasi target language.
-2. Deteksi teks dari args atau quoted message.
-3. Provider fallback:
-
-   * local/simple dictionary no-op fallback untuk error,
-   * HTTP provider jika dikonfigurasi,
-   * AI provider jika tersedia.
-4. Tangkap `internal-server-error` dan ubah ke user-friendly message.
+1. Validasi input image/sticker.
+2. Validasi ukuran.
+3. Tambahkan fallback Sharp jika enhancer utama gagal.
+4. Kirim error jelas jika semua gagal.
 
 ### Acceptance Criteria
 
-1. `/tr en halo` mengembalikan translate atau error jelas.
-2. `/translate id Good morning` bekerja.
-3. Provider error tidak menghasilkan raw `internal-server-error`.
-4. Input kosong menampilkan usage.
-5. Semua error tercatat dengan error ID.
+1. `/hd` pada gambar valid mengirim output.
+2. `/hd 4x` hanya premium.
+3. Fallback Sharp berjalan.
+4. Error user-friendly.
 
 ---
 
-## FR-012 — Game Answer Router for Tebak Kata
+## FR-012 — Fix `/stiker` Empty / Invalid Sticker Info
 
-### Problem
+### Masalah
 
-Saat menjawab tebak kata, tidak ada respon.
-
-Kemungkinan penyebab:
-
-1. Router hanya memproses command berprefix.
-2. Jawaban game non-command tidak diarahkan ke active game session.
-3. Session game tidak disimpan atau expired terlalu cepat.
-4. Handler jawaban tidak didaftarkan.
-
-### Required Changes
-
-Target files:
+Command stiker berhasil membalas, tetapi stiker kosong. Saat ditekan, WhatsApp menampilkan:
 
 ```txt
-src/commands/index.ts
-src/commands/games/*
-src/services/games/game-session.service.ts
+Tidak dapat melihat informasi stiker
 ```
 
-Tambahkan tahap routing sebelum command parsing selesai:
+### Kemungkinan Penyebab
 
-```txt
-1. Jika pesan non-command dan ada active game session di chat:
-   - kirim ke game answer handler.
-2. Jika handler mengembalikan handled=true:
-   - stop router.
-3. Jika handled=false:
-   - lanjut normal.
-```
+1. Buffer hasil konversi kosong.
+2. Output WebP corrupt.
+3. Mimetype salah.
+4. Metadata EXIF sticker corrupt.
+5. File temp terhapus terlalu cepat.
+6. Sticker dikirim bukan sebagai sticker message.
+7. Ukuran output melebihi limit WhatsApp.
 
-Interface:
+### Requirement
+
+Tambahkan validasi buffer sebelum send sticker.
 
 ```ts
-export interface GameAnswerHandler {
-  canHandle(ctx: MessageContext): Promise<boolean>;
-  handleAnswer(ctx: MessageContext, adapter: WhatsAppAdapter): Promise<boolean>;
+export async function validateStickerBuffer(buffer: Buffer): Promise<void> {
+  if (!buffer || buffer.length === 0) {
+    throw new Error('Sticker output kosong.');
+  }
+
+  if (buffer.length < 100) {
+    throw new Error('Sticker output terlalu kecil atau corrupt.');
+  }
+
+  const riff = buffer.subarray(0, 4).toString('ascii');
+  const webp = buffer.subarray(8, 12).toString('ascii');
+
+  if (riff !== 'RIFF' || webp !== 'WEBP') {
+    throw new Error('Output bukan file WebP sticker yang valid.');
+  }
 }
 ```
 
+### Pipeline Image Sticker
+
+```txt
+Input image
+→ resize max 512x512
+→ convert to webp
+→ inject metadata
+→ validate WebP
+→ send as sticker
+```
+
+### Pipeline Video Sticker
+
+```txt
+Input video
+→ trim duration
+→ scale/crop 512x512
+→ convert animated WebP
+→ inject metadata jika supported
+→ validate WebP
+→ send as sticker
+```
+
 ### Acceptance Criteria
 
-1. Bot merespons jawaban tebak kata tanpa prefix.
-2. Jawaban benar menutup/memperbarui sesi.
-3. Jawaban salah mendapat feedback atau diabaikan sesuai desain.
-4. Session expired memberi pesan jelas.
-5. Tidak mengganggu chat biasa saat tidak ada game aktif.
+1. Bot tidak lagi mengirim stiker kosong.
+2. Stiker bisa dibuka informasinya.
+3. Stiker memiliki pack name `Javas Bot WA`.
+4. Buffer kosong tidak pernah dikirim.
+5. File non-WebP tidak dikirim sebagai stiker.
+6. Jika metadata gagal, fallback kirim WebP valid tanpa metadata.
+7. Tidak ada pesan “Tidak dapat melihat informasi stiker”.
 
 ---
 
-## FR-013 — OCR Dependency Handling
+## FR-013 — Fix `/vstiker` Black Area
 
-### Problem
+### Requirement
 
-OCR gagal:
-
-```txt
-OCR engine belum tersedia. Install Tesseract OCR atau set OCR_COMMAND.
-```
-
-### Required Changes
-
-Target files:
+Gunakan FFmpeg filter:
 
 ```txt
-src/services/ocr/ocr.service.ts
-src/config/env.schema.ts
-README.md
-.env.example
+fps=15,scale=512:512:force_original_aspect_ratio=increase,crop=512:512,format=yuva420p
 ```
+
+Durasi:
+
+```txt
+Free: 5 detik
+Premium: 10 detik
+```
+
+### Acceptance Criteria
+
+1. Output 512x512.
+2. Tidak ada area hitam.
+3. Video terlalu panjang dipotong.
+4. Output bisa dikirim sebagai sticker.
+
+---
+
+## FR-014 — Sticker Metadata “Javas Bot WA”
+
+### Requirement
 
 Tambahkan env:
+
+```env
+STICKER_PACK_NAME="Javas Bot WA"
+STICKER_AUTHOR_NAME="Javas"
+```
+
+### Acceptance Criteria
+
+1. Stiker punya pack name `Javas Bot WA`.
+2. Author default `Javas`.
+3. Berlaku untuk image dan video sticker.
+4. Jika metadata gagal, sticker tetap dikirim jika WebP valid.
+
+---
+
+## FR-015 — Fix `/removebg`
+
+### Requirement
+
+Tambahkan provider config:
+
+```env
+REMOVEBG_PROVIDER="none"
+REMOVEBG_API_KEY=""
+REMOVEBG_COMMAND=""
+```
+
+Mode:
+
+```txt
+none
+api
+local
+```
+
+Jika belum configured:
+
+```txt
+⚠️ Remove background belum dikonfigurasi. Set REMOVEBG_PROVIDER dan REMOVEBG_API_KEY atau REMOVEBG_COMMAND.
+```
+
+### Acceptance Criteria
+
+1. `/removebg` berhasil jika provider tersedia.
+2. Jika provider missing, bot tidak crash.
+3. Output PNG transparan valid.
+
+---
+
+## FR-016 — Fix Meme Text Readability
+
+### Requirement
+
+Meme renderer harus menggunakan:
+
+1. font bold,
+2. white fill,
+3. black stroke,
+4. auto-wrap,
+5. dynamic font size,
+6. safe margin,
+7. top/bottom text.
+
+### Acceptance Criteria
+
+1. Teks terbaca pada gambar gelap/terang.
+2. Teks panjang tidak keluar frame.
+3. Output meme jelas.
+
+---
+
+## FR-017 — Fix `/wm`
+
+### Requirement
+
+Pisahkan:
+
+```ts
+watermarkImage(buffer, text)
+watermarkVideo(buffer, text)
+```
+
+Untuk video:
+
+1. escape karakter FFmpeg,
+2. support `FONT_FILE_PATH`,
+3. fallback overlay image jika drawtext gagal.
+
+### Acceptance Criteria
+
+1. `/wm teks` berhasil di gambar.
+2. `/wm teks` berhasil di video.
+3. Teks dengan tanda baca aman.
+4. Error font tidak membuat crash.
+
+---
+
+## FR-018 — Fix `/togif`
+
+### Requirement
+
+1. Gunakan safe JID decode.
+2. Validasi video input.
+3. Gunakan FFmpeg pipeline stabil.
+4. Batasi durasi:
+
+   * free: 10 detik
+   * premium: 30 detik.
+5. Output GIF playable.
+
+### Acceptance Criteria
+
+1. `/togif` tidak crash.
+2. Output GIF bisa dikirim.
+3. File temp dibersihkan.
+4. Error user-friendly.
+
+---
+
+## FR-019 — Fix TTS
+
+### Requirement
+
+Buat service:
+
+```txt
+src/services/tts/tts.service.ts
+```
+
+Command tidak boleh langsung axios ke provider.
+
+Provider chain:
+
+1. local command,
+2. Google Translate TTS fallback,
+3. custom API jika tersedia.
+
+Hotfix:
+
+1. gunakan HTTPS,
+2. validasi content-type audio,
+3. kirim sebagai audio biasa dengan `audio/mpeg`,
+4. jangan kirim MP3 sebagai voice note `audio/mp4`.
+
+### Acceptance Criteria
+
+1. `/tts halo` menghasilkan audio playable.
+2. Response non-audio ditolak.
+3. Error provider tidak bocor ke user.
+4. Tidak ada temp file tersisa.
+
+---
+
+## FR-020 — Instagram Downloader Reliability
+
+### Requirement
+
+1. Normalize Instagram URL.
+2. Hapus query tracking seperti `?igsh=...`.
+3. Tambahkan fallback chain.
+4. Support cookies jika `INSTAGRAM_COOKIES` tersedia.
+5. Log error provider dengan ringkas.
+6. User error jelas.
+
+### Acceptance Criteria
+
+1. URL `/reel/<id>/?igsh=...` dinormalisasi.
+2. Fallback berjalan jika extractor pertama gagal.
+3. User mendapat pesan jelas jika media privat/terbatas.
+4. Bot tidak crash.
+
+---
+
+## FR-021 — STT Offline Handling
+
+### Env
+
+```env
+STT_COMMAND=""
+STT_TIMEOUT_SECONDS="120"
+```
+
+### Contract
+
+```txt
+Input: path audio sebagai argumen pertama
+Output: teks ke stdout
+Exit code 0: sukses
+```
+
+### Acceptance Criteria
+
+1. `/transkrip` tidak crash.
+2. Jika missing, pesan konfigurasi jelas.
+3. Jika configured, STT berjalan.
+4. Timeout bekerja.
+
+---
+
+## FR-022 — OCR Handling
+
+### Env
 
 ```env
 OCR_COMMAND=""
@@ -715,39 +856,52 @@ OCR_TIMEOUT_SECONDS="60"
 TESSERACT_CMD="tesseract"
 ```
 
-Behavior:
+### Behavior
 
-1. Jika `OCR_COMMAND` tersedia, gunakan command tersebut.
-2. Jika tidak, coba `tesseract`.
-3. Jika tidak tersedia, tampilkan pesan setup.
-4. `/checkdeps` harus mendeteksi OCR.
+1. Gunakan `OCR_COMMAND` jika tersedia.
+2. Jika tidak, coba Tesseract.
+3. Jika missing, pesan setup jelas.
 
 ### Acceptance Criteria
 
 1. OCR berjalan jika Tesseract tersedia.
-2. OCR berjalan jika `OCR_COMMAND` tersedia.
-3. Jika tidak tersedia, pesan jelas.
-4. OCR failure tidak mematikan fitur lain.
-5. Auto OCR tidak membuat output “ngaco” jika OCR kosong.
+2. OCR missing tidak crash.
+3. Auto OCR tidak membuat hasil ngaco jika output kosong.
 
 ---
 
-## FR-014 — Improve `/ringkas` Quality
+## FR-023 — Translate Internal Server Error
 
-### Problem
+### Requirement
 
-`/ringkas` hasilnya belum jelas dan sering “ngaco”.
+Buat provider abstraction:
 
-### Required Changes
-
-Target files:
-
-```txt
-src/commands/text/text.command.ts
-src/services/text/summarizer.service.ts
+```ts
+translateText(input, targetLang, sourceLang?)
+summarizeText(input)
+rewriteText(input, style)
 ```
 
-Tambahkan struktur ringkasan deterministic:
+Map `internal-server-error` ke:
+
+```txt
+❌ Layanan sedang bermasalah. Coba lagi nanti atau gunakan teks yang lebih pendek.
+```
+
+### Acceptance Criteria
+
+1. `/tr en halo` berjalan atau error jelas.
+2. `/translate id Good morning` berjalan.
+3. Raw `internal-server-error` tidak dikirim ke user.
+4. Error tercatat dengan error ID.
+
+---
+
+## FR-024 — Improve `/ringkas`
+
+### Requirement
+
+Output wajib terstruktur:
 
 ```txt
 📝 Ringkasan:
@@ -765,169 +919,619 @@ Tambahkan struktur ringkasan deterministic:
 
 Rules:
 
-1. Minimal input 80 karakter untuk ringkasan.
-2. Jika teks terlalu pendek, beri pesan bahwa teks belum cukup untuk diringkas.
-3. Jika AI provider tidak tersedia, gunakan extractive summarizer sederhana:
-
-   * pilih kalimat penting,
-   * buang duplikasi,
-   * maksimal 5 poin.
-4. Jangan halusinasi.
-5. Jangan menambahkan fakta di luar teks.
+1. minimal input 80 karakter,
+2. jangan menambah fakta di luar teks,
+3. fallback extractive summarizer jika AI provider gagal,
+4. quoted message bisa diringkas.
 
 ### Acceptance Criteria
 
-1. `/ringkas <teks panjang>` menghasilkan ringkasan terstruktur.
-2. Teks pendek ditolak dengan pesan jelas.
-3. Jika provider AI error, fallback extractive berjalan.
-4. Output tidak menambahkan fakta baru.
-5. Quoted message bisa diringkas.
+1. Ringkasan jelas.
+2. Teks pendek ditolak.
+3. Tidak halusinatif.
+4. Provider error punya fallback.
 
 ---
 
-# 5. Cross-Cutting Requirement: Dependency Check System
+## FR-025 — Werewolf Commands
 
-## FR-015 — Add `/checkdeps` Owner Command
+### Requirement
 
-### Required Checks
+Register command:
 
 ```txt
-ffmpeg
-ffprobe
-pdftoppm
-pdftotext
-tesseract
-OCR_COMMAND
-STT_COMMAND
-FONT_FILE_PATH
-REMOVEBG_PROVIDER
-TTS_PROVIDER
+/ww start
+/ww join
+/ww leave
+/ww begin
+/ww vote
+/ww status
+/ww stop
+/ww help
 ```
 
-### Output Example
+Alias:
 
 ```txt
-🧩 Dependency Check
-
-Media:
-• ffmpeg: OK
-• ffprobe: OK
-• font file: Missing
-
-Document:
-• pdftoppm: Missing
-• pdftotext: Missing
-
-Text:
-• tesseract: Missing
-• OCR_COMMAND: Missing
-• STT_COMMAND: Missing
-
-External:
-• REMOVEBG_PROVIDER: none
-• TTS_PROVIDER: google
+/ww
+/werewolf
 ```
 
 ### Acceptance Criteria
 
-1. Owner bisa menjalankan `/checkdeps`.
-2. Missing dependency tidak baru diketahui saat user memakai command.
-3. README sesuai dengan hasil checkdeps.
+1. `/ww help` berjalan.
+2. `/ww start` membuat lobby.
+3. `/ww join` menambah pemain.
+4. `/ww begin` memulai game.
+5. Menu tidak menampilkan command yang belum tersedia.
 
 ---
 
-# 6. Implementation Plan
+## FR-026 — Game Answer Router for Tebak Kata
 
-## Phase 1 — Stop Crashes and Missing Commands
+### Requirement
 
-1. Add safe JID decode helper.
-2. Replace all unsafe `jidDecode` destructuring.
-3. Register Werewolf command.
-4. Add game answer router for tebak kata.
-5. Add `/checkdeps`.
-6. Add clear dependency failure messages.
+Tambahkan non-command game answer routing:
 
-## Phase 2 — Fix Media Output Quality
+```txt
+Jika pesan bukan command dan ada active game session:
+  kirim ke game answer handler.
+Jika handled=true:
+  stop router.
+Jika handled=false:
+  lanjut normal.
+```
 
-1. Fix `/vstiker` crop/scale pipeline.
-2. Fix `/togif` pipeline and JID crash.
-3. Fix `/wm` image/video watermark service.
-4. Improve meme text rendering.
-5. Add sticker metadata.
-6. Fix `/hd` fallback.
-7. Fix `/removebg` provider handling.
+### Interface
 
-## Phase 3 — Fix Text/OCR/STT/Translate
+```ts
+export interface GameAnswerHandler {
+  canHandle(ctx: MessageContext): Promise<boolean>;
+  handleAnswer(ctx: MessageContext, adapter: WhatsAppAdapter): Promise<boolean>;
+}
+```
 
-1. Add OCR preflight and fallback.
-2. Add STT preflight and wrapper docs.
-3. Fix translate provider error mapping.
-4. Improve `/ringkas` prompt and fallback.
-5. Add provider abstraction for text commands.
+### Acceptance Criteria
 
-## Phase 4 — Tests and Documentation
-
-1. Add unit tests.
-2. Add command smoke tests.
-3. Update README.
-4. Update `.env.example`.
-5. Add Windows install notes for Poppler, Tesseract, FFmpeg.
+1. Jawaban tebak kata tanpa prefix direspons.
+2. Jawaban benar mengakhiri/memperbarui session.
+3. Jawaban salah diberi feedback atau diabaikan sesuai desain.
+4. Chat biasa tidak terganggu saat tidak ada game aktif.
 
 ---
 
-# 7. Test Plan
+# 6. Menu Baru yang Lebih Interaktif dan Enak Dibaca
 
-## Media Tests
+## FR-027 — Redesign Menu UX
 
-1. `/hd` with valid image.
-2. `/vstiker` with portrait video.
-3. `/vstiker` with landscape video.
-4. `/togif` with short video.
-5. `/wm watermark` on image.
-6. `/wm watermark` on video.
-7. `/meme atas | bawah` on bright image.
-8. `/meme atas | bawah` on dark image.
-9. `/removebg` when provider missing.
-10. `/removebg` when provider available.
+### Masalah
 
-## Game Tests
+Menu lama terlalu sesak, panjang, dan sulit dibaca. User sulit menemukan command yang dibutuhkan.
 
-1. `/ww help`.
-2. `/ww start`.
-3. `/ww join`.
-4. `/ww begin`.
-5. Start tebak kata.
-6. Answer tebak kata without prefix.
-7. Expired game answer.
+### Requirement
 
-## Dependency Tests
+Menu harus dibuat modular, ringkas, dan interaktif.
 
-1. `/checkdeps` when Poppler missing.
-2. `/checkdeps` when Tesseract missing.
-3. `/checkdeps` when STT_COMMAND missing.
-4. `/pdf2img` when Poppler missing.
-5. `/ocr` when OCR missing.
-6. `/transkrip` when STT missing.
+Command utama:
 
-## Text Tests
+```txt
+/menu
+/menu all
+/menu media
+/menu stiker
+/menu ai
+/menu game
+/menu admin
+/menu owner
+/menu premium
+/menu downloader
+/menu dokumen
+/menu audio
+/menu text
+```
 
-1. `/tr en halo`.
-2. `/translate id Good morning`.
-3. `/ringkas <teks panjang>`.
-4. `/ringkas teks pendek`.
-5. Provider internal-server-error mapping.
-6. Quoted text summarization.
+### Prinsip UI Menu
 
-## Crash Regression Tests
+1. Tidak menampilkan semua command sekaligus di `/menu`.
+2. `/menu` hanya menampilkan kategori utama.
+3. User memilih kategori dengan command lanjutan.
+4. Gunakan emoji secukupnya.
+5. Gunakan spacing yang rapi.
+6. Tampilkan contoh penggunaan singkat.
+7. Tampilkan status user:
 
-1. Invalid JID does not crash routeMessage.
-2. `jidDecode()` returning undefined is handled.
-3. `/togif` does not produce routeMessage fatal error.
-4. All media errors return user-friendly message.
+   * free/premium,
+   * limit harian,
+   * prefix,
+   * mode chat: private/grup.
+8. Tampilkan payment premium di menu premium.
 
 ---
 
-# 8. Verification Commands
+## FR-028 — Main Menu Layout
+
+### Output `/menu`
+
+```txt
+╭───「 JAVAS BOT WA 」───╮
+│ Halo, @user
+│ Mode : Grup / Private
+│ Status : Free / Premium
+│ Prefix : /
+╰────────────────────╯
+
+Pilih kategori menu:
+
+1. 🖼️ Media & Editing
+   /menu media
+
+2. 🎨 Stiker & Meme
+   /menu stiker
+
+3. 📄 Dokumen & PDF
+   /menu dokumen
+
+4. 🎵 Audio & Voice
+   /menu audio
+
+5. 🤖 AI & Teks
+   /menu text
+
+6. 📥 Downloader
+   /menu downloader
+
+7. 🎮 Game
+   /menu game
+
+8. 🛡️ Admin Grup
+   /menu admin
+
+9. 💎 Premium
+   /menu premium
+
+10. 👑 Owner
+   /menu owner
+
+Ketik /menu all untuk melihat semua command.
+```
+
+### Acceptance Criteria
+
+1. `/menu` tidak terlalu panjang.
+2. Semua kategori mudah dibaca.
+3. User tahu command lanjutan.
+4. Tidak menampilkan fitur owner ke non-owner, kecuali sebagai hidden/locked sesuai desain.
+
+---
+
+## FR-029 — Category Menu Layout
+
+### Example `/menu stiker`
+
+```txt
+╭──「 🎨 STIKER & MEME 」──╮
+│ Prefix: /
+│ Tips: reply gambar/video
+╰────────────────────╯
+
+🧩 Stiker:
+• /stiker — buat stiker dari gambar
+• /s — alias stiker
+• /vstiker — buat stiker dari video
+• /brat <teks> — stiker teks
+
+🖼️ Editing:
+• /removebg — hapus background
+• /meme atas | bawah — buat meme
+
+ℹ️ Catatan:
+Stiker memakai pack:
+Javas Bot WA
+```
+
+### Example `/menu premium`
+
+```txt
+╭──「 💎 PREMIUM 」──╮
+│ Upgrade Javas Bot WA
+╰────────────────╯
+
+Benefit:
+• Limit lebih besar
+• Akses fitur berat
+• Proses prioritas
+• Fitur premium tertentu
+
+Harga:
+• 7 hari  : Rp ...
+• 30 hari : Rp ...
+• Custom  : hubungi owner
+
+Pembayaran:
+GoPay: 085338123425
+
+Setelah transfer:
+Kirim bukti pembayaran ke owner/admin.
+```
+
+### Acceptance Criteria
+
+1. Menu kategori pendek dan fokus.
+2. Setiap command punya deskripsi 1 baris.
+3. Payment premium tampil jelas.
+4. Menu premium memakai GoPay baru.
+
+---
+
+## FR-030 — Dynamic Menu Visibility
+
+### Requirement
+
+Menu harus menyesuaikan konteks:
+
+1. Private chat:
+
+   * tampilkan fitur private-safe,
+   * admin grup disembunyikan atau diberi label “khusus grup”.
+2. Group chat:
+
+   * tampilkan fitur grup,
+   * fitur owner hanya untuk owner.
+3. User free:
+
+   * fitur premium diberi label `Premium`.
+4. User premium:
+
+   * tampilkan status premium dan expired date.
+5. Owner:
+
+   * tampilkan menu owner.
+
+### Acceptance Criteria
+
+1. Non-owner tidak melihat menu owner penuh.
+2. Private chat tidak dipenuhi command admin grup.
+3. Premium status tampil benar.
+4. Expired premium tampil jika tersedia.
+
+---
+
+## FR-031 — Menu Registry-Driven
+
+### Requirement
+
+Menu tidak boleh hard-coded penuh. Menu harus mengambil data dari command metadata/registry.
+
+Command metadata wajib punya:
+
+```ts
+{
+  name: string;
+  aliases: string[];
+  category: string;
+  plugin: string;
+  permission: 'USER' | 'ADMIN' | 'OWNER' | 'PREMIUM';
+  description: string;
+  usage: string;
+  examples: string[];
+  enabled: boolean;
+}
+```
+
+### Acceptance Criteria
+
+1. Command yang belum terdaftar tidak muncul di menu.
+2. Command disabled tidak muncul atau diberi label off.
+3. Command owner hanya muncul ke owner.
+4. Menu otomatis update saat metadata berubah.
+
+---
+
+# 7. Database Index Requirements
+
+Tambahkan index:
+
+```prisma
+model UsageLog {
+  @@index([groupId, createdAt])
+  @@index([userId, groupId, createdAt])
+  @@index([feature, createdAt])
+}
+
+model GroupLog {
+  @@index([groupId, createdAt])
+  @@index([type, createdAt])
+}
+
+model Warning {
+  @@index([groupId, userId])
+}
+
+model InfractionLog {
+  @@index([groupId, userId, createdAt])
+}
+
+model Blacklist {
+  @@index([scope, groupId, userId])
+}
+
+model AutoReply {
+  @@index([groupId, trigger])
+}
+```
+
+---
+
+# 8. Documentation Requirements
+
+Update:
+
+```txt
+README.md
+.env.example
+```
+
+## README Must Include
+
+1. Install FFmpeg.
+2. Install Poppler.
+3. Install Tesseract.
+4. STT_COMMAND wrapper.
+5. OCR_COMMAND wrapper.
+6. RemoveBG config.
+7. TTS provider.
+8. Private chat behavior.
+9. Premium persistence.
+10. `/checkdeps`.
+11. `/dbinfo`.
+12. Payment premium GoPay `085338123425`.
+13. Menu category usage.
+
+## `.env.example` Must Include
+
+```env
+PRIVATE_DAILY_CMD_LIMIT="20"
+PREMIUM_PRIVATE_DAILY_CMD_LIMIT="200"
+
+STT_COMMAND=""
+STT_TIMEOUT_SECONDS="120"
+
+OCR_COMMAND=""
+OCR_TIMEOUT_SECONDS="60"
+TESSERACT_CMD="tesseract"
+
+REMOVEBG_PROVIDER="none"
+REMOVEBG_API_KEY=""
+REMOVEBG_COMMAND=""
+
+TTS_PROVIDER="google"
+TTS_COMMAND=""
+TTS_API_BASE_URL=""
+TTS_API_KEY=""
+
+STICKER_PACK_NAME="Javas Bot WA"
+STICKER_AUTHOR_NAME="Javas"
+
+FONT_FILE_PATH=""
+
+PREMIUM_PAYMENT_METHOD="GoPay"
+PREMIUM_PAYMENT_NUMBER="085338123425"
+
+DATABASE_URL="file:./dev.db"
+```
+
+---
+
+# 9. Implementation Plan
+
+## Phase 1 — P0 Crash & Routing
+
+1. Refactor private chat router.
+2. Add `safeJidDecode`.
+3. Patch all unsafe `jidDecode`.
+4. Replace GroupConfig create with upsert.
+5. Fix CustomVariable stats race or add GroupUserStats.
+6. Register general/help plugin.
+7. Register downloader plugin.
+8. Add error mapper for `internal-server-error`.
+
+## Phase 2 — Premium Persistence & Payment
+
+1. Add premium service.
+2. Normalize premium IDs.
+3. Add `/cekpremium`.
+4. Add `/listpremium`.
+5. Add `/dbinfo`.
+6. Fix import config for premiumUsers.
+7. Add `/fixpremiumids`.
+8. Add premium audit log.
+9. Update premium payment to GoPay `085338123425`.
+10. Update `/premiumguide`, `/invoice`, and `/menu premium`.
+
+## Phase 3 — Dependency System
+
+1. Add dependency-check service.
+2. Add `/checkdeps`.
+3. Precheck Poppler before `/pdf2img` and `/pdftext`.
+4. Precheck OCR/STT.
+5. Update README and `.env.example`.
+
+## Phase 4 — Media & Sticker
+
+1. Fix `/hd`.
+2. Fix `/stiker` empty/corrupt.
+3. Fix `/vstiker`.
+4. Fix `/togif`.
+5. Fix `/wm`.
+6. Fix `/removebg`.
+7. Add sticker metadata.
+8. Improve meme text.
+
+## Phase 5 — Text, TTS, Downloader
+
+1. Add TTS service.
+2. Fix Instagram downloader normalization/fallback.
+3. Fix translate error mapping.
+4. Improve `/ringkas`.
+5. Improve OCR fallback.
+
+## Phase 6 — Games
+
+1. Register Werewolf.
+2. Add Werewolf session flow.
+3. Add Tebak Kata answer router.
+4. Add game session tests.
+
+## Phase 7 — Menu UX Redesign
+
+1. Build registry-driven menu service.
+2. Add `/menu <category>`.
+3. Add `/menu all`.
+4. Add dynamic visibility by role/context.
+5. Add premium/payment section.
+6. Remove overcrowded old menu.
+
+## Phase 8 — Tests & Release
+
+1. Unit tests.
+2. Integration tests.
+3. Manual smoke tests.
+4. Documentation review.
+5. Release tag.
+
+---
+
+# 10. Test Plan
+
+## Core Router
+
+```txt
+/private /menu
+/private /help
+/private /tts halo
+/group /menu
+/group /help
+```
+
+Expected:
+
+1. private responds,
+2. group responds,
+3. groupConfig not created for private,
+4. usage logged correctly.
+
+## Premium
+
+```txt
+/premium add @user 30
+/cekpremium @user
+/listpremium
+/dbinfo
+/menu premium
+/invoice premium 30
+```
+
+Restart bot.
+
+Expected:
+
+1. premium remains active,
+2. DB path unchanged,
+3. expiry unchanged,
+4. payment shows GoPay `085338123425`.
+
+## Dependency
+
+```txt
+/checkdeps
+/pdf2img
+/pdftext
+/ocr
+/transkrip
+```
+
+Expected:
+
+1. missing dependency produces setup message,
+2. no routeMessage fatal error.
+
+## Media
+
+```txt
+/hd
+/stiker
+/s
+/vstiker
+/togif
+/wm Javas Bot
+/removebg
+/meme atas | bawah
+/tts halo
+```
+
+Expected:
+
+1. output playable/valid,
+2. sticker tidak kosong,
+3. sticker info bisa dibuka,
+4. temp files cleaned,
+5. no crash,
+6. error user-friendly.
+
+## Game
+
+```txt
+/ww help
+/ww start
+/ww join
+/ww begin
+/tebakkata
+jawaban tanpa prefix
+```
+
+Expected:
+
+1. Werewolf command exists,
+2. tebak kata answer handled.
+
+## Text
+
+```txt
+/tr en halo
+/translate id Good morning
+/ringkas <teks panjang>
+```
+
+Expected:
+
+1. no raw internal-server-error,
+2. ringkas structured,
+3. no hallucination.
+
+## Menu
+
+```txt
+/menu
+/menu stiker
+/menu media
+/menu dokumen
+/menu game
+/menu premium
+/menu owner
+/menu all
+```
+
+Expected:
+
+1. menu tidak sesak,
+2. kategori jelas,
+3. command sesuai role,
+4. premium payment benar,
+5. owner menu hanya terlihat untuk owner.
+
+---
+
+# 11. Verification Commands
 
 ```bash
 npm run typecheck
@@ -937,44 +1541,58 @@ npx prisma validate
 npx prisma generate
 ```
 
+If migration added:
+
+```bash
+npx prisma migrate dev --name stabilization-hardening
+```
+
 Manual smoke test:
 
 ```txt
+/menu
+/menu stiker
+/menu premium
+/help
 /checkdeps
+/dbinfo
+/cekpremium @user
 /hd
+/stiker
 /vstiker
 /togif
-/removebg
-/meme atas | bawah
-/wm Javas Bot
-/ww help
-/tebakkata
+/tts halo
 /tr en halo
 /ringkas <teks panjang>
-/ocr
-/transkrip
-/pdf2img
+/ww help
 ```
 
 ---
 
-# 9. Definition of Done
+# 12. Definition of Done
 
-PRD ini selesai jika:
+PRD selesai jika:
 
-1. `/hd` menghasilkan output atau error yang jelas.
-2. `/ww help` dan command Werewolf tersedia.
-3. Tebak kata merespons jawaban non-command.
-4. `/vstiker` tidak menghasilkan area hitam.
-5. `/removebg` berhasil atau memberi pesan konfigurasi jelas.
-6. Stiker memiliki metadata `Javas Bot WA`.
-7. Meme text terbaca jelas.
-8. `/wm` berhasil untuk image/video.
-9. `/transkrip` menjelaskan STT missing atau menjalankan STT jika tersedia.
-10. `/togif` tidak crash karena `jidDecode`.
-11. `/translate` tidak menampilkan raw `internal-server-error`.
-12. `/pdf2img` memberi pesan Poppler missing yang jelas.
-13. OCR memberi pesan setup yang jelas jika Tesseract/OCR_COMMAND missing.
-14. `/ringkas` menghasilkan ringkasan terstruktur dan tidak halusinatif.
-15. `/checkdeps` tersedia untuk owner.
-16. README dan `.env.example` menjelaskan semua dependency.
+1. Private chat command berjalan.
+2. Group command tetap berjalan.
+3. Tidak ada crash `jidDecode undefined`.
+4. Tidak ada `P2002` pada GroupConfig/stats.
+5. Premium tetap ada setelah restart.
+6. `/dbinfo` menunjukkan DB yang benar.
+7. `/cekpremium` dan `/listpremium` berjalan.
+8. Payment premium memakai GoPay `085338123425`.
+9. `/checkdeps` tersedia.
+10. `/pdf2img` dan `/pdftext` punya Poppler handling.
+11. `/hd` stabil.
+12. `/stiker` tidak kosong/corrupt.
+13. Sticker info bisa dibuka.
+14. Sticker metadata `Javas Bot WA` muncul.
+15. `/vstiker`, `/togif`, `/wm`, `/removebg`, meme, dan TTS stabil.
+16. OCR/STT missing ditangani jelas.
+17. `/translate` tidak menampilkan raw `internal-server-error`.
+18. `/ringkas` menghasilkan output terstruktur.
+19. Werewolf command tersedia.
+20. Tebak kata merespons jawaban non-command.
+21. Menu baru lebih interaktif, tidak sesak, dan enak dibaca.
+22. README dan `.env.example` lengkap.
+23. Semua verification command lulus.

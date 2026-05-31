@@ -105,10 +105,9 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   const { updateDailyMissionMsgCount } = await import('./games/mission.command.js');
   updateDailyMissionMsgCount(ctx.senderId).catch(err => console.error('[Mission Msg Fail]', err));
 
-  // 1. Get Group Configuration (or default values)
-  let prefix = '/';
+  // 1. Get Group/Bot Configuration (or default values)
+  let prefix = env.BOT_PREFIX || '/';
   let botEnabled = true;
-  let featureEnabled = true;
   let groupConfig: any = null;
 
   if (isGroup) {
@@ -454,258 +453,270 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
         return;
       }
     }
+  }
 
-    // --- ROLE AND PERMISSION CHECKS ---
-    const { getUserRole } = await import('../bot/permission.js');
-    const userRole = await getUserRole(ctx.chatId, ctx.senderId, adapter);
+  // --- ROLE AND PERMISSION CHECKS (Run for both Group and Private) ---
+  const { getUserRole } = await import('../bot/permission.js');
+  const userRole = await getUserRole(isGroup ? ctx.chatId : null, ctx.senderId, adapter);
 
-    // Role hierarchy mapping
-    const roleHierarchy: Record<string, number> = {
-      owner: 4,
-      admin: 3,
-      premium: 2,
-      user: 1
-    };
+  // Role hierarchy mapping
+  const roleHierarchy: Record<string, number> = {
+    owner: 4,
+    admin: 3,
+    premium: 2,
+    user: 1
+  };
 
-    const minRole = registeredCmd.metadata.minRole || 'user';
-    const isPremiumOnly = registeredCmd.metadata.premiumOnly || false;
+  const minRole = registeredCmd.metadata.minRole || 'user';
+  const isPremiumOnly = registeredCmd.metadata.premiumOnly || false;
 
-    if (roleHierarchy[userRole] < roleHierarchy[minRole]) {
-      if (minRole === 'owner') {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Owner.', { quotedMessageId: ctx.id });
-        return;
-      }
-      if (minRole === 'admin') {
-        if (!isGroup) {
-          await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya dapat digunakan di dalam grup oleh Admin.', { quotedMessageId: ctx.id });
-        } else {
-          await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Admin grup.', { quotedMessageId: ctx.id });
-        }
-        return;
-      }
-    }
-
-    const alwaysAllowedCommands = [
-      'menu',
-      'help',
-      'start',
-      'cmd',
-      'cari',
-      'sewa',
-      'ceksewa',
-      'fitursewa',
-      'invoice',
-      'trial',
-      'premiumguide'
-    ];
-
-    if (
-      !alwaysAllowedCommands.includes(commandName) &&
-      isPremiumOnly &&
-      roleHierarchy[userRole] < roleHierarchy['premium']
-    ) {
-      await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Premium User.', { quotedMessageId: ctx.id });
+  if (roleHierarchy[userRole] < roleHierarchy[minRole]) {
+    if (minRole === 'owner') {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Owner.', { quotedMessageId: ctx.id });
       return;
     }
+    if (minRole === 'admin') {
+      if (!isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya dapat digunakan di dalam grup oleh Admin.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Admin grup.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+  }
 
-    // 5. Rate Limiting Check
-    let isRateLimited = false;
-    let retryAfterSeconds = 0;
+  const alwaysAllowedCommands = [
+    'menu',
+    'help',
+    'start',
+    'cmd',
+    'cari',
+    'sewa',
+    'ceksewa',
+    'fitursewa',
+    'invoice',
+    'trial',
+    'premiumguide'
+  ];
 
-    const bypassOwner = env.OWNER_BYPASS_RATE_LIMIT;
-    const bypassPrivate = env.PRIVATE_CHAT_BYPASS_RATE_LIMIT;
-    const isSenderOwner = isOwner(ctx.senderId);
+  if (
+    !alwaysAllowedCommands.includes(commandName) &&
+    isPremiumOnly &&
+    roleHierarchy[userRole] < roleHierarchy['premium']
+  ) {
+    await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Premium User.', { quotedMessageId: ctx.id });
+    return;
+  }
 
-    const rateLimitFeature = registeredCmd.metadata.rateLimitKey || featureKey || 'general';
+  // 5. Rate Limiting Check
+  let isRateLimited = false;
+  let retryAfterSeconds = 0;
+
+  const bypassOwner = env.OWNER_BYPASS_RATE_LIMIT;
+  const bypassPrivate = env.PRIVATE_CHAT_BYPASS_RATE_LIMIT;
+  const isSenderOwner = isOwner(ctx.senderId);
+
+  const rateLimitFeature = registeredCmd.metadata.rateLimitKey || featureKey || 'general';
+
+  if (isGroup) {
+    if (!(isSenderOwner && bypassOwner)) {
+      const rateLimitKey = rateLimitFeature === 'werewolf'
+        ? `group:${ctx.chatId}:werewolf`
+        : `user:${ctx.senderId}:${rateLimitFeature}`;
+
+      const res = rateLimiter.isRateLimited(rateLimitKey, rateLimitFeature);
+      isRateLimited = res.limited;
+      retryAfterSeconds = res.retryAfterSeconds;
+    }
+  } else {
+    if (!bypassPrivate && !(isSenderOwner && bypassOwner)) {
+      const rateLimitKey = `user:${ctx.senderId}:${rateLimitFeature}`;
+      const res = rateLimiter.isRateLimited(rateLimitKey, rateLimitFeature);
+      isRateLimited = res.limited;
+      retryAfterSeconds = res.retryAfterSeconds;
+    }
+  }
+  if (isRateLimited) {
+    await adapter.sendMessage(
+      ctx.chatId,
+      `⏳ Anda terkena rate limit. Silakan coba lagi setelah ${retryAfterSeconds} detik.`,
+      { quotedMessageId: ctx.id }
+    );
+    return;
+  }
+
+  // 5b. Pessimistic Quota Reservation check
+  const startTime = Date.now();
+  const tempLog = await prisma.usageLog.create({
+    data: {
+      userId: ctx.senderId,
+      groupId: isGroup ? ctx.chatId : null,
+      feature: featureKey,
+      command: commandName,
+      success: false,
+      status: 'failed'
+    }
+  });
+
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const quotaBypassCommands = [
+    'sewa',
+    'ceksewa',
+    'fitursewa',
+    'invoice',
+    'sewaconfirm',
+    'trial',
+    'menu',
+    'help',
+    'rules'
+  ];
+  const shouldBypassQuota = quotaBypassCommands.includes(commandName);
+
+  if (isGroup) {
+    let groupPlan = 'free';
+    const sub = await prisma.groupSubscription.findUnique({
+      where: { groupId: ctx.chatId }
+    });
+    if (sub) {
+      const expired = sub.expiresAt && sub.expiresAt.getTime() < Date.now();
+      if (!expired) {
+        groupPlan = sub.plan || 'free';
+      }
+    }
+
+    let maxCmd = 50;
+    if (groupPlan === 'basic') maxCmd = 200;
+    else if (groupPlan === 'premium') maxCmd = 999999;
+
+    if (sub && sub.maxDailyCmd !== null && sub.maxDailyCmd !== undefined) {
+      maxCmd = sub.maxDailyCmd;
+    }
+
+    if (groupPlan !== 'premium' && !shouldBypassQuota) {
+      const usageCount = await prisma.usageLog.count({
+        where: {
+          groupId: ctx.chatId,
+          createdAt: { gte: startOfDay }
+        }
+      });
+      if (usageCount > maxCmd) {
+        await prisma.usageLog.delete({ where: { id: tempLog.id } }).catch(() => { });
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⚠️ *KUOTA HARIAN GRUP HABIS!* ⚠️\n\nGrup ini telah mencapai batas kuota harian *${maxCmd}* perintah (Paket ${groupPlan.toUpperCase()}).\nSewa paket PREMIUM untuk mendapatkan kuota tak terbatas! Ketik \`/sewa\` untuk informasi sewa.`,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+    }
+  } else {
+    // Private chat quota check
+    const isSenderPremium = await isPremium(ctx.senderId);
+    if (!isSenderOwner && !shouldBypassQuota) {
+      const limitEnv = isSenderPremium ? env.PREMIUM_PRIVATE_DAILY_CMD_LIMIT : env.PRIVATE_DAILY_CMD_LIMIT;
+      const maxCmd = parseInt(limitEnv || (isSenderPremium ? '200' : '20'), 10);
+      const usageCount = await prisma.usageLog.count({
+        where: {
+          userId: ctx.senderId,
+          groupId: null,
+          createdAt: { gte: startOfDay }
+        }
+      });
+      if (usageCount > maxCmd) {
+        await prisma.usageLog.delete({ where: { id: tempLog.id } }).catch(() => { });
+        await adapter.sendMessage(
+          ctx.chatId,
+          isSenderPremium
+            ? `⚠️ *KUOTA HARIAN ANDA HABIS!* ⚠️\n\nAnda telah mencapai batas kuota harian *${maxCmd}* perintah untuk chat pribadi (Premium Limit).`
+            : `⚠️ *KUOTA HARIAN ANDA HABIS!* ⚠️\n\nAnda telah mencapai batas kuota harian *${maxCmd}* perintah untuk chat pribadi.\nJadilah user PREMIUM untuk mendapatkan kuota *200* perintah harian! Ketik \`/invoice premium 1\` untuk membeli premium.`,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+    }
+  }
+
+  // Auto-delete Command Message if cleancmd feature is enabled (only in group)
+  if (isGroup && groupConfig) {
+    const flags = parseFeatureFlags(groupConfig.featuresJson);
+    if (flags.cleancmd) {
+      try {
+        await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
+      } catch (err) {
+        console.error('[CleanCmd] Failed to auto-delete command message:', err);
+      }
+    }
+  }
+
+  // 6. Execute Command
+  try {
+    const { updateDailyMissionCmdCount } = await import('./games/mission.command.js');
+    updateDailyMissionCmdCount(ctx.senderId).catch(err => console.error('[Mission Cmd Fail]', err));
 
     if (isGroup) {
-      if (!(isSenderOwner && bypassOwner)) {
-        const rateLimitKey = rateLimitFeature === 'werewolf'
-          ? `group:${ctx.chatId}:werewolf`
-          : `user:${ctx.senderId}:${rateLimitFeature}`;
-
-        const res = rateLimiter.isRateLimited(rateLimitKey, rateLimitFeature);
-        isRateLimited = res.limited;
-        retryAfterSeconds = res.retryAfterSeconds;
-      }
-    } else {
-      if (!bypassPrivate && !(isSenderOwner && bypassOwner)) {
-        const rateLimitKey = `user:${ctx.senderId}:${rateLimitFeature}`;
-        const res = rateLimiter.isRateLimited(rateLimitKey, rateLimitFeature);
-        isRateLimited = res.limited;
-        retryAfterSeconds = res.retryAfterSeconds;
-      }
-    }
-    if (isRateLimited) {
-      await adapter.sendMessage(
-        ctx.chatId,
-        `⏳ Anda terkena rate limit. Silakan coba lagi setelah ${retryAfterSeconds} detik.`,
-        { quotedMessageId: ctx.id }
-      );
-      return;
+      const { updateGroupUserCommandStats } = await import('./community/stats.command.js');
+      updateGroupUserCommandStats(ctx.chatId, ctx.senderId).catch(err => console.error('[Command Stats Update Fail]', err));
     }
 
-    // 5b. Pessimistic Quota Reservation check
-    const startTime = Date.now();
-    const tempLog = await prisma.usageLog.create({
+    await registeredCmd.execute(ctx, args, adapter);
+
+    // Update reservation log as success
+    const durationMs = Date.now() - startTime;
+    await prisma.usageLog.update({
+      where: { id: tempLog.id },
       data: {
-        userId: ctx.senderId,
-        groupId: isGroup ? ctx.chatId : null,
-        feature: featureKey,
-        command: commandName,
-        success: false,
-        status: 'failed'
+        success: true,
+        status: 'success',
+        durationMs
       }
+    }).catch(err => console.error('Failed to update UsageLog success:', err));
+
+    checkCommandAchievements(ctx.senderId, isGroup, ctx.chatId, adapter, commandName, minRole);
+
+    achievementService.checkEconomyAchievements(
+      ctx.senderId,
+      adapter,
+      isGroup ? ctx.chatId : undefined
+    ).catch(err => console.error('[Achievement Economy Hook Failed]', err));
+  } catch (err: any) {
+    const durationMs = Date.now() - startTime;
+    const { logError } = await import('../utils/logger.js');
+    const errorId = await logError('routeMessage', featureKey, err, {
+      userId: ctx.senderId,
+      command: commandName,
+      args
     });
 
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const quotaBypassCommands = [
-      'sewa',
-      'ceksewa',
-      'fitursewa',
-      'invoice',
-      'sewaconfirm',
-      'trial',
-      'menu',
-      'help',
-      'rules'
-    ];
-    const shouldBypassQuota = quotaBypassCommands.includes(commandName);
-
-    if (isGroup) {
-      let groupPlan = 'free';
-      const sub = await prisma.groupSubscription.findUnique({
-        where: { groupId: ctx.chatId }
-      });
-      if (sub) {
-        const expired = sub.expiresAt && sub.expiresAt.getTime() < Date.now();
-        if (!expired) {
-          groupPlan = sub.plan || 'free';
-        }
+    // Update reservation log as failed with error details
+    await prisma.usageLog.update({
+      where: { id: tempLog.id },
+      data: {
+        success: false,
+        status: 'failed',
+        errorId,
+        durationMs
       }
+    }).catch(dbErr => console.error('Failed to update UsageLog error:', dbErr));
 
-      let maxCmd = 50;
-      if (groupPlan === 'basic') maxCmd = 200;
-      else if (groupPlan === 'premium') maxCmd = 999999;
-
-      if (sub && sub.maxDailyCmd !== null && sub.maxDailyCmd !== undefined) {
-        maxCmd = sub.maxDailyCmd;
-      }
-
-      if (groupPlan !== 'premium' && !shouldBypassQuota) {
-        const usageCount = await prisma.usageLog.count({
-          where: {
-            groupId: ctx.chatId,
-            createdAt: { gte: startOfDay }
-          }
-        });
-        if (usageCount > maxCmd) {
-          await prisma.usageLog.delete({ where: { id: tempLog.id } }).catch(() => { });
-          await adapter.sendMessage(
-            ctx.chatId,
-            `⚠️ *KUOTA HARIAN GRUP HABIS!* ⚠️\n\nGrup ini telah mencapai batas kuota harian *${maxCmd}* perintah (Paket ${groupPlan.toUpperCase()}).\nSewa paket PREMIUM untuk mendapatkan kuota tak terbatas! Ketik \`/sewa\` untuk informasi sewa.`,
-            { quotedMessageId: ctx.id }
-          );
-          return;
-        }
-      }
-    } else {
-      // Private chat quota check
-      const isSenderPremium = await isPremium(ctx.senderId);
-      if (!isSenderPremium && !isSenderOwner && !shouldBypassQuota) {
-        const maxCmd = 20; // Default quota for free user in private chat
-        const usageCount = await prisma.usageLog.count({
-          where: {
-            userId: ctx.senderId,
-            groupId: null,
-            createdAt: { gte: startOfDay }
-          }
-        });
-        if (usageCount > maxCmd) {
-          await prisma.usageLog.delete({ where: { id: tempLog.id } }).catch(() => { });
-          await adapter.sendMessage(
-            ctx.chatId,
-            `⚠️ *KUOTA HARIAN ANDA HABIS!* ⚠️\n\nAnda telah mencapai batas kuota harian *${maxCmd}* perintah untuk chat pribadi.\nJadilah user PREMIUM untuk mendapatkan kuota tak terbatas! Ketik \`/invoice premium 1\` untuk membeli premium.`,
-            { quotedMessageId: ctx.id }
-          );
-          return;
-        }
-      }
-    }
-
-    // Auto-delete Command Message if cleancmd feature is enabled
-    if (isGroup && groupConfig) {
-      const flags = parseFeatureFlags(groupConfig.featuresJson);
-      if (flags.cleancmd) {
-        try {
-          await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
-        } catch (err) {
-          console.error('[CleanCmd] Failed to auto-delete command message:', err);
-        }
-      }
-    }
-
-    // 6. Execute Command
     try {
-      const { updateDailyMissionCmdCount } = await import('./games/mission.command.js');
-      updateDailyMissionCmdCount(ctx.senderId).catch(err => console.error('[Mission Cmd Fail]', err));
-
-      if (isGroup) {
-        const { updateGroupUserCommandStats } = await import('./community/stats.command.js');
-        updateGroupUserCommandStats(ctx.chatId, ctx.senderId).catch(err => console.error('[Command Stats Update Fail]', err));
-      }
-
-      await registeredCmd.execute(ctx, args, adapter);
-
-      // Update reservation log as success
-      const durationMs = Date.now() - startTime;
-      await prisma.usageLog.update({
-        where: { id: tempLog.id },
-        data: {
-          success: true,
-          status: 'success',
-          durationMs
-        }
-      }).catch(err => console.error('Failed to update UsageLog success:', err));
-
-      checkCommandAchievements(ctx.senderId, isGroup, ctx.chatId, adapter, commandName, minRole);
-
-      achievementService.checkEconomyAchievements(
-        ctx.senderId,
-        adapter,
-        isGroup ? ctx.chatId : undefined
-      ).catch(err => console.error('[Achievement Economy Hook Failed]', err));
-    } catch (err: any) {
-      const durationMs = Date.now() - startTime;
-      const { logError } = await import('../utils/logger.js');
-      const errorId = await logError('routeMessage', featureKey, err, {
-        userId: ctx.senderId,
-        command: commandName,
-        args
-      });
-
-      // Update reservation log as failed with error details
-      await prisma.usageLog.update({
-        where: { id: tempLog.id },
-        data: {
-          success: false,
-          status: 'failed',
-          errorId,
-          durationMs
-        }
-      }).catch(dbErr => console.error('Failed to update UsageLog error:', dbErr));
-
-      try {
+      const errMsg = err.message || '';
+      if (errMsg.includes('internal-server-error') || errMsg.toLowerCase().includes('translate')) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `❌ Layanan sedang bermasalah. Coba lagi nanti atau gunakan teks yang lebih pendek. (Error ID: ${errorId})`,
+          { quotedMessageId: ctx.id }
+        );
+      } else {
         await adapter.sendMessage(
           ctx.chatId,
           `Terjadi kesalahan sistem saat memproses command Anda. Error ID: ${errorId}`,
           { quotedMessageId: ctx.id }
         );
-      } catch (sendErr) {
-        console.error('[Logger] Failed to send safe reply error to user:', sendErr);
       }
+    } catch (sendErr) {
+      console.error('[Logger] Failed to send safe reply error to user:', sendErr);
     }
   }
 }
