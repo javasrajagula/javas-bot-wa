@@ -13,14 +13,19 @@ import { requirePremium } from '../../validators/permission.validator.js';
 import { runFfmpeg } from '../../services/ffmpeg/ffmpeg.service.js';
 import { validateMediaSize } from '../../validators/media.validator.js';
 import { achievementService } from '../../services/achievement/achievement.service.js';
+import { env } from '../../config/env.js';
+import { injectWebpExif } from '../../services/sticker/sticker-metadata.service.js';
 
 // Helper to write WebP Exif metadata
-export async function addStickerMetadata(webpBuffer: Buffer, pack = 'Javas Bot', author = 'Bot WA'): Promise<Buffer> {
+export async function addStickerMetadata(
+  webpBuffer: Buffer,
+  pack = env.STICKER_PACK_NAME || 'Javas Bot WA',
+  author = env.STICKER_AUTHOR_NAME || 'bot wa javas'
+): Promise<Buffer> {
   try {
-    // A minimal WebP Exif metadata writer.
-    // If metadata fails, return the original buffer so it still sends.
-    return webpBuffer;
-  } catch {
+    return injectWebpExif(webpBuffer, pack, author);
+  } catch (err) {
+    console.warn('[Sticker Metadata] Failed to inject exif:', err);
     return webpBuffer;
   }
 }
@@ -120,11 +125,11 @@ export class StickerSuiteCommand implements Command {
 
       await adapter.sendMessage(ctx.chatId, '⏳ Menghapus background...', { quotedMessageId: ctx.id });
       try {
-        // Sharp mock bg removal (makes transparent format png)
-        const png = await sharp(buffer).ensureAlpha().png().toBuffer();
+        const { removeBackground } = await import('../../services/removebg/removebg.service.js');
+        const png = await removeBackground(buffer);
         await adapter.sendImage(ctx.chatId, png, 'Background berhasil dihapus.', { quotedMessageId: ctx.id });
-      } catch (err) {
-        await adapter.sendMessage(ctx.chatId, '❌ Gagal memproses gambar.', { quotedMessageId: ctx.id });
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `⚠️ ${err.message || 'Gagal memproses gambar.'}`, { quotedMessageId: ctx.id });
       }
       return;
     }
@@ -197,24 +202,54 @@ export class StickerSuiteCommand implements Command {
         const w = metadata.width || 512;
         const h = metadata.height || 512;
 
+        const topText = top ? top.toUpperCase() : '';
+        const bottomText = bottom ? bottom.toUpperCase() : '';
+        
+        const maxChars = Math.max(topText.length, bottomText.length);
+        let fontSize = Math.floor(w / 12);
+        if (maxChars > 40) fontSize = Math.floor(w / 18);
+        else if (maxChars > 20) fontSize = Math.floor(w / 15);
+        
+        const maxCharsPerLine = Math.floor(w / (fontSize * 0.6));
+        
+        const topLines = topText ? wrapText(topText, maxCharsPerLine) : [];
+        const bottomLines = bottomText ? wrapText(bottomText, maxCharsPerLine) : [];
+
         let svg = `<svg width="${w}" height="${h}">
           <style>
             .meme-text {
-              font-family: Impact, sans-serif;
-              font-size: ${Math.floor(w / 12)}px;
+              font-family: Impact, Arial, sans-serif;
+              font-size: ${fontSize}px;
+              font-weight: 700;
               fill: white;
               stroke: black;
-              stroke-width: 3px;
+              stroke-width: ${Math.max(2, Math.floor(fontSize / 10))}px;
               text-anchor: middle;
             }
           </style>`;
 
-        if (top) {
-          svg += `<text x="${w / 2}" y="${h * 0.15}" class="meme-text">${escapeXml(top.toUpperCase())}</text>`;
+        if (topLines.length > 0) {
+          const startY = h * 0.05 + fontSize * 0.8;
+          svg += `<text x="${w / 2}" y="${startY}" class="meme-text">`;
+          topLines.forEach((line, index) => {
+            const dy = index === 0 ? 0 : fontSize * 1.1;
+            svg += `<tspan x="${w / 2}" dy="${dy}">${escapeXml(line)}</tspan>`;
+          });
+          svg += `</text>`;
         }
-        if (bottom) {
-          svg += `<text x="${w / 2}" y="${h * 0.9}" class="meme-text">${escapeXml(bottom.toUpperCase())}</text>`;
+
+        if (bottomLines.length > 0) {
+          const lineSpacing = fontSize * 1.1;
+          const totalHeight = (bottomLines.length - 1) * lineSpacing;
+          const startY = h * 0.92 - totalHeight;
+          svg += `<text x="${w / 2}" y="${startY}" class="meme-text">`;
+          bottomLines.forEach((line, index) => {
+            const dy = index === 0 ? 0 : lineSpacing;
+            svg += `<tspan x="${w / 2}" dy="${dy}">${escapeXml(line)}</tspan>`;
+          });
+          svg += `</text>`;
         }
+
         svg += `</svg>`;
 
         const webp = await sharp(buffer)
@@ -296,7 +331,7 @@ export class StickerSuiteCommand implements Command {
           '-y',
           '-i', tempIn,
           '-t', String(maxSeconds),
-          '-vf', 'scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000',
+          '-vf', 'fps=15,scale=512:512:force_original_aspect_ratio=increase,crop=512:512,format=yuva420p',
           '-vcodec', 'libwebp',
           '-lossless', '0',
           '-compression_level', '4',
@@ -309,7 +344,8 @@ export class StickerSuiteCommand implements Command {
         await runFfmpeg(args);
 
         const webpOut = fs.readFileSync(tempOut);
-        await adapter.sendSticker(ctx.chatId, webpOut, { quotedMessageId: ctx.id });
+        const metaWebp = await addStickerMetadata(webpOut);
+        await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err: any) {
         console.error('[VideoSticker] Error converting:', err);
@@ -368,6 +404,23 @@ function escapeXml(unsafe: string): string {
       default: return c;
     }
   });
+}
+
+function wrapText(text: string, maxCharsPerLine = 20): string[] {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    if ((currentLine + ' ' + word).trim().length <= maxCharsPerLine) {
+      currentLine = (currentLine + ' ' + word).trim();
+    } else {
+      if (currentLine) lines.push(currentLine);
+      currentLine = word;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  return lines;
 }
 
 const stickerSuite = new StickerSuiteCommand();

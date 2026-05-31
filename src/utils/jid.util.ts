@@ -1,3 +1,5 @@
+import { jidDecode } from '@whiskeysockets/baileys';
+
 /**
  * Canonical utilities for JID and Phone number normalization.
  */
@@ -44,4 +46,15 @@ export function normalizePhone(phone: string): string {
     clean = clean.split(':')[0];
   }
   return clean.replace(/\D/g, '');
+}
+
+export function safeJidDecode(jid: string | undefined | null) {
+  if (!jid) return null;
+  try {
+    const decoded = jidDecode(jid);
+    if (!decoded || !decoded.user) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
 }

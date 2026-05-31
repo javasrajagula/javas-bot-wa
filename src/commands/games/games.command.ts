@@ -281,4 +281,69 @@ function renderBoard(board: string[]): string {
 }
 
 const gamesSuite = new GamesSuiteCommand();
-registerCommand(['tod', 'truth', 'dare', 'tebakkata', 'slot', 'suit', 'pilih', 'ttt', 'wwrank', 'wwstats', 'couple', 'jodoh'], gamesSuite);
+registerCommand(['tod', 'truth', 'dare', 'tebakkata', 'jawab', 'slot', 'suit', 'pilih', 'ttt', 'wwrank', 'wwstats', 'couple', 'jodoh'], gamesSuite);
+
+import { gameSessionService, GameAnswerHandler } from '../../services/games/game-session.service.js';
+
+class TebakKataHandler implements GameAnswerHandler {
+  public async canHandle(ctx: MessageContext): Promise<boolean> {
+    return activeWordGames.has(ctx.chatId);
+  }
+
+  public async handleAnswer(ctx: MessageContext, adapter: WhatsAppAdapter): Promise<boolean> {
+    const game = activeWordGames.get(ctx.chatId);
+    if (!game) return false;
+
+    const bodyLower = ctx.body.trim().toLowerCase();
+    const prefix = ctx.body.trim().charAt(0);
+    
+    // Check if it's explicitly the /jawab command
+    const isJawabCmd = bodyLower.startsWith('/jawab') || bodyLower.startsWith('!jawab') || (prefix && bodyLower.slice(1).startsWith('jawab'));
+    
+    let answerText = bodyLower;
+    if (isJawabCmd) {
+      // Extract answer from /jawab <answer>
+      const parts = bodyLower.split(/\s+/);
+      answerText = parts.slice(1).join(' ').trim();
+    } else {
+      // If it starts with prefix, it's probably another command, so ignore it
+      const hasPrefix = ['/', '!', '#', '.'].includes(prefix);
+      if (hasPrefix) return false;
+    }
+
+    if (!answerText) {
+      if (isJawabCmd) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Jawab dengan format: `/jawab <jawaban>`', { quotedMessageId: ctx.id });
+        return true; // handled
+      }
+      return false;
+    }
+
+    if (answerText === game.answer.toLowerCase()) {
+      activeWordGames.delete(ctx.chatId);
+
+      // Award points
+      await prisma.userEconomy.upsert({
+        where: { userId: ctx.senderId },
+        create: { userId: ctx.senderId, balance: game.points, xp: 15 },
+        update: { balance: { increment: game.points }, xp: { increment: 15 } }
+      });
+
+      const mention = `@${ctx.senderId.split('@')[0]}`;
+      await adapter.sendMessage(
+        ctx.chatId,
+        `🎉 *JAWABAN BENAR!* 🎉\n\nSelamat ${mention}, jawaban Anda tepat: *${game.answer.toUpperCase()}*!\n💰 Hadiah: *+${game.points} Koin* dan *+15 XP*`,
+        { mentions: [ctx.senderId], quotedMessageId: ctx.id }
+      );
+      return true;
+    } else {
+      if (isJawabCmd) {
+        await adapter.sendMessage(ctx.chatId, '❌ Jawaban salah! Silakan coba lagi.', { quotedMessageId: ctx.id });
+        return true;
+      }
+      return false; // let it pass through as normal chat
+    }
+  }
+}
+
+gameSessionService.registerHandler(new TebakKataHandler());

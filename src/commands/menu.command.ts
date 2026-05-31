@@ -412,20 +412,16 @@ export class MenuCommand implements Command {
   ) {
     const grouped = this.groupByCategory(commands);
 
-    let text = '';
-    text += `╭${line()}╮\n`;
-    text += `│ *JAVAS BOT WA*\n`;
-    text += `│ Halo, *${ctx.senderName || 'User'}* 👋\n`;
-    text += `│ Role: *${role.toUpperCase()}*`;
-
-    if (ctx.isGroup) {
-      text += ` | Plan: *${groupPlan.toUpperCase()}*`;
-    }
-
-    text += `\n`;
-    text += `╰${line()}╯\n\n`;
-
-    text += `*Pilih kategori command:*\n\n`;
+    let text = [
+      `╔════════════════════════╗`,
+      `║       *JAVAS BOT WA*       ║`,
+      `╚════════════════════════╝`,
+      `✦ Halo, *${ctx.senderName || 'User'}* 👋`,
+      `✦ Role: *${role.toUpperCase()}*` + (ctx.isGroup ? ` | Plan: *${groupPlan.toUpperCase()}*` : ''),
+      `─────────────────────────`,
+      `*Pilih kategori command:*`,
+      ``
+    ].join('\n');
 
     for (const category of CATEGORY_ORDER) {
       const categoryCommands = grouped[category] || [];
@@ -433,18 +429,22 @@ export class MenuCommand implements Command {
 
       const info = CATEGORY_INFO[category] || CATEGORY_INFO.general;
 
-      text += `${info.emoji} *${info.title}* — ${categoryCommands.length} command\n`;
-      text += `   ${info.desc}\n`;
-      text += `   Ketik: *${prefix}menu ${category}*\n\n`;
+      text += `${info.emoji} *${info.title}* (${categoryCommands.length} command)\n`;
+      text += `└ _${info.desc}_\n`;
+      text += `└ Ketik: \`${prefix}menu ${category}\`\n\n`;
     }
 
-    text += `╭${line()}╮\n`;
-    text += `│ *Shortcut*\n`;
-    text += `│ ${prefix}menu all — semua command\n`;
-    text += `│ ${prefix}menu premium — fitur premium\n`;
-    text += `│ ${prefix}help <command> — detail command\n`;
-    text += `│ Contoh: ${prefix}help brat\n`;
-    text += `╰${line()}╯`;
+    text += [
+      `─────────────────────────`,
+      `╔════════════════════════╗`,
+      `║       *SHORTCUTS*      ║`,
+      `╚════════════════════════╝`,
+      `• \`${prefix}menu all\` ─ Semua command`,
+      `• \`${prefix}menu premium\` ─ Fitur premium`,
+      `• \`${prefix}help <command>\` ─ Detail command`,
+      `• Contoh: \`${prefix}help brat\``,
+      `─────────────────────────`
+    ].join('\n');
 
     await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
   }
@@ -459,17 +459,14 @@ export class MenuCommand implements Command {
   ) {
     const grouped = this.groupByCategory(commands);
 
-    let text = '';
-    text += `╭${line()}╮\n`;
-    text += `│ *SEMUA COMMAND AKTIF*\n`;
-    text += `│ Role: *${role.toUpperCase()}*`;
-
-    if (ctx.isGroup) {
-      text += ` | Plan: *${groupPlan.toUpperCase()}*`;
-    }
-
-    text += `\n`;
-    text += `╰${line()}╯\n\n`;
+    let text = [
+      `╔════════════════════════╗`,
+      `║      *SEMUA COMMAND*     ║`,
+      `╚════════════════════════╝`,
+      `✦ Role: *${role.toUpperCase()}*` + (ctx.isGroup ? ` | Plan: *${groupPlan.toUpperCase()}*` : ''),
+      `─────────────────────────`,
+      ``
+    ].join('\n');
 
     for (const category of CATEGORY_ORDER) {
       const categoryCommands = grouped[category] || [];
@@ -477,15 +474,18 @@ export class MenuCommand implements Command {
 
       const info = CATEGORY_INFO[category] || CATEGORY_INFO.general;
       const commandNames = categoryCommands
-        .map(command => `${prefix}${command.metadata.name}`)
-        .join(' • ');
+        .map(command => `\`${prefix}${command.metadata.name}\``)
+        .join('  ');
 
-      text += `${info.emoji} *${info.title}*\n`;
+      text += `${info.emoji} *${info.title.toUpperCase()}*\n`;
       text += `${commandNames}\n\n`;
     }
 
-    text += `Ketik *${prefix}help <command>* untuk detail.\n`;
-    text += `Contoh: *${prefix}help brat*`;
+    text += [
+      `─────────────────────────`,
+      `💡 Ketik \`${prefix}help <command>\` untuk detail.`,
+      `Contoh: \`${prefix}help brat\``
+    ].join('\n');
 
     await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
   }
@@ -509,23 +509,29 @@ export class MenuCommand implements Command {
       return;
     }
 
-    let text = '';
-    text += `╭${line()}╮\n`;
-    text += `│ ${info.emoji} *MENU ${info.title.toUpperCase()}*\n`;
-    text += `│ ${info.desc}\n`;
-    text += `╰${line()}╯\n\n`;
+    let text = [
+      `╔════════════════════════╗`,
+      `  ${info.emoji} *MENU ${info.title.toUpperCase()}*`,
+      `╚════════════════════════╝`,
+      `✦ _${info.desc}_`,
+      `─────────────────────────`,
+      ``
+    ].join('\n');
 
     categoryCommands.forEach((command) => {
       const meta = command.metadata;
       const aliasesStr = meta.aliases && meta.aliases.length > 0
-        ? ` (${meta.aliases.map((alias: string) => `${prefix}${alias}`).join(', ')})`
+        ? ` (${meta.aliases.map((alias: string) => `\`${prefix}${alias}\``).join(', ')})`
         : '';
       const desc = meta.description || 'Tidak ada deskripsi.';
-      text += `• *${prefix}${meta.name}*${aliasesStr} — ${desc}\n`;
+      text += `• \`${prefix}${meta.name}\`${aliasesStr}\n  └ _${desc}_\n\n`;
     });
 
-    text += `\nKetik *${prefix}help <command>* untuk contoh penggunaan.\n`;
-    text += `Contoh: *${prefix}help ${categoryCommands[0].metadata.name}*`;
+    text += [
+      `─────────────────────────`,
+      `💡 Ketik \`${prefix}help <command>\` untuk contoh penggunaan.`,
+      `Contoh: \`${prefix}help ${categoryCommands[0].metadata.name}\``
+    ].join('\n');
 
     await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
   }
@@ -543,24 +549,21 @@ export class MenuCommand implements Command {
       return meta.premiumOnly || meta.category === 'downloader' || meta.category === 'media' || meta.category === 'document';
     });
 
-    let text = '';
-    text += `╭${line()}╮\n`;
-    text += `│ ⭐ *MENU PREMIUM*\n`;
-    text += `│ Role: *${role.toUpperCase()}*`;
-
-    if (ctx.isGroup) {
-      text += ` | Plan: *${groupPlan.toUpperCase()}*`;
-    }
-
-    text += `\n`;
-    text += `╰${line()}╯\n\n`;
+    let text = [
+      `╔════════════════════════╗`,
+      `║      ⭐ *MENU PREMIUM*   ║`,
+      `╚════════════════════════╝`,
+      `✦ Role: *${role.toUpperCase()}*` + (ctx.isGroup ? ` | Plan: *${groupPlan.toUpperCase()}*` : ''),
+      `─────────────────────────`,
+      ``
+    ].join('\n');
 
     if (premiumCommands.length === 0) {
       text += `Belum ada command premium yang aktif untuk konteks ini.\n\n`;
       text += `Cek:\n`;
-      text += `• *${prefix}ceksewa*\n`;
-      text += `• *${prefix}fitursewa*\n`;
-      text += `• *${prefix}menu all*`;
+      text += `• \`${prefix}ceksewa\`\n`;
+      text += `• \`${prefix}fitursewa\`\n`;
+      text += `• \`${prefix}menu all\``;
     } else {
       const grouped = this.groupByCategory(premiumCommands);
 
@@ -572,12 +575,13 @@ export class MenuCommand implements Command {
 
         text += `${info.emoji} *${info.title}*\n`;
         text += categoryCommands
-          .map(command => `• *${prefix}${command.metadata.name}* — ${command.metadata.description}`)
+          .map(command => `• \`${prefix}${command.metadata.name}\` ─ _${command.metadata.description}_`)
           .join('\n');
         text += `\n\n`;
       }
 
-      text += `Ketik *${prefix}help <command>* untuk detail.`;
+      text += `─────────────────────────\n`;
+      text += `💡 Ketik \`${prefix}help <command>\` untuk detail.`;
     }
 
     await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
@@ -603,40 +607,44 @@ export class MenuCommand implements Command {
 
     const info = CATEGORY_INFO[meta.category] || CATEGORY_INFO.general;
 
-    let text = '';
-    text += `╭${line()}╮\n`;
-    text += `│ ${info.emoji} *HELP: ${context.prefix}${meta.name}*\n`;
-    text += `╰${line()}╯\n\n`;
-
-    text += `*Deskripsi*\n`;
-    text += `${meta.description}\n\n`;
-
-    text += `*Cara pakai*\n`;
-    text += `\`${meta.usage.replace(/\//g, context.prefix)}\`\n\n`;
+    let text = [
+      `╔════════════════════════╗`,
+      `  ${info.emoji} *HELP: ${context.prefix}${meta.name}*`,
+      `╚════════════════════════╝`,
+      `─────────────────────────`,
+      `📝 *Deskripsi:*`,
+      `${meta.description}`,
+      ``,
+      `💡 *Cara Pakai:*`,
+      `\`${meta.usage.replace(/\//g, context.prefix)}\``,
+      ``
+    ].join('\n');
 
     if (meta.examples && meta.examples.length > 0) {
-      text += `*Contoh*\n`;
+      text += `📌 *Contoh:* \n`;
       text += meta.examples
-        .map((example: string) => `• ${example.replace(/\//g, context.prefix)}`)
+        .map((example: string) => `• \`${example.replace(/\//g, context.prefix)}\``)
         .join('\n');
       text += `\n\n`;
     }
 
     if (meta.aliases && meta.aliases.length > 0) {
-      text += `*Alias*\n`;
-      text += meta.aliases.map((alias: string) => `• ${context.prefix}${alias}`).join('\n');
+      text += `🔀 *Alias:* \n`;
+      text += meta.aliases.map((alias: string) => `• \`${context.prefix}${alias}\``).join('\n');
       text += `\n\n`;
     }
 
-    text += `*Status*\n`;
-    text += `• Kategori: *${info.title}*\n`;
-    text += `• Role minimal: *${meta.minRole || 'user'}*\n`;
-    text += `• Premium only: *${meta.premiumOnly ? 'Ya' : 'Tidak'}*\n`;
-    text += `• Plugin: *${globalEnabled ? 'ON' : 'OFF'}*\n`;
+    text += [
+      `⚙️ *Status & Ketentuan:*`,
+      `• Kategori: *${info.title}*`,
+      `• Role Minimal: *${meta.minRole || 'user'}*`,
+      `• Premium Only: *${meta.premiumOnly ? 'Ya' : 'Tidak'}*`,
+      `• Status Fitur: *${globalEnabled ? 'ON' : 'OFF'}*`
+    ].join('\n');
 
     if (ctx.isGroup) {
-      text += `• Fitur grup: *${groupEnabled ? 'ON' : 'OFF'}*\n`;
-      text += `• Plan grup: *${context.groupPlan.toUpperCase()}*\n`;
+      text += `\n• Fitur Grup: *${groupEnabled ? 'ON' : 'OFF'}*`;
+      text += `\n• Plan Grup: *${context.groupPlan.toUpperCase()}*`;
     }
 
     await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });

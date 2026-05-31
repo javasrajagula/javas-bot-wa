@@ -7,9 +7,9 @@ import { runOcr } from '../../services/ocr/ocr.service.js';
 import {
   correctTypos,
   rewriteText,
-  summarizeExtractive,
+  summarizeText,
   translateText
-} from '../../services/text/free-text.service.js';
+} from '../../services/text/text.service.js';
 
 const activeQuizzes = new Map<string, {
   question: string;
@@ -70,7 +70,7 @@ export class TextSuiteCommand implements Command {
         const translated = await translateText(textToTranslate, targetLang);
         await adapter.sendMessage(ctx.chatId, `🌐 *Hasil Terjemahan (${translated.provider}):*\n\n${translated.text}`, { quotedMessageId: ctx.id });
       } catch (err: any) {
-        await adapter.sendMessage(ctx.chatId, `❌ Gagal menerjemahkan: ${err.message}. Jika memakai self-hosted, pastikan LIBRETRANSLATE_URL benar.`, { quotedMessageId: ctx.id });
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal menerjemahkan: ${err.message || err}`, { quotedMessageId: ctx.id });
       }
       return;
     }
@@ -89,8 +89,13 @@ export class TextSuiteCommand implements Command {
         return;
       }
 
-      const summary = summarizeExtractive(text, isPrem ? 6 : 4);
-      await adapter.sendMessage(ctx.chatId, `📌 *RANGKUMAN:*\n${summary}`, { quotedMessageId: ctx.id });
+      await adapter.sendMessage(ctx.chatId, '⏳ Merangkum teks...', { quotedMessageId: ctx.id });
+      try {
+        const result = await summarizeText(text);
+        await adapter.sendMessage(ctx.chatId, `${result.summary}\n\n_(Diringkas via: ${result.provider})_`, { quotedMessageId: ctx.id });
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal merangkum teks: ${err.message || err}`, { quotedMessageId: ctx.id });
+      }
       return;
     }
 
@@ -211,7 +216,7 @@ Format response harus berupa JSON mentah saja dengan schema berikut (tanpa markd
   "penjelasan": "Penjelasan detail kenapa opsi tersebut benar..."
 }`;
         const rawJson = await aiProviderService.generateText(prompt, "Anda adalah asisten pembuat soal ujian yang hanya membalas dengan format JSON saja.");
-        
+
         // Clean JSON formatting if model added markdown codeblock
         const cleanJson = rawJson.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
         const data = JSON.parse(cleanJson);
@@ -246,7 +251,7 @@ Format response harus berupa JSON mentah saja dengan schema berikut (tanpa markd
         const num2 = Math.floor(Math.random() * 15) + 2;
         const op = Math.random() > 0.5 ? '*' : '+';
         const ans = op === '*' ? num1 * num2 : num1 + num2;
-        
+
         const existing = activeQuizzes.get(ctx.chatId);
         if (existing) clearTimeout(existing.timer);
 

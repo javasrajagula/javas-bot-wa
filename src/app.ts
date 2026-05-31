@@ -40,6 +40,7 @@ import './commands/community/business.command.js';
 import './commands/community/finance.command.js';
 import './commands/community/automation.command.js';
 import './commands/games/games.command.js';
+import './commands/games/werewolf.command.js';
 import './commands/games/mission.command.js';
 import { getMaintenanceMode } from './commands/owner/owner.command.js';
 import './commands/owner/error.command.js';
@@ -74,6 +75,18 @@ async function bootstrap() {
   await achievementService.initAchievements();
   await seedSystemDefaults();
   console.log('[System] Default shop items and warning rules initialized.');
+
+  console.log('[System] Checking system dependencies...');
+  try {
+    const { checkAllDependencies } = await import('./services/system/dependency-check.service.js');
+    const deps = await checkAllDependencies();
+    if (!deps.ffmpeg) console.warn('[WARNING] FFmpeg tidak terdeteksi. Fitur media dan sticker akan gagal.');
+    if (!deps.ffprobe) console.warn('[WARNING] FFprobe tidak terdeteksi. Durasi media tidak dapat diperiksa.');
+    if (env.STT_COMMAND && !deps.sttCommand) console.warn(`[WARNING] STT_COMMAND "${env.STT_COMMAND}" tidak ditemukan. Fitur transkrip akan dinonaktifkan.`);
+    if (env.OCR_COMMAND && !deps.ocrCommand) console.warn(`[WARNING] OCR_COMMAND "${env.OCR_COMMAND}" tidak ditemukan.`);
+  } catch (err) {
+    console.error('[System] Gagal melakukan startup preflight dependency check:', err);
+  }
 
   console.log('[System] Initializing Werewolf Game Engine...');
   await werewolfEngine.boot();

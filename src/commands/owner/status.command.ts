@@ -248,6 +248,43 @@ export class StatusHealthCommand implements Command {
       return;
     }
 
+    // /checkdeps — system dependencies checklist (owner only)
+    if (commandType === 'checkdeps') {
+      if (!isOwner(ctx.senderId)) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya untuk Owner.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      await adapter.sendMessage(ctx.chatId, '⏳ Memeriksa dependensi sistem...', { quotedMessageId: ctx.id });
+      const { checkAllDependencies } = await import('../../services/system/dependency-check.service.js');
+      const deps = await checkAllDependencies();
+
+      const output = [
+        `🧩 Dependency Check`,
+        ``,
+        `Media:`,
+        `• ffmpeg: ${deps.ffmpeg ? 'OK' : 'Missing'}`,
+        `• ffprobe: ${deps.ffprobe ? 'OK' : 'Missing'}`,
+        `• font file: ${deps.fontFile ? 'OK' : 'Missing'}`,
+        ``,
+        `Document:`,
+        `• pdftoppm: ${deps.pdftoppm ? 'OK' : 'Missing'}`,
+        `• pdftotext: ${deps.pdftotext ? 'OK' : 'Missing'}`,
+        ``,
+        `Text:`,
+        `• tesseract: ${deps.tesseract ? 'OK' : 'Missing'}`,
+        `• OCR_COMMAND: ${deps.ocrCommand ? 'OK' : env.OCR_COMMAND ? 'Missing' : 'Missing'}`,
+        `• STT_COMMAND: ${deps.sttCommand ? 'OK' : env.STT_COMMAND ? 'Missing' : 'Missing'}`,
+        ``,
+        `External:`,
+        `• REMOVEBG_PROVIDER: ${deps.removebgProvider}`,
+        `• TTS_PROVIDER: ${deps.ttsProvider}`
+      ].join('\n');
+
+      await adapter.sendMessage(ctx.chatId, output, { quotedMessageId: ctx.id });
+      return;
+    }
+
     // /securitycheck — security audit (owner only)
     if (commandType === 'securitycheck' || commandType === 'setupcheck') {
       if (!isOwner(ctx.senderId)) {
@@ -391,6 +428,7 @@ registerCommand(['health'], cmd);
 registerCommand(['uptime'], cmd);
 registerCommand(['workers', 'workerstatus'], cmd);
 registerCommand(['diagnose'], cmd);
+registerCommand(['checkdeps'], cmd);
 registerCommand(['securitycheck', 'setupcheck'], cmd);
 registerCommand(['providerstatus'], cmd);
 registerCommand(['dbstatus'], cmd);

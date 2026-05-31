@@ -304,6 +304,21 @@ model CustomVariable {
   @@unique([groupId, userId, key])
 }
 
+model GroupUserStats {
+  id           String   @id @default(uuid())
+  groupId      String
+  userId       String
+  messageCount Int      @default(0)
+  commandCount Int      @default(0)
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([groupId, userId])
+  @@index([groupId, messageCount])
+  @@index([groupId, lastActiveAt])
+}
+
 model Webhook {
   id        String   @id @default(uuid())
   groupId   String?

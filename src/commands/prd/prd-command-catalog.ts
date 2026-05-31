@@ -206,7 +206,7 @@ function categoryFor(command: string): string {
   for (const [category, keywords] of CATEGORY_KEYWORDS) {
     if (keywords.some((keyword) => command.includes(keyword))) return category;
   }
-  if (['menu', 'help', 'ping', 'start', 'cmd', 'cari'].includes(command)) return 'help';
+  if (['menu', 'help', 'ping', 'start', 'cmd', 'cari'].includes(command)) return 'general';
   return 'general';
 }
 

@@ -19,6 +19,7 @@ export async function localUpscale(imageBuffer: Buffer, scale: 2 | 4 = 2): Promi
     .resize(targetWidth, targetHeight, {
       kernel: 'lanczos3'
     })
+    .normalize()
     .sharpen(1.2, 1.0, 1.5)
     .jpeg({ quality: 90 })
     .toBuffer();

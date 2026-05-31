@@ -1,693 +1,980 @@
-# PRD: Stabilization & Production Hardening Javas Bot WA
+# PRD Addendum: Fix Media, Sticker, Game, OCR/STT, Translate, and Text Reliability
 
 ## 1. Ringkasan
 
-Javas Bot WA adalah bot WhatsApp berbasis Node.js, TypeScript, Baileys, Prisma, dan SQLite. Audit kode menemukan beberapa masalah yang dapat berdampak pada runtime, keamanan, reliability, dan kesiapan produksi.
+Beberapa fitur bot belum berfungsi stabil:
 
-PRD ini mendefinisikan kebutuhan produk dan teknis untuk memperbaiki bug prioritas, memperkuat keamanan, memperjelas dokumentasi, dan membuat sistem lebih siap dipakai pada grup WhatsApp aktif.
+1. `/hd` tidak berfungsi.
+2. Game Werewolf tidak bisa jalan karena command tidak tersedia/terdaftar.
+3. `/vstiker` menghasilkan area hitam karena video belum dipotong/crop dengan benar.
+4. `/removebg` tidak berfungsi.
+5. Stiker belum memiliki metadata nama bot “Javas Bot WA”.
+6. Teks meme tidak jelas.
+7. `/wm` gagal menambahkan watermark.
+8. STT offline belum dikonfigurasi.
+9. `/togif` error dengan `jidDecode(...) is undefined`.
+10. `/translate` atau fitur text provider kadang menghasilkan `internal-server-error`.
+11. `/pdf2img` gagal karena Poppler belum tersedia.
+12. Jawaban game tebak kata tidak direspons.
+13. OCR otomatis gagal karena Tesseract atau `OCR_COMMAND` belum tersedia.
+14. `/ringkas` hasilnya belum jelas dan sering tidak akurat.
+
+PRD ini bertujuan memperbaiki reliability fitur-fitur tersebut dengan pendekatan: preflight dependency check, command registry validation, media pipeline standar, graceful fallback, dan test coverage.
+
+---
 
 ## 2. Tujuan
 
-### 2.1 Tujuan Utama
-
-1. Memastikan semua command berjalan konsisten di grup dan private chat.
-2. Memperbaiki bug konfigurasi dan state runtime yang menyebabkan fitur tidak bekerja sesuai ekspektasi.
-3. Meningkatkan keamanan terhadap SSRF, file deletion berbahaya, brute force dashboard, dan kebocoran data log.
-4. Meningkatkan reliability queue, state store, backup, dan job processing.
-5. Mengurangi penurunan performa ketika data usage/log semakin besar.
-6. Menyamakan dokumentasi dengan implementasi aktual.
-
-### 2.2 Non-Goals
-
-1. Tidak menambah fitur baru besar seperti AI provider baru, payment gateway, atau marketplace eksternal.
-2. Tidak mengganti total arsitektur bot.
-3. Tidak melakukan redesign UI dashboard besar-besaran.
-4. Tidak mengganti Baileys dengan library WhatsApp lain.
-5. Tidak membuat multi-tenant SaaS penuh.
-
-## 3. Masalah yang Akan Diselesaikan
-
-### P0 — Critical Runtime Bugs
-
-#### P0.1 Private Chat Command Tidak Dieksekusi
-
-Saat ini flow validasi dan eksekusi command berada terlalu dalam di blok khusus grup. Akibatnya command di private chat bisa berhenti sebelum `registeredCmd.execute()` dijalankan.
-
-**Dampak:**
-
-* `/menu`, `/ai`, `/invoice`, `/premiumguide`, dan command owner di private chat bisa tidak merespons.
-* Private quota check menjadi unreachable.
-* User experience rusak karena bot terlihat diam.
-
-#### P0.2 Maintenance Mode Tidak Persist Setelah Restart
-
-Maintenance mode disimpan di DB/state store, tetapi router hanya membaca variabel runtime default. Setelah restart, maintenance bisa kembali nonaktif sampai ada proses lain yang memuat state.
-
-**Dampak:**
-
-* Owner mengira bot sedang maintenance, padahal setelah restart user biasa bisa memakai bot.
-
-#### P0.3 Plugin Downloader Tidak Bisa Dimatikan Secara Global
-
-Command downloader memakai metadata plugin `downloader`, tetapi plugin `downloader` tidak ada di daftar plugin awal. Unknown plugin juga dianggap aktif.
-
-**Dampak:**
-
-* Owner tidak benar-benar bisa disable downloader global.
-* Sistem plugin tidak fail-safe.
+1. Semua command yang ditampilkan di menu benar-benar terdaftar dan bisa dijalankan.
+2. Fitur media menghasilkan output yang bersih, playable, dan sesuai format WhatsApp.
+3. Fitur eksternal seperti OCR, STT, Poppler, removebg, translate, dan ringkas memiliki preflight check yang jelas.
+4. Error teknis tidak bocor ke user sebagai stack trace atau pesan mentah.
+5. Game berbasis session, seperti tebak kata dan Werewolf, dapat menerima jawaban non-command.
+6. Bot tidak crash karena JID invalid atau `jidDecode()` gagal.
+7. Dokumentasi `.env.example` dan README menjelaskan dependency wajib/opsional.
 
 ---
 
-### P1 — Security & Production Readiness
+## 3. Non-Goals
 
-#### P1.1 Helper Download Umum Belum Aman dari SSRF
-
-Helper download umum menerima URL langsung tanpa validasi private IP, DNS resolution, timeout kuat, atau size limit.
-
-#### P1.2 `safeDelete()` Bisa Menghapus Path Arbitrary
-
-Fungsi delete menerima path apa pun dan dapat menghapus folder secara recursive tanpa memastikan path berada di direktori temp.
-
-#### P1.3 Dashboard Login Rate Limit Bisa Di-bypass
-
-Dashboard memakai `X-Forwarded-For` tanpa menghormati config `TRUST_PROXY`.
-
-#### P1.4 Log Debug Selalu Mencetak Identitas Chat/User
-
-Adapter Baileys mencetak chat ID, sender ID, dan sender name tanpa cek level log.
+1. Tidak mengganti seluruh library Baileys.
+2. Tidak membuat AI provider baru yang kompleks.
+3. Tidak membangun dashboard baru.
+4. Tidak membuat semua fitur premium baru.
+5. Tidak melakukan rewrite total semua command game.
 
 ---
 
-### P2 — Reliability & Data Durability
-
-#### P2.1 Queue Tetap In-Memory Walaupun Ada Redis Config
-
-Env menyediakan `USE_REDIS` dan `REDIS_URL`, tetapi queue fitur tetap memakai memory queue.
-
-#### P2.2 State Store File Menulis Seluruh State Setiap Mutasi
-
-File state store menyimpan seluruh map ke disk setiap `set/delete`, yang akan berat saat state membesar.
-
-#### P2.3 `ffprobe` Tidak Memiliki Timeout
-
-FFmpeg wrapper punya timeout, tetapi ffprobe duration check belum punya timeout.
-
-#### P2.4 Backup Config Export/Import Tidak Simetris
-
-Export config menyertakan beberapa entity, tetapi import hanya memulihkan sebagian.
+# 4. Functional Requirements
 
 ---
 
-### P3 — Performance, Schema, dan Dokumentasi
+## FR-001 — Fix `/hd` Reliability
 
-#### P3.1 UsageLog dan Tabel Log Tidak Punya Index Penting
+### Problem
 
-Query harian berdasarkan `groupId`, `userId`, dan `createdAt` dapat menjadi lambat saat data membesar.
+Command `/hd` tersedia, tetapi tidak berfungsi stabil. Kemungkinan penyebab:
 
-#### P3.2 Env Mengaku Mendukung PostgreSQL/MySQL, Tetapi Prisma Hard-coded SQLite
+1. service HD gagal diam-diam,
+2. dependency image processing tidak siap,
+3. input media tidak valid,
+4. output terlalu besar,
+5. error tidak cukup jelas.
 
-Konfigurasi memberi kesan DB provider dapat diganti, tetapi schema Prisma masih statis SQLite.
+### Required Changes
 
-#### P3.3 README dan `.env.example` Tidak Konsisten
+Target file:
 
-README memakai default Baileys, `.env.example` memakai console.
-
-#### P3.4 Beberapa Fitur Tidak Sesuai Klaim
-
-Contoh: `/subtitle` diklaim otomatis, tetapi implementasi masih simulasi text overlay.
-
-## 4. Target Pengguna
-
-1. **Owner Bot**
-
-   * Ingin bot stabil, aman, dan dapat dikelola dari dashboard/command.
-2. **Admin Grup**
-
-   * Ingin fitur grup, moderation, dan command berjalan konsisten.
-3. **User Grup**
-
-   * Ingin bot merespons cepat dan tidak error.
-4. **Developer/Maintainer**
-
-   * Ingin struktur kode jelas, testable, dan tidak misleading.
-
-## 5. Requirements
-
-## 5.1 Functional Requirements
-
-### FR-001 — Refactor Router Command
-
-Sistem harus memproses command dengan flow yang sama untuk grup dan private chat.
-
-**Detail:**
-
-1. Parse command dan alias dilakukan untuk semua chat.
-2. Group-specific checks hanya dijalankan jika `ctx.isGroup === true`.
-3. Private-specific quota check dijalankan jika `ctx.isGroup === false`.
-4. Usage log dibuat untuk grup dan private chat.
-5. `registeredCmd.execute()` harus selalu tercapai jika command valid dan semua check lolos.
-
-**Acceptance Criteria:**
-
-* `/menu` di private chat mengirim respons.
-* `/invoice` di private chat mengirim respons.
-* `/maintenance` owner di private chat bekerja.
-* Private quota check aktif untuk user non-premium.
-* Group command tetap mematuhi feature flag dan subscription.
-
----
-
-### FR-002 — Persist Maintenance Mode Setelah Restart
-
-Maintenance mode harus dimuat dari DB/state store saat bootstrap.
-
-**Detail:**
-
-1. Saat startup, bot memanggil loader maintenance state.
-2. Router memakai function getter, bukan boolean runtime statis.
-3. Cache boleh digunakan dengan TTL, tetapi DB tetap source of truth.
-
-**Acceptance Criteria:**
-
-* Aktifkan maintenance.
-* Restart bot.
-* User non-owner tetap ditolak memakai command.
-* Owner tetap bisa memakai command.
-
----
-
-### FR-003 — Tambahkan Plugin Downloader
-
-Plugin manager harus mengenali plugin `downloader`.
-
-**Detail:**
-
-1. Tambahkan entry plugin `downloader`.
-2. Semua command downloader harus terdaftar di plugin tersebut.
-3. Unknown plugin tidak boleh otomatis dianggap aktif tanpa warning.
-4. Owner dapat disable/enable downloader dari command/dashboard.
-
-**Acceptance Criteria:**
-
-* `/plugin downloader off` membuat `/tt`, `/ig`, `/ytmp3`, dan command downloader lain ditolak.
-* `/plugin downloader on` mengaktifkan kembali command.
-* Unknown plugin menghasilkan log warning.
-
----
-
-### FR-004 — Hardening Helper Download
-
-Semua helper download URL harus aman terhadap SSRF dan file besar.
-
-**Detail:**
-
-1. Gunakan URL validator terpusat.
-2. Resolve DNS dan blok private IP, localhost, link-local, multicast, cloud metadata IP.
-3. Tambahkan timeout.
-4. Tambahkan max bytes streaming.
-5. Tambahkan allowlist content-type jika fitur membutuhkan.
-
-**Acceptance Criteria:**
-
-* URL `http://127.0.0.1` ditolak.
-* URL yang redirect ke private IP ditolak.
-* File melebihi limit dihentikan dan temp file dihapus.
-* Timeout menghasilkan error yang aman dibaca user.
-
----
-
-### FR-005 — Hardening Safe Delete
-
-`safeDelete()` harus hanya menghapus file/folder di direktori yang diizinkan.
-
-**Detail:**
-
-1. Tambahkan `safeDeleteTemp(path)` untuk temp-only deletion.
-2. Validasi path hasil `path.resolve`.
-3. Tolak deletion di luar temp/output/backup directory yang eksplisit diizinkan.
-4. Audit semua pemanggil `safeDelete`.
-
-**Acceptance Criteria:**
-
-* Path `../../important` ditolak.
-* Path absolut di luar temp ditolak.
-* Temp file tetap bisa dihapus.
-* Tidak ada recursive delete tanpa allowlist directory.
-
----
-
-### FR-006 — Redis Queue Implementation
-
-Jika `USE_REDIS=true`, queue harus durable memakai Redis-backed queue.
-
-**Detail:**
-
-1. Buat interface queue tetap sama.
-2. Implement Redis/BullMQ queue untuk downloader, HD, dan general.
-3. Job status harus konsisten dengan DB.
-4. MemoryQueue tetap tersedia untuk development.
-5. Dashboard queue menampilkan status dari queue aktif.
-
-**Acceptance Criteria:**
-
-* Dengan `USE_REDIS=false`, MemoryQueue tetap berjalan.
-* Dengan `USE_REDIS=true`, job tetap ada setelah restart worker.
-* Job failed dapat diretry.
-* Queue dashboard menampilkan waiting/active/failed/completed.
-
----
-
-### FR-007 — Perbaiki Backup Config Import
-
-Import config harus mendukung semua entity yang diekspor.
-
-**Detail:**
-
-1. Import `groups`.
-2. Import `subscriptions`.
-3. Import `premiumUsers`.
-4. Import `warningRules`.
-5. Import `shopItems`.
-6. Import `achievements`.
-7. Validasi versi schema backup.
-
-**Acceptance Criteria:**
-
-* Export lalu import menghasilkan jumlah entity yang sama.
-* Import menolak file JSON yang bukan backup config.
-* Import tidak menghapus data existing kecuali ada mode explicit overwrite.
-
----
-
-### FR-008 — Tambahkan Index Database
-
-Tambahkan index untuk query high-frequency.
-
-**Minimal index:**
-
-```prisma
-model UsageLog {
-  // existing fields
-  @@index([groupId, createdAt])
-  @@index([userId, groupId, createdAt])
-  @@index([feature, createdAt])
-}
-
-model GroupLog {
-  // existing fields
-  @@index([groupId, createdAt])
-  @@index([type, createdAt])
-}
-
-model Warning {
-  // existing fields
-  @@index([groupId, userId])
-}
-
-model InfractionLog {
-  // existing fields
-  @@index([groupId, userId, createdAt])
-}
-
-model Blacklist {
-  // existing fields
-  @@index([scope, groupId, userId])
-}
-
-model AutoReply {
-  // existing fields
-  @@index([groupId, trigger])
-}
+```txt
+src/commands/media/media.command.ts
+src/services/hd/hd.service.ts
 ```
 
-**Acceptance Criteria:**
+Tambahkan:
 
-* Migration berhasil.
-* Query quota harian tetap benar.
-* Command latency tidak memburuk saat UsageLog besar.
+1. Validasi input hanya image/sticker yang bisa diproses.
+2. Validasi ukuran file sebelum HD.
+3. Preflight untuk dependency HD.
+4. Fallback sederhana jika enhancer utama gagal:
 
----
+   * upscale dengan Sharp,
+   * sharpen,
+   * normalize,
+   * output PNG/JPEG.
+5. Error message user-friendly.
 
-### FR-009 — Konsistensi JID/User ID
+### Acceptance Criteria
 
-Sistem harus memakai normalisasi JID/user ID yang konsisten.
-
-**Detail:**
-
-1. Buat util `normalizeUserId`, `normalizePhone`, `normalizeGroupId`.
-2. Owner check, premium check, admin check, blacklist, warning, usage, dan economy memakai util yang sama.
-3. Simpan canonical ID di database untuk user baru.
-4. Support Baileys JID dengan suffix device/LID sejauh memungkinkan.
-
-**Acceptance Criteria:**
-
-* Owner tetap terdeteksi walau JID punya suffix.
-* Premium user tetap terdeteksi di private dan grup.
-* Admin check tidak gagal karena format JID berbeda.
+1. `/hd` pada gambar valid mengirim gambar hasil enhancement.
+2. `/hd 2x` bekerja untuk free user sesuai limit.
+3. `/hd 4x` hanya untuk premium.
+4. Jika enhancer gagal, fallback Sharp tetap mencoba.
+5. Jika semua gagal, user mendapat pesan jelas, bukan stack trace.
 
 ---
 
-### FR-010 — Dashboard Security Patch
+## FR-002 — Register and Implement Werewolf Commands
 
-Dashboard harus lebih aman untuk production.
+### Problem
 
-**Detail:**
+Werewolf tidak bisa jalan karena tidak ada command yang benar-benar terdaftar atau command registry tidak sinkron dengan metadata/menu.
 
-1. Gunakan `TRUST_PROXY` sebelum menerima `X-Forwarded-For`.
-2. Kurangi informasi pada endpoint unauthenticated.
-3. Tambahkan security headers:
+### Required Changes
 
-   * `X-Frame-Options: DENY`
-   * `X-Content-Type-Options: nosniff`
-   * `Referrer-Policy: no-referrer`
-   * basic CSP
-4. Audit log untuk login sukses/gagal.
-5. API broadcast harus rate-limited dan queued.
+Target files:
 
-**Acceptance Criteria:**
+```txt
+src/commands/games/werewolf.command.ts
+src/commands/games/index.ts
+src/commands/registry/command-metadata.ts
+src/config/plugins.ts
+```
 
-* Spoof `X-Forwarded-For` tidak bypass rate limit ketika `TRUST_PROXY=false`.
-* `/health` hanya mengembalikan minimal status.
-* POST dashboard tanpa CSRF tetap ditolak.
-* API broadcast masuk queue dan tercatat audit.
+Tambahkan command minimal:
 
----
+```txt
+/ww start
+/ww join
+/ww leave
+/ww begin
+/ww vote
+/ww status
+/ww stop
+/ww help
+```
 
-### FR-011 — Timeout ffprobe
+Aliases:
 
-`getMediaDuration()` harus punya timeout.
+```txt
+/werewolf
+/ww
+```
 
-**Detail:**
+Pastikan command didaftarkan:
 
-1. Tambahkan env `FFPROBE_TIMEOUT_SECONDS`, default 30.
-2. Kill process jika timeout.
-3. Return error user-friendly.
+```ts
+registerCommand(['ww', 'werewolf'], new WerewolfCommand());
+```
 
-**Acceptance Criteria:**
+Pastikan plugin `games` mencakup:
 
-* File corrupt tidak menggantung.
-* Timeout tercatat di error log.
-* Job queue lanjut ke job berikutnya.
+```txt
+ww, werewolf, wwrank, wwstats
+```
 
----
+### Acceptance Criteria
 
-### FR-012 — Rapikan Dokumentasi
-
-README dan `.env.example` harus sesuai implementasi.
-
-**Detail:**
-
-1. Jelaskan default mode development: console atau Baileys, pilih satu.
-2. Jelaskan requirement FFmpeg dan Poppler.
-3. Jelaskan database yang benar-benar didukung.
-4. Tandai fitur simulasi seperti `/subtitle` jika belum otomatis sungguhan.
-5. Jelaskan Redis queue jika sudah diimplementasikan; jika belum, hapus klaim.
-
-**Acceptance Criteria:**
-
-* User baru dapat setup bot dari README tanpa kebingungan.
-* `.env.example` tidak memberi opsi yang belum didukung.
-* Semua dependency sistem eksternal tercantum.
-
-## 6. Non-Functional Requirements
-
-### 6.1 Security
-
-1. Semua URL eksternal harus divalidasi sebelum request.
-2. Semua file temp harus dibatasi ukuran dan lifetime.
-3. Tidak boleh ada log sensitif di production.
-4. Dashboard harus aman dari CSRF basic, brute force sederhana, dan information leak.
-5. Deletion file harus dibatasi pada allowlisted directories.
-
-### 6.2 Reliability
-
-1. Command valid harus selalu memberi respons atau error aman.
-2. Queue production harus durable.
-3. Restart bot tidak boleh menghilangkan maintenance mode.
-4. Worker error tidak boleh crash seluruh bot.
-5. Semua child process harus punya timeout.
-
-### 6.3 Performance
-
-1. Query high-frequency harus memakai index.
-2. In-memory map harus punya TTL atau migrasi ke Redis.
-3. Fitur heavy media harus punya concurrency limit.
-4. Usage log count harian harus tetap cepat pada data besar.
-
-### 6.4 Observability
-
-1. Error harus punya error ID.
-2. Queue status harus bisa dilihat dari dashboard/command.
-3. Audit log untuk aksi owner penting:
-
-   * maintenance on/off
-   * plugin on/off
-   * broadcast
-   * restore backup
-   * dashboard login
-   * import config
-
-## 7. Implementation Plan
-
-## Phase 1 — P0 Runtime Fixes
-
-### Tasks
-
-1. Refactor `routeMessage`.
-2. Tambah unit test untuk command private chat.
-3. Load maintenance mode saat bootstrap.
-4. Tambahkan plugin `downloader`.
-5. Ubah unknown plugin behavior.
-
-### Deliverable
-
-* Bot dapat menjalankan command private dan group secara konsisten.
-* Maintenance persist setelah restart.
-* Downloader bisa disable global.
+1. `/ww help` menampilkan bantuan.
+2. `/ww start` membuat lobby.
+3. `/ww join` menambah pemain.
+4. `/ww begin` memulai game jika pemain cukup.
+5. `/ww status` menampilkan fase game.
+6. Command muncul di menu dan benar-benar bisa dipakai.
+7. Jika command belum lengkap, menu harus menandainya sebagai beta, bukan fitur final.
 
 ---
 
-## Phase 2 — Security Hardening
+## FR-003 — Fix `/vstiker` Black Area
 
-### Tasks
+### Problem
 
-1. Hardening helper download.
-2. Buat safe temp deletion.
-3. Patch dashboard client IP handling.
-4. Tambahkan log masking.
-5. Tambahkan timeout ffprobe.
-6. Audit `/ssweb`, `/qr`, dan layanan pihak ketiga.
+Video sticker memiliki area hitam karena pipeline belum melakukan crop/scale/pad dengan benar.
 
-### Deliverable
+### Required Changes
 
-* SSRF protection berlaku konsisten.
-* File deletion aman.
-* Dashboard lebih aman untuk production.
-* Tidak ada log user ID mentah di production.
+Target files:
 
----
+```txt
+src/commands/sticker/sticker.command.ts
+src/services/sticker/sticker.service.ts
+```
 
-## Phase 3 — Data & Queue Reliability
+Gunakan pipeline FFmpeg yang konsisten untuk video sticker:
 
-### Tasks
+```txt
+scale=512:512:force_original_aspect_ratio=increase,
+crop=512:512,
+fps=15,
+format=yuva420p
+```
 
-1. Implement Redis queue saat `USE_REDIS=true`.
-2. Tambahkan queue recovery.
-3. Tambahkan index Prisma.
-4. Improve backup config import.
-5. Evaluasi state store file vs Redis.
+Output:
 
-### Deliverable
+```txt
+webp animated sticker
+```
 
-* Queue production durable.
-* Query usage/log lebih cepat.
-* Backup export/import konsisten.
-
----
-
-## Phase 4 — Documentation & Cleanup
-
-### Tasks
-
-1. Update README.
-2. Update `.env.example`.
-3. Update command docs.
-4. Tambahkan troubleshooting setup.
-5. Tandai fitur simulasi atau selesaikan implementasinya.
-
-### Deliverable
-
-* Dokumentasi sesuai kode.
-* Setup local dan production lebih jelas.
-
-## 8. Test Plan
-
-### 8.1 Unit Tests
-
-1. `routeMessage`:
-
-   * private valid command executes
-   * group valid command executes
-   * bot off blocks group except `/bot on`
-   * maintenance blocks non-owner
-   * maintenance allows owner
-
-2. Permission:
-
-   * owner normalization
-   * premium normalization
-   * admin detection mock
-
-3. Plugin:
-
-   * known plugin enabled
-   * downloader disable blocks command
-   * unknown plugin logs warning
-
-4. URL validator:
-
-   * localhost rejected
-   * private IP rejected
-   * redirect to private IP rejected
-   * allowed public platform accepted
-
-5. File utility:
-
-   * delete temp allowed
-   * delete outside temp rejected
-
-6. Backup:
-
-   * export/import roundtrip
-   * invalid config rejected
-
-### 8.2 Integration Tests
-
-1. Console adapter private chat:
-
-   * `[user1 in user1] /menu`
-2. Console adapter group chat:
-
-   * `[user1 in group1] /menu`
-3. Maintenance restart simulation.
-4. Queue add/process/retry.
-5. Dashboard login rate limit.
-6. Media timeout behavior.
-
-### 8.3 Manual QA
-
-1. Scan QR and connect Baileys.
-2. Test command:
-
-   * `/menu`
-   * `/feature`
-   * `/plugin downloader off`
-   * `/tt <url>`
-   * `/maintenance on`
-   * `/backup`
-   * `/restorebackup`
-3. Test dashboard:
-
-   * login
-   * toggle plugin
-   * view queue
-   * broadcast with confirmation
-
-## 9. Success Metrics
-
-1. 100% P0 bugs fixed.
-2. Private chat command response success rate > 99%.
-3. No known SSRF path through helper download.
-4. Queue job loss after restart = 0 when Redis enabled.
-5. Daily quota query remains under 100ms on 100k UsageLog rows.
-6. Dashboard login brute-force protection cannot be bypassed by spoofed header when `TRUST_PROXY=false`.
-7. README setup succeeds on clean machine following documented steps.
-
-## 10. Rollout Plan
-
-### Step 1 — Development Branch
-
-Create branch:
+Contoh filter:
 
 ```bash
-git checkout -b fix/stabilization-hardening
+-vf "fps=15,scale=512:512:force_original_aspect_ratio=increase,crop=512:512,format=yuva420p"
 ```
 
-### Step 2 — Implement P0 Fixes
+Tambahkan durasi maksimal:
 
-Merge only after tests pass.
+* free: 5 detik
+* premium: 10 detik
 
-### Step 3 — Implement Security Fixes
+### Acceptance Criteria
 
-Prioritize safe URL/file handling before adding any new external-request feature.
+1. `/vstiker` menghasilkan sticker 512x512.
+2. Tidak ada area hitam akibat aspect ratio.
+3. Video terlalu panjang dipotong otomatis sesuai limit.
+4. Output bisa dikirim sebagai sticker WhatsApp.
+5. File temp dibersihkan.
 
-### Step 4 — Implement Queue/DB Changes
+---
 
-Run Prisma migration and verify with seeded data.
+## FR-004 — Fix `/removebg`
 
-### Step 5 — Documentation Update
+### Problem
 
-Update README, `.env.example`, and command docs.
+`/removebg` tidak berfungsi. Kemungkinan penyebab:
 
-### Step 6 — Release
+1. API key removebg belum dikonfigurasi,
+2. provider tidak tersedia,
+3. tidak ada fallback,
+4. error tidak jelas,
+5. output image tidak valid.
 
-Tag release:
+### Required Changes
+
+Target files:
+
+```txt
+src/commands/sticker/sticker.command.ts
+src/services/removebg/removebg.service.ts
+src/config/env.schema.ts
+.env.example
+README.md
+```
+
+Tambahkan env:
+
+```env
+REMOVEBG_PROVIDER="none"
+REMOVEBG_API_KEY=""
+REMOVEBG_COMMAND=""
+```
+
+Provider mode:
+
+1. `none` — fitur dinonaktifkan dengan pesan jelas.
+2. `api` — pakai remove.bg API atau provider HTTP.
+3. `local` — pakai command lokal seperti rembg.
+
+Jika provider tidak dikonfigurasi, user harus menerima:
+
+```txt
+⚠️ Remove background belum dikonfigurasi. Set REMOVEBG_PROVIDER dan REMOVEBG_API_KEY atau REMOVEBG_COMMAND.
+```
+
+### Acceptance Criteria
+
+1. `/removebg` pada gambar valid berhasil jika provider tersedia.
+2. Jika provider belum tersedia, bot tidak crash.
+3. Error user jelas.
+4. `.env.example` menjelaskan konfigurasi removebg.
+5. Output PNG transparan valid.
+
+---
+
+## FR-005 — Add Sticker Metadata: Bot Name and Author
+
+### Problem
+
+Stiker belum memiliki nama pack/author “Javas Bot WA”.
+
+### Required Changes
+
+Target files:
+
+```txt
+src/services/sticker/sticker.service.ts
+src/commands/sticker/sticker.command.ts
+src/config/env.schema.ts
+.env.example
+```
+
+Tambahkan env:
+
+```env
+STICKER_PACK_NAME="Javas Bot WA"
+STICKER_AUTHOR_NAME="Javas"
+```
+
+Gunakan library atau util untuk embed EXIF WebP sticker metadata.
+
+Jika belum ada util, tambahkan:
+
+```txt
+src/services/sticker/sticker-metadata.service.ts
+```
+
+### Acceptance Criteria
+
+1. Stiker yang dibuat memiliki pack name `Javas Bot WA`.
+2. Author default `Javas`.
+3. Owner bisa mengubah lewat env.
+4. Metadata berlaku untuk stiker gambar dan video sticker.
+5. Jika metadata injection gagal, sticker tetap dikirim dan warning dicatat.
+
+---
+
+## FR-006 — Improve Meme Text Readability
+
+### Problem
+
+Teks meme tidak jelas.
+
+### Required Changes
+
+Target files:
+
+```txt
+src/commands/sticker/sticker.command.ts
+src/services/meme/meme.service.ts
+```
+
+Tambahkan standar rendering:
+
+1. Font bold.
+2. Uppercase optional.
+3. White text.
+4. Black stroke/outline.
+5. Auto-wrap.
+6. Dynamic font size.
+7. Safe margin.
+8. Top and bottom text support.
+9. Minimum contrast.
+
+Untuk Sharp/SVG:
+
+```txt
+stroke="black"
+stroke-width="4"
+fill="white"
+font-weight="700"
+text-anchor="middle"
+```
+
+### Acceptance Criteria
+
+1. Teks meme terbaca pada gambar terang dan gelap.
+2. Teks panjang otomatis wrap.
+3. Teks tidak keluar frame.
+4. Top dan bottom text bisa dibaca jelas.
+
+---
+
+## FR-007 — Fix `/wm` Watermark Failure
+
+### Problem
+
+`/wm` gagal menambahkan watermark.
+
+Kemungkinan penyebab:
+
+1. FFmpeg `drawtext` tidak menemukan font.
+2. Teks tidak di-escape.
+3. Watermark video memakai filter yang tidak kompatibel.
+4. Watermark image pakai SVG yang gagal dirender.
+5. Media type tidak ditangani dengan jelas.
+
+### Required Changes
+
+Target files:
+
+```txt
+src/commands/media/media.command.ts
+src/services/watermark/watermark.service.ts
+```
+
+Pisahkan logic:
+
+1. `watermarkImage(buffer, text)`
+2. `watermarkVideo(buffer, text)`
+
+Untuk video:
+
+* escape `:`, `'`, `\`, `%`
+* gunakan fontfile jika tersedia
+* tambahkan env:
+
+```env
+FONT_FILE_PATH=""
+```
+
+Jika `FONT_FILE_PATH` tidak ada, fallback ke image overlay watermark, bukan drawtext.
+
+### Acceptance Criteria
+
+1. `/wm teks` berhasil pada gambar.
+2. `/wm teks` berhasil pada video.
+3. Teks dengan tanda baca tidak merusak FFmpeg filter.
+4. Error font tidak membuat command crash.
+5. User mendapat pesan jelas jika watermark gagal.
+
+---
+
+## FR-008 — STT Offline Dependency Handling
+
+### Problem
+
+STT gagal dengan pesan:
+
+```txt
+⚠️ STT offline belum dikonfigurasi. Set STT_COMMAND ke wrapper Whisper/Vosk lokal yang menerima path file audio dan mencetak teks ke stdout.
+```
+
+### Required Changes
+
+Target files:
+
+```txt
+src/services/stt/stt.service.ts
+src/config/env.schema.ts
+.env.example
+README.md
+```
+
+Tambahkan preflight:
+
+1. Saat bot start, cek apakah `STT_COMMAND` tersedia jika fitur transkrip aktif.
+2. Jika tidak tersedia, tandai fitur STT disabled.
+3. Command `/transkrip` harus memberi pesan konfigurasi yang jelas.
+4. Tambahkan contoh wrapper Whisper/Vosk di dokumentasi.
+
+Env:
+
+```env
+STT_COMMAND=""
+STT_TIMEOUT_SECONDS="120"
+```
+
+Contoh dokumentasi:
 
 ```bash
-git tag v1.1.0-stabilization
+STT_COMMAND="python scripts/whisper_stt.py"
 ```
 
-## 11. Risks
+Wrapper contract:
 
-### Risk 1 — Refactor Router Bisa Merusak Command Grup
+```txt
+Input: path file audio sebagai argumen pertama
+Output: teks transkripsi ke stdout
+Exit code 0: sukses
+Exit code non-zero: gagal
+```
 
-**Mitigation:** tambahkan test sebelum refactor dan snapshot behavior untuk command utama.
+### Acceptance Criteria
 
-### Risk 2 — Redis Queue Menambah Kompleksitas Deployment
+1. `/transkrip` tidak crash saat STT belum dikonfigurasi.
+2. User menerima pesan setup yang jelas.
+3. Jika `STT_COMMAND` valid, transkripsi berjalan.
+4. Timeout STT bekerja.
+5. README memberi contoh konfigurasi.
 
-**Mitigation:** MemoryQueue tetap default untuk development; Redis hanya aktif bila `USE_REDIS=true`.
+---
 
-### Risk 3 — Normalisasi JID Bisa Mengubah Data Existing
+## FR-009 — Fix `/togif` JID Decode Crash
 
-**Mitigation:** buat migration/backfill opsional dan support backward compatibility lookup.
+### Problem
 
-### Risk 4 — Index Migration pada DB Besar Butuh Waktu
+`/togif` memicu error:
 
-**Mitigation:** jalankan migration saat low traffic dan backup database dulu.
+```txt
+Cannot destructure property 'user' of jidDecode(...) as it is undefined.
+```
 
-## 12. Open Questions
+Ini menunjukkan ada kode yang memanggil `jidDecode(jid)` lalu langsung destructuring tanpa cek hasil. Jika JID invalid, undefined, atau format non-WhatsApp, bot crash.
 
-1. Apakah production target tetap SQLite atau ingin resmi support PostgreSQL?
-2. Apakah Redis wajib untuk production deployment?
-3. Apakah `/subtitle` akan dibuat benar-benar otomatis memakai STT lokal, atau dokumentasinya diubah menjadi simulasi?
-4. Apakah layanan pihak ketiga seperti QR API dan screenshot API masih boleh dipakai?
-5. Apakah owner dashboard akan tetap bind localhost saja atau akan diekspos publik melalui reverse proxy?
+### Required Changes
 
-## 13. Definition of Done
+Target files:
 
-PRD ini dianggap selesai diimplementasikan jika:
+```txt
+src/utils/jid.util.ts
+src/bot/permission.ts
+src/commands/index.ts
+src/services/achievement/*
+src/commands/media/media.command.ts
+```
 
-1. Semua P0 selesai dan lolos test.
-2. Security hardening URL/file/dashboard selesai.
-3. Queue Redis aktif saat dikonfigurasi.
-4. Backup export/import konsisten.
-5. Index Prisma ditambahkan.
-6. Dokumentasi sudah sesuai implementasi.
-7. Tidak ada regression pada command utama:
+Tambahkan helper aman:
 
-   * `/menu`
-   * `/feature`
-   * `/plugin`
-   * `/maintenance`
-   * `/stiker`
-   * `/hd`
-   * `/tt`
-   * `/backup`
-   * `/invoice`
-8. Build, typecheck, dan test berjalan sukses:
+```ts
+export function safeJidDecode(jid: string | undefined | null) {
+  if (!jid) return null;
+
+  try {
+    const decoded = jidDecode(jid);
+    if (!decoded || !decoded.user) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+```
+
+Larangan:
+
+```ts
+const { user } = jidDecode(jid);
+```
+
+Harus diganti:
+
+```ts
+const decoded = safeJidDecode(jid);
+if (!decoded) {
+  // fallback
+}
+```
+
+### Acceptance Criteria
+
+1. `/togif` tidak menyebabkan routeMessage crash.
+2. JID invalid tidak membuat bot mati.
+3. Semua penggunaan `jidDecode` dicek.
+4. Error log menyebut JID invalid secara masked, bukan raw.
+5. Command media tetap mengirim hasil atau error user-friendly.
+
+---
+
+## FR-010 — Poppler Dependency Handling for `/pdf2img`
+
+### Problem
+
+PDF conversion gagal:
+
+```txt
+Poppler belum tersedia. Install Poppler dan pastikan pdftoppm ada di PATH untuk memakai /pdf2img.
+```
+
+### Required Changes
+
+Target files:
+
+```txt
+src/services/document/document-tools.service.ts
+src/services/system/dependency-check.service.ts
+README.md
+.env.example
+```
+
+Tambahkan startup dependency check untuk:
+
+```txt
+pdftoppm
+pdftotext
+```
+
+Tambahkan command owner:
+
+```txt
+/checkdeps
+```
+
+Output:
+
+```txt
+FFmpeg: OK
+FFprobe: OK
+Poppler pdftoppm: Missing
+Poppler pdftotext: Missing
+Tesseract: Missing
+STT_COMMAND: Missing
+OCR_COMMAND: Missing
+```
+
+### Acceptance Criteria
+
+1. `/pdf2img` gagal dengan pesan singkat dan jelas jika Poppler missing.
+2. `/checkdeps` menunjukkan status Poppler.
+3. README memberi instruksi install Poppler di Windows/Linux.
+4. Error tidak masuk routeMessage sebagai internal-server-error.
+
+---
+
+## FR-011 — Fix `/translate` and Text Provider Internal Server Error
+
+### Problem
+
+`/translate` mengalami:
+
+```txt
+internal-server-error
+```
+
+Kemungkinan penyebab:
+
+1. provider translate eksternal gagal,
+2. AI/text service tidak punya fallback,
+3. error tidak dipetakan ke pesan user,
+4. input kosong atau format tidak valid.
+
+### Required Changes
+
+Target files:
+
+```txt
+src/commands/text/text.command.ts
+src/services/text/text.service.ts
+src/services/translate/translate.service.ts
+```
+
+Tambahkan provider abstraction:
+
+```ts
+translateText(input, targetLang, sourceLang?)
+summarizeText(input)
+rewriteText(input, style)
+```
+
+Untuk translate:
+
+1. Validasi target language.
+2. Deteksi teks dari args atau quoted message.
+3. Provider fallback:
+
+   * local/simple dictionary no-op fallback untuk error,
+   * HTTP provider jika dikonfigurasi,
+   * AI provider jika tersedia.
+4. Tangkap `internal-server-error` dan ubah ke user-friendly message.
+
+### Acceptance Criteria
+
+1. `/tr en halo` mengembalikan translate atau error jelas.
+2. `/translate id Good morning` bekerja.
+3. Provider error tidak menghasilkan raw `internal-server-error`.
+4. Input kosong menampilkan usage.
+5. Semua error tercatat dengan error ID.
+
+---
+
+## FR-012 — Game Answer Router for Tebak Kata
+
+### Problem
+
+Saat menjawab tebak kata, tidak ada respon.
+
+Kemungkinan penyebab:
+
+1. Router hanya memproses command berprefix.
+2. Jawaban game non-command tidak diarahkan ke active game session.
+3. Session game tidak disimpan atau expired terlalu cepat.
+4. Handler jawaban tidak didaftarkan.
+
+### Required Changes
+
+Target files:
+
+```txt
+src/commands/index.ts
+src/commands/games/*
+src/services/games/game-session.service.ts
+```
+
+Tambahkan tahap routing sebelum command parsing selesai:
+
+```txt
+1. Jika pesan non-command dan ada active game session di chat:
+   - kirim ke game answer handler.
+2. Jika handler mengembalikan handled=true:
+   - stop router.
+3. Jika handled=false:
+   - lanjut normal.
+```
+
+Interface:
+
+```ts
+export interface GameAnswerHandler {
+  canHandle(ctx: MessageContext): Promise<boolean>;
+  handleAnswer(ctx: MessageContext, adapter: WhatsAppAdapter): Promise<boolean>;
+}
+```
+
+### Acceptance Criteria
+
+1. Bot merespons jawaban tebak kata tanpa prefix.
+2. Jawaban benar menutup/memperbarui sesi.
+3. Jawaban salah mendapat feedback atau diabaikan sesuai desain.
+4. Session expired memberi pesan jelas.
+5. Tidak mengganggu chat biasa saat tidak ada game aktif.
+
+---
+
+## FR-013 — OCR Dependency Handling
+
+### Problem
+
+OCR gagal:
+
+```txt
+OCR engine belum tersedia. Install Tesseract OCR atau set OCR_COMMAND.
+```
+
+### Required Changes
+
+Target files:
+
+```txt
+src/services/ocr/ocr.service.ts
+src/config/env.schema.ts
+README.md
+.env.example
+```
+
+Tambahkan env:
+
+```env
+OCR_COMMAND=""
+OCR_TIMEOUT_SECONDS="60"
+TESSERACT_CMD="tesseract"
+```
+
+Behavior:
+
+1. Jika `OCR_COMMAND` tersedia, gunakan command tersebut.
+2. Jika tidak, coba `tesseract`.
+3. Jika tidak tersedia, tampilkan pesan setup.
+4. `/checkdeps` harus mendeteksi OCR.
+
+### Acceptance Criteria
+
+1. OCR berjalan jika Tesseract tersedia.
+2. OCR berjalan jika `OCR_COMMAND` tersedia.
+3. Jika tidak tersedia, pesan jelas.
+4. OCR failure tidak mematikan fitur lain.
+5. Auto OCR tidak membuat output “ngaco” jika OCR kosong.
+
+---
+
+## FR-014 — Improve `/ringkas` Quality
+
+### Problem
+
+`/ringkas` hasilnya belum jelas dan sering “ngaco”.
+
+### Required Changes
+
+Target files:
+
+```txt
+src/commands/text/text.command.ts
+src/services/text/summarizer.service.ts
+```
+
+Tambahkan struktur ringkasan deterministic:
+
+```txt
+📝 Ringkasan:
+1. ...
+2. ...
+3. ...
+
+🔑 Poin penting:
+• ...
+• ...
+
+📌 Kesimpulan:
+...
+```
+
+Rules:
+
+1. Minimal input 80 karakter untuk ringkasan.
+2. Jika teks terlalu pendek, beri pesan bahwa teks belum cukup untuk diringkas.
+3. Jika AI provider tidak tersedia, gunakan extractive summarizer sederhana:
+
+   * pilih kalimat penting,
+   * buang duplikasi,
+   * maksimal 5 poin.
+4. Jangan halusinasi.
+5. Jangan menambahkan fakta di luar teks.
+
+### Acceptance Criteria
+
+1. `/ringkas <teks panjang>` menghasilkan ringkasan terstruktur.
+2. Teks pendek ditolak dengan pesan jelas.
+3. Jika provider AI error, fallback extractive berjalan.
+4. Output tidak menambahkan fakta baru.
+5. Quoted message bisa diringkas.
+
+---
+
+# 5. Cross-Cutting Requirement: Dependency Check System
+
+## FR-015 — Add `/checkdeps` Owner Command
+
+### Required Checks
+
+```txt
+ffmpeg
+ffprobe
+pdftoppm
+pdftotext
+tesseract
+OCR_COMMAND
+STT_COMMAND
+FONT_FILE_PATH
+REMOVEBG_PROVIDER
+TTS_PROVIDER
+```
+
+### Output Example
+
+```txt
+🧩 Dependency Check
+
+Media:
+• ffmpeg: OK
+• ffprobe: OK
+• font file: Missing
+
+Document:
+• pdftoppm: Missing
+• pdftotext: Missing
+
+Text:
+• tesseract: Missing
+• OCR_COMMAND: Missing
+• STT_COMMAND: Missing
+
+External:
+• REMOVEBG_PROVIDER: none
+• TTS_PROVIDER: google
+```
+
+### Acceptance Criteria
+
+1. Owner bisa menjalankan `/checkdeps`.
+2. Missing dependency tidak baru diketahui saat user memakai command.
+3. README sesuai dengan hasil checkdeps.
+
+---
+
+# 6. Implementation Plan
+
+## Phase 1 — Stop Crashes and Missing Commands
+
+1. Add safe JID decode helper.
+2. Replace all unsafe `jidDecode` destructuring.
+3. Register Werewolf command.
+4. Add game answer router for tebak kata.
+5. Add `/checkdeps`.
+6. Add clear dependency failure messages.
+
+## Phase 2 — Fix Media Output Quality
+
+1. Fix `/vstiker` crop/scale pipeline.
+2. Fix `/togif` pipeline and JID crash.
+3. Fix `/wm` image/video watermark service.
+4. Improve meme text rendering.
+5. Add sticker metadata.
+6. Fix `/hd` fallback.
+7. Fix `/removebg` provider handling.
+
+## Phase 3 — Fix Text/OCR/STT/Translate
+
+1. Add OCR preflight and fallback.
+2. Add STT preflight and wrapper docs.
+3. Fix translate provider error mapping.
+4. Improve `/ringkas` prompt and fallback.
+5. Add provider abstraction for text commands.
+
+## Phase 4 — Tests and Documentation
+
+1. Add unit tests.
+2. Add command smoke tests.
+3. Update README.
+4. Update `.env.example`.
+5. Add Windows install notes for Poppler, Tesseract, FFmpeg.
+
+---
+
+# 7. Test Plan
+
+## Media Tests
+
+1. `/hd` with valid image.
+2. `/vstiker` with portrait video.
+3. `/vstiker` with landscape video.
+4. `/togif` with short video.
+5. `/wm watermark` on image.
+6. `/wm watermark` on video.
+7. `/meme atas | bawah` on bright image.
+8. `/meme atas | bawah` on dark image.
+9. `/removebg` when provider missing.
+10. `/removebg` when provider available.
+
+## Game Tests
+
+1. `/ww help`.
+2. `/ww start`.
+3. `/ww join`.
+4. `/ww begin`.
+5. Start tebak kata.
+6. Answer tebak kata without prefix.
+7. Expired game answer.
+
+## Dependency Tests
+
+1. `/checkdeps` when Poppler missing.
+2. `/checkdeps` when Tesseract missing.
+3. `/checkdeps` when STT_COMMAND missing.
+4. `/pdf2img` when Poppler missing.
+5. `/ocr` when OCR missing.
+6. `/transkrip` when STT missing.
+
+## Text Tests
+
+1. `/tr en halo`.
+2. `/translate id Good morning`.
+3. `/ringkas <teks panjang>`.
+4. `/ringkas teks pendek`.
+5. Provider internal-server-error mapping.
+6. Quoted text summarization.
+
+## Crash Regression Tests
+
+1. Invalid JID does not crash routeMessage.
+2. `jidDecode()` returning undefined is handled.
+3. `/togif` does not produce routeMessage fatal error.
+4. All media errors return user-friendly message.
+
+---
+
+# 8. Verification Commands
 
 ```bash
 npm run typecheck
 npm run build
 npm test
+npx prisma validate
+npx prisma generate
 ```
+
+Manual smoke test:
+
+```txt
+/checkdeps
+/hd
+/vstiker
+/togif
+/removebg
+/meme atas | bawah
+/wm Javas Bot
+/ww help
+/tebakkata
+/tr en halo
+/ringkas <teks panjang>
+/ocr
+/transkrip
+/pdf2img
+```
+
+---
+
+# 9. Definition of Done
+
+PRD ini selesai jika:
+
+1. `/hd` menghasilkan output atau error yang jelas.
+2. `/ww help` dan command Werewolf tersedia.
+3. Tebak kata merespons jawaban non-command.
+4. `/vstiker` tidak menghasilkan area hitam.
+5. `/removebg` berhasil atau memberi pesan konfigurasi jelas.
+6. Stiker memiliki metadata `Javas Bot WA`.
+7. Meme text terbaca jelas.
+8. `/wm` berhasil untuk image/video.
+9. `/transkrip` menjelaskan STT missing atau menjalankan STT jika tersedia.
+10. `/togif` tidak crash karena `jidDecode`.
+11. `/translate` tidak menampilkan raw `internal-server-error`.
+12. `/pdf2img` memberi pesan Poppler missing yang jelas.
+13. OCR memberi pesan setup yang jelas jika Tesseract/OCR_COMMAND missing.
+14. `/ringkas` menghasilkan ringkasan terstruktur dan tidak halusinatif.
+15. `/checkdeps` tersedia untuk owner.
+16. README dan `.env.example` menjelaskan semua dependency.

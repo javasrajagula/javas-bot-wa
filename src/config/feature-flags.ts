@@ -67,20 +67,8 @@ export function parseFeatureFlags(featuresJsonStr: string): GroupFeatures {
  * Gets the feature flags for a group, creating group config if missing.
  */
 export async function getGroupFeatures(groupId: string): Promise<GroupFeatures> {
-  let config = await prisma.groupConfig.findUnique({
-    where: { groupId }
-  });
-
-  if (!config) {
-    config = await prisma.groupConfig.create({
-      data: {
-        groupId,
-        prefix: '/',
-        botEnabled: true,
-        featuresJson: JSON.stringify(DEFAULT_FEATURES),
-      }
-    });
-  }
+  const { getOrCreateGroupConfig } = await import('../services/system/default-record.service.js');
+  const config = await getOrCreateGroupConfig(groupId);
 
   return parseFeatureFlags(config.featuresJson);
 }

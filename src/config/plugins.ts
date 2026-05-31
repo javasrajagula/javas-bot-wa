@@ -112,6 +112,21 @@ const INITIAL_PLUGINS: PluginMetadata[] = [
     enabled: true,
     permission: 'OWNER',
     category: 'Owner'
+  },
+  {
+    name: 'general',
+    commands: [
+      'menu',
+      'help',
+      'start',
+      'cmd',
+      'cari',
+      'ping',
+      'status'
+    ],
+    enabled: true,
+    permission: 'USER',
+    category: 'General'
   }
 ];
 

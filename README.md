@@ -80,11 +80,20 @@ Buka `http://localhost:8787`. Mencakup overview, groups, feature flags, plugins,
 ```
 Backup disimpan di `backups/`, tidak menyertakan `.env` atau session WA.
 
-Utility non-paid AI:
-- **OCR** via Tesseract lokal (`OCR_COMMAND`)
-- **Transkripsi** via Whisper/Vosk lokal (`STT_COMMAND`)
-- **Translate** via self-hosted LibreTranslate (`LIBRETRANSLATE_URL`)
-- **PDF/ZIP** diproses lokal dengan limit ukuran dan proteksi path traversal
+Utility non-paid AI & Offline System Dependencies:
+- **FFmpeg & FFprobe**: Wajib untuk stiker video, GIF, reverse, watermark, dan konversi audio/video.
+  - *Windows*: Unduh dari gyan.dev, ekstrak, dan tambahkan folder `bin` ke Path System Environment Variables.
+  - *Linux*: `sudo apt install ffmpeg`
+- **OCR (Tesseract)**: Wajib untuk pembacaan teks dari gambar (`/ocr`).
+  - *Windows*: Unduh installer tesseract dari UB Mannheim, install, lalu set `TESSERACT_CMD` ke path instalasi (e.g. `C:\Program Files\Tesseract-OCR\tesseract.exe`) atau tambahkan ke PATH.
+  - *Linux*: `sudo apt install tesseract-ocr`
+- **Document (Poppler)**: Wajib untuk konversi PDF ke gambar (`/pdf2img`) dan ekstraksi teks PDF (`/pdftext`).
+  - *Windows*: Unduh binary Poppler untuk Windows, ekstrak, dan tambahkan folder `bin` ke PATH.
+  - *Linux*: `sudo apt install poppler-utils`
+- **STT (Whisper/Vosk)**: Konversi voice note ke teks (`/transkrip`).
+  - Konfigurasi `STT_COMMAND` ke wrapper script Python/executable Whisper atau Vosk Anda (e.g. `python scripts/whisper_stt.py`).
+- **Translate**: Diterjemahkan secara bertingkat: LibreTranslate (`LIBRETRANSLATE_URL`), OpenAI/Compatible AI API (`AI_PROVIDER`), atau Kamus Lokal.
+
 
 ---
 

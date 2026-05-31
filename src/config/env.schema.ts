@@ -46,6 +46,16 @@ export const envSchema = z.object({
   DOWNLOAD_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(300).default(30),
   DOWNLOAD_MAX_BYTES: z.coerce.number().int().min(1048576).max(524288000).default(104857600), // default 100MB
   DOWNLOAD_TRUSTED_HOSTS: optionalString.default(''), // comma-separated list
+  REMOVEBG_PROVIDER: z.enum(['none', 'api', 'local']).default('none'),
+  REMOVEBG_API_KEY: optionalString.default(''),
+  REMOVEBG_COMMAND: optionalString.default(''),
+  STICKER_PACK_NAME: z.string().default('Javas Bot WA'),
+  STICKER_AUTHOR_NAME: z.string().default('bot wa javas'),
+  FONT_FILE_PATH: optionalString.default(''),
+  STT_TIMEOUT_SECONDS: z.coerce.number().int().default(120),
+  OCR_TIMEOUT_SECONDS: z.coerce.number().int().default(60),
+  TESSERACT_CMD: z.string().default('tesseract'),
+  TTS_PROVIDER: z.string().default('google'),
 }).passthrough();
 
 export type Env = z.infer<typeof envSchema> & {

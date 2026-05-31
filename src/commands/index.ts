@@ -89,6 +89,11 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
     return; // Ignore muted user
   }
 
+  // Intercept game session answers (e.g. Tebak Kata) before processing commands
+  const { gameSessionService } = await import('../services/games/game-session.service.js');
+  const handledByGame = await gameSessionService.handleMessage(ctx, adapter);
+  if (handledByGame) return;
+
   const isGroup = ctx.isGroup;
 
   if (isGroup) {
@@ -107,20 +112,8 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   let groupConfig: any = null;
 
   if (isGroup) {
-    groupConfig = await prisma.groupConfig.findUnique({
-      where: { groupId: ctx.chatId }
-    });
-
-    if (!groupConfig) {
-      groupConfig = await prisma.groupConfig.create({
-        data: {
-          groupId: ctx.chatId,
-          prefix: '/',
-          botEnabled: true,
-          featuresJson: JSON.stringify(DEFAULT_FEATURES)
-        }
-      });
-    }
+    const { getOrCreateGroupConfig } = await import('../services/system/default-record.service.js');
+    groupConfig = await getOrCreateGroupConfig(ctx.chatId);
 
     prefix = groupConfig.prefix;
     botEnabled = groupConfig.botEnabled;
@@ -596,7 +589,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
           }
         });
         if (usageCount > maxCmd) {
-          await prisma.usageLog.delete({ where: { id: tempLog.id } }).catch(() => {});
+          await prisma.usageLog.delete({ where: { id: tempLog.id } }).catch(() => { });
           await adapter.sendMessage(
             ctx.chatId,
             `⚠️ *KUOTA HARIAN GRUP HABIS!* ⚠️\n\nGrup ini telah mencapai batas kuota harian *${maxCmd}* perintah (Paket ${groupPlan.toUpperCase()}).\nSewa paket PREMIUM untuk mendapatkan kuota tak terbatas! Ketik \`/sewa\` untuk informasi sewa.`,
@@ -618,7 +611,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
           }
         });
         if (usageCount > maxCmd) {
-          await prisma.usageLog.delete({ where: { id: tempLog.id } }).catch(() => {});
+          await prisma.usageLog.delete({ where: { id: tempLog.id } }).catch(() => { });
           await adapter.sendMessage(
             ctx.chatId,
             `⚠️ *KUOTA HARIAN ANDA HABIS!* ⚠️\n\nAnda telah mencapai batas kuota harian *${maxCmd}* perintah untuk chat pribadi.\nJadilah user PREMIUM untuk mendapatkan kuota tak terbatas! Ketik \`/invoice premium 1\` untuk membeli premium.`,
@@ -645,6 +638,11 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
     try {
       const { updateDailyMissionCmdCount } = await import('./games/mission.command.js');
       updateDailyMissionCmdCount(ctx.senderId).catch(err => console.error('[Mission Cmd Fail]', err));
+
+      if (isGroup) {
+        const { updateGroupUserCommandStats } = await import('./community/stats.command.js');
+        updateGroupUserCommandStats(ctx.chatId, ctx.senderId).catch(err => console.error('[Command Stats Update Fail]', err));
+      }
 
       await registeredCmd.execute(ctx, args, adapter);
 

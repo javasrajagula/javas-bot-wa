@@ -13,6 +13,7 @@ import {
   validateTimestamp,
   parseTimeToSeconds
 } from '../../validators/media.validator.js';
+import { watermarkImage, watermarkVideo } from '../../services/watermark/watermark.service.js';
 
 export class MediaSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
@@ -184,42 +185,17 @@ export class MediaSuiteCommand implements Command {
 
       if (media.type === 'image') {
         try {
-          const svg = `
-            <svg width="500" height="50">
-              <text x="490" y="35" font-family="Arial" font-size="24" fill="white" opacity="0.6" text-anchor="end">
-                ${cleanText}
-              </text>
-            </svg>
-          `;
-          const watermarked = await sharp(buffer)
-            .composite([{ input: Buffer.from(svg), gravity: 'southeast' }])
-            .toBuffer();
-
+          const watermarked = await watermarkImage(buffer, cleanText);
           await adapter.sendImage(ctx.chatId, watermarked, 'Watermark berhasil ditambahkan.', { quotedMessageId: ctx.id });
-        } catch (err) {
-          await adapter.sendMessage(ctx.chatId, '❌ Gagal menambahkan watermark.', { quotedMessageId: ctx.id });
+        } catch (err: any) {
+          await adapter.sendMessage(ctx.chatId, `❌ Gagal menambahkan watermark ke gambar: ${err.message || err}`, { quotedMessageId: ctx.id });
         }
       } else if (media.type === 'video') {
-        const tempIn = getTempPath('mp4');
-        const tempOut = getTempPath('mp4');
         try {
-          fs.writeFileSync(tempIn, buffer);
-          const args = [
-            '-y',
-            '-i', tempIn,
-            '-vf', `drawtext=text='${cleanText}':x=w-tw-10:y=h-th-10:fontsize=24:fontcolor=white@0.6`,
-            '-codec:a', 'copy',
-            tempOut
-          ];
-          await runFfmpeg(args);
-
-          const wmVideo = fs.readFileSync(tempOut);
+          const wmVideo = await watermarkVideo(buffer, cleanText);
           await adapter.sendVideo(ctx.chatId, wmVideo, 'Video watermark berhasil.', { quotedMessageId: ctx.id });
-        } catch (err) {
-          await adapter.sendMessage(ctx.chatId, '❌ Gagal menambahkan watermark ke video.', { quotedMessageId: ctx.id });
-        } finally {
-          safeDelete(tempIn);
-          safeDelete(tempOut);
+        } catch (err: any) {
+          await adapter.sendMessage(ctx.chatId, `❌ Gagal menambahkan watermark ke video: ${err.message || err}`, { quotedMessageId: ctx.id });
         }
       }
       return;

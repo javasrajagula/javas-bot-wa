@@ -2,60 +2,117 @@ import { Command, registerCommand, checkIfAdmin } from '../index.js';
 import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
 import prisma from '../../db/client.js';
+import { isUniqueConstraintError } from '../../utils/prisma-error.util.js';
 
 export async function updateGroupUserStats(groupId: string, userId: string) {
   try {
-    const nowStr = String(Date.now());
-
-    // 1. Increment message count
-    const existingCount = await prisma.customVariable.findUnique({
+    const now = new Date();
+    await prisma.groupUserStats.upsert({
       where: {
-        groupId_userId_key: {
+        groupId_userId: {
           groupId,
-          userId,
-          key: 'message_count'
+          userId
         }
-      }
-    });
-
-    if (existingCount) {
-      const val = parseInt(existingCount.value, 10) || 0;
-      await prisma.customVariable.update({
-        where: { id: existingCount.id },
-        data: { value: String(val + 1) }
-      });
-    } else {
-      await prisma.customVariable.create({
-        data: {
-          groupId,
-          userId,
-          key: 'message_count',
-          value: '1'
-        }
-      });
-    }
-
-    // 2. Update last message time
-    await prisma.customVariable.upsert({
-      where: {
-        groupId_userId_key: {
-          groupId,
-          userId,
-          key: 'last_message_time'
-        }
+      },
+      update: {
+        messageCount: {
+          increment: 1
+        },
+        lastActiveAt: now
       },
       create: {
         groupId,
         userId,
-        key: 'last_message_time',
-        value: nowStr
-      },
-      update: {
-        value: nowStr
+        messageCount: 1,
+        lastActiveAt: now
       }
     });
   } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      const now = new Date();
+      try {
+        await prisma.groupUserStats.upsert({
+          where: {
+            groupId_userId: {
+              groupId,
+              userId
+            }
+          },
+          update: {
+            messageCount: {
+              increment: 1
+            },
+            lastActiveAt: now
+          },
+          create: {
+            groupId,
+            userId,
+            messageCount: 1,
+            lastActiveAt: now
+          }
+        });
+      } catch (retryErr) {
+        console.error('[Stats Update Fail after retry]', retryErr);
+      }
+      return;
+    }
     console.error('[Stats Update Fail]', err);
+  }
+}
+
+export async function updateGroupUserCommandStats(groupId: string, userId: string) {
+  try {
+    const now = new Date();
+    await prisma.groupUserStats.upsert({
+      where: {
+        groupId_userId: {
+          groupId,
+          userId
+        }
+      },
+      update: {
+        commandCount: {
+          increment: 1
+        },
+        lastActiveAt: now
+      },
+      create: {
+        groupId,
+        userId,
+        commandCount: 1,
+        lastActiveAt: now
+      }
+    });
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      const now = new Date();
+      try {
+        await prisma.groupUserStats.upsert({
+          where: {
+            groupId_userId: {
+              groupId,
+              userId
+            }
+          },
+          update: {
+            commandCount: {
+              increment: 1
+            },
+            lastActiveAt: now
+          },
+          create: {
+            groupId,
+            userId,
+            commandCount: 1,
+            lastActiveAt: now
+          }
+        });
+      } catch (retryErr) {
+        console.error('[Command Stats Update Fail after retry]', retryErr);
+      }
+      return;
+    }
+    console.error('[Command Stats Update Fail]', err);
   }
 }
 
@@ -70,12 +127,28 @@ export class GroupStatsCommand implements Command {
 
     // --- 1. /topchat ---
     if (cmd === 'topchat' || cmd === 'topactive') {
-      const records = await prisma.customVariable.findMany({
-        where: { groupId: ctx.chatId, key: 'message_count' }
+      const [records, groupStats] = await Promise.all([
+        prisma.customVariable.findMany({
+          where: { groupId: ctx.chatId, key: 'message_count' }
+        }),
+        prisma.groupUserStats.findMany({
+          where: { groupId: ctx.chatId }
+        })
+      ]);
+
+      const userCounts = new Map<string, number>();
+      records.forEach(r => {
+        if (r.userId) {
+          userCounts.set(r.userId, parseInt(r.value, 10) || 0);
+        }
+      });
+      groupStats.forEach(s => {
+        const existing = userCounts.get(s.userId) || 0;
+        userCounts.set(s.userId, existing + s.messageCount);
       });
 
-      const sorted = records
-        .map(r => ({ userId: r.userId!, count: parseInt(r.value, 10) || 0 }))
+      const sorted = Array.from(userCounts.entries())
+        .map(([userId, count]) => ({ userId, count }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 15);
 
@@ -154,16 +227,26 @@ export class GroupStatsCommand implements Command {
 
       const participants = metadata.participants.map((p: any) => p.id);
 
-      const lastMessageTimes = await prisma.customVariable.findMany({
-        where: {
-          groupId: ctx.chatId,
-          key: 'last_message_time'
-        }
-      });
+      const [lastMessageTimes, groupStats] = await Promise.all([
+        prisma.customVariable.findMany({
+          where: {
+            groupId: ctx.chatId,
+            key: 'last_message_time'
+          }
+        }),
+        prisma.groupUserStats.findMany({
+          where: { groupId: ctx.chatId }
+        })
+      ]);
 
       const timeMap = new Map<string, number>();
       lastMessageTimes.forEach(record => {
         timeMap.set(record.userId!, parseInt(record.value, 10) || 0);
+      });
+      groupStats.forEach(s => {
+        const existingTime = timeMap.get(s.userId) || 0;
+        const statsTime = s.lastActiveAt.getTime();
+        timeMap.set(s.userId, Math.max(existingTime, statsTime));
       });
 
       const inactiveUsers: string[] = [];
@@ -211,20 +294,32 @@ export class GroupStatsCommand implements Command {
         } catch {}
       }
 
-      const [warningsCount, infractionCount, totalMsgsCount] = await Promise.all([
+      const [warningsCount, infractionCount, totalMsgsCount, groupStats] = await Promise.all([
         prisma.warning.count({ where: { groupId: ctx.chatId } }),
         prisma.infractionLog.count({ where: { groupId: ctx.chatId } }),
-        prisma.customVariable.findMany({ where: { groupId: ctx.chatId, key: 'message_count' } })
+        prisma.customVariable.findMany({ where: { groupId: ctx.chatId, key: 'message_count' } }),
+        prisma.groupUserStats.findMany({ where: { groupId: ctx.chatId } })
       ]);
 
-      const sumMsgs = totalMsgsCount.reduce((acc, r) => acc + (parseInt(r.value, 10) || 0), 0);
+      const userCounts = new Map<string, number>();
+      totalMsgsCount.forEach(r => {
+        if (r.userId) {
+          userCounts.set(r.userId, parseInt(r.value, 10) || 0);
+        }
+      });
+      groupStats.forEach(s => {
+        const existing = userCounts.get(s.userId) || 0;
+        userCounts.set(s.userId, existing + s.messageCount);
+      });
+
+      const sumMsgs = Array.from(userCounts.values()).reduce((acc, count) => acc + count, 0);
+      const activeMembers = userCounts.size;
 
       // Math logic for health
       let score = 100;
       score -= warningsCount * 4;
       score -= infractionCount * 8;
       
-      const activeMembers = totalMsgsCount.length;
       const engagementRatio = totalMembers > 0 ? (activeMembers / totalMembers) * 100 : 0;
       
       if (engagementRatio > 50) score += 10;
@@ -252,12 +347,28 @@ export class GroupStatsCommand implements Command {
 
     // --- 5. /weeklyreport ---
     if (cmd === 'weeklyreport') {
-      const records = await prisma.customVariable.findMany({
-        where: { groupId: ctx.chatId, key: 'message_count' }
+      const [records, groupStats] = await Promise.all([
+        prisma.customVariable.findMany({
+          where: { groupId: ctx.chatId, key: 'message_count' }
+        }),
+        prisma.groupUserStats.findMany({
+          where: { groupId: ctx.chatId }
+        })
+      ]);
+
+      const userCounts = new Map<string, number>();
+      records.forEach(r => {
+        if (r.userId) {
+          userCounts.set(r.userId, parseInt(r.value, 10) || 0);
+        }
+      });
+      groupStats.forEach(s => {
+        const existing = userCounts.get(s.userId) || 0;
+        userCounts.set(s.userId, existing + s.messageCount);
       });
 
-      const sorted = records
-        .map(r => ({ userId: r.userId!, count: parseInt(r.value, 10) || 0 }))
+      const sorted = Array.from(userCounts.entries())
+        .map(([userId, count]) => ({ userId, count }))
         .sort((a, b) => b.count - a.count);
 
       const topChatter = sorted[0];
@@ -288,15 +399,27 @@ export class GroupStatsCommand implements Command {
 
     // --- 6. /groupstats ---
     if (cmd === 'groupstats') {
-      const [aliases, schedules, tasks, messageRecords] = await Promise.all([
+      const [aliases, schedules, tasks, messageRecords, groupStats] = await Promise.all([
         prisma.commandAlias.count({ where: { groupId: ctx.chatId } }),
         prisma.schedule.count({ where: { groupId: ctx.chatId } }),
         prisma.task.count({ where: { groupId: ctx.chatId, status: 'pending' } }),
-        prisma.customVariable.findMany({ where: { groupId: ctx.chatId, key: 'message_count' } })
+        prisma.customVariable.findMany({ where: { groupId: ctx.chatId, key: 'message_count' } }),
+        prisma.groupUserStats.findMany({ where: { groupId: ctx.chatId } })
       ]);
 
-      const sumMsgs = messageRecords.reduce((acc, r) => acc + (parseInt(r.value, 10) || 0), 0);
-      const activeUsersCount = messageRecords.length;
+      const userCounts = new Map<string, number>();
+      messageRecords.forEach(r => {
+        if (r.userId) {
+          userCounts.set(r.userId, parseInt(r.value, 10) || 0);
+        }
+      });
+      groupStats.forEach(s => {
+        const existing = userCounts.get(s.userId) || 0;
+        userCounts.set(s.userId, existing + s.messageCount);
+      });
+
+      const sumMsgs = Array.from(userCounts.values()).reduce((acc, count) => acc + count, 0);
+      const activeUsersCount = userCounts.size;
 
       let msg = `📊 *STATISTIK PENGGUNAAN GRUP* 📊\n\n`;
       msg += `• Total Pesan Terdeteksi: *${sumMsgs}* pesan\n`;
@@ -314,3 +437,4 @@ export class GroupStatsCommand implements Command {
 
 const groupStatsCmd = new GroupStatsCommand();
 registerCommand(['groupstats', 'topchat', 'topactive', 'topcmd', 'inactive', 'grouphealth', 'weeklyreport'], groupStatsCmd);
+
