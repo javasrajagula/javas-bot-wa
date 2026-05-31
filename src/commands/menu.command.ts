@@ -515,21 +515,16 @@ export class MenuCommand implements Command {
     text += `│ ${info.desc}\n`;
     text += `╰${line()}╯\n\n`;
 
-    categoryCommands.forEach((command, index) => {
+    categoryCommands.forEach((command) => {
       const meta = command.metadata;
-      const number = String(index + 1).padStart(2, '0');
-
-      text += `*${number}. ${prefix}${meta.name}*\n`;
-      text += `   ${meta.description}\n`;
-
-      if (meta.aliases && meta.aliases.length > 0) {
-        text += `   Alias: ${meta.aliases.map((alias: string) => `*${prefix}${alias}*`).join(', ')}\n`;
-      }
-
-      text += `\n`;
+      const aliasesStr = meta.aliases && meta.aliases.length > 0
+        ? ` (${meta.aliases.map((alias: string) => `${prefix}${alias}`).join(', ')})`
+        : '';
+      const desc = meta.description || 'Tidak ada deskripsi.';
+      text += `• *${prefix}${meta.name}*${aliasesStr} — ${desc}\n`;
     });
 
-    text += `Ketik *${prefix}help <command>* untuk contoh penggunaan.\n`;
+    text += `\nKetik *${prefix}help <command>* untuk contoh penggunaan.\n`;
     text += `Contoh: *${prefix}help ${categoryCommands[0].metadata.name}*`;
 
     await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
