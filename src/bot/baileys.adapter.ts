@@ -411,6 +411,7 @@ export class BaileysAdapter extends WhatsAppAdapter {
     const quotedOpt = this.getQuotedOption(options);
     await this.sock.sendMessage(chatId, {
       sticker: stickerBuffer,
+      mimetype: 'image/webp',
       mentions,
     }, { ...quotedOpt });
   }

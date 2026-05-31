@@ -35,7 +35,8 @@ function parseChunks(buf) {
     } else if (fourCC === 'VP8L') {
       extra = `sig=0x${data[0].toString(16)}`;
     } else if (fourCC === 'EXIF') {
-      extra = `header="${data.slice(0,6).toString('latin1').replace(/\0/g,'\\0')}"`;
+      const isStandard = data.slice(0, 4).toString('latin1') === 'II*\x00' || data.slice(0, 4).toString('latin1') === 'MM\x00*';
+      extra = isStandard ? `standard_tiff (starts with ${data.slice(0, 4).toString('latin1').replace(/\0/g,'\\0')})` : `header="${data.slice(0,6).toString('latin1').replace(/\0/g,'\\0')}"`;
     }
     chunks.push({ fourCC, size, offset, extra });
     offset += 8 + paddedSize;

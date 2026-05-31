@@ -11,7 +11,6 @@ export function createExif(packname: string, author: string): Buffer {
   const jsonStr = JSON.stringify(json);
   const jsonBuffer = Buffer.from(jsonStr, 'utf-8');
   
-  const exifHeader = Buffer.from('Exif\0\0', 'binary');
   const tiffHeader = Buffer.from([0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00]); // II*\0\x08\0\0\0
   const dirCount = Buffer.from([0x01, 0x00]);
   
@@ -24,7 +23,6 @@ export function createExif(packname: string, author: string): Buffer {
   const nextIfdOffset = Buffer.from([0x00, 0x00, 0x00, 0x00]);
   
   return Buffer.concat([
-    exifHeader,
     tiffHeader,
     dirCount,
     entry,
