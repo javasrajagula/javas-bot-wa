@@ -138,8 +138,13 @@ export class StickerSuiteCommand implements Command {
     if (cmd === 'stikerbg' || cmd === 'nobgstick') {
       await adapter.sendMessage(ctx.chatId, '⏳ Membuat stiker no-bg...', { quotedMessageId: ctx.id });
       try {
-        const noBgPng = await sharp(buffer).ensureAlpha().resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).webp().toBuffer();
-        await adapter.sendSticker(ctx.chatId, noBgPng, { quotedMessageId: ctx.id });
+        const noBgPng = await sharp(buffer)
+          .ensureAlpha()
+          .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+          .webp()
+          .toBuffer();
+        const metaWebp = await addStickerMetadata(noBgPng);
+        await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal membuat stiker no-bg.', { quotedMessageId: ctx.id });
@@ -155,11 +160,13 @@ export class StickerSuiteCommand implements Command {
           `<svg width="512" height="512"><circle cx="256" cy="256" r="256" fill="#ffffff"/></svg>`
         );
         const webp = await sharp(buffer)
+          .ensureAlpha()
           .resize(512, 512, { fit: 'cover' })
           .composite([{ input: circleMask, blend: 'dest-in' }])
           .webp()
           .toBuffer();
-        await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+        const metaWebp = await addStickerMetadata(webp);
+        await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal membuat stiker lingkaran.', { quotedMessageId: ctx.id });
@@ -172,13 +179,14 @@ export class StickerSuiteCommand implements Command {
       const color = args[0]?.toLowerCase() === 'black' ? '#000000' : '#ffffff';
       await adapter.sendMessage(ctx.chatId, '⏳ Menambahkan outline...', { quotedMessageId: ctx.id });
       try {
-        // Outline effect using Sharp: composite transparent image on a slightly resized background outline mask
         const transparentPng = await sharp(buffer).ensureAlpha().toBuffer();
         const webp = await sharp(transparentPng)
+          .ensureAlpha()
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
           .webp()
           .toBuffer();
-        await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+        const metaWebp = await addStickerMetadata(webp);
+        await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal menambahkan outline.', { quotedMessageId: ctx.id });
@@ -253,11 +261,13 @@ export class StickerSuiteCommand implements Command {
         svg += `</svg>`;
 
         const webp = await sharp(buffer)
+          .ensureAlpha()
           .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
           .webp()
           .toBuffer();
 
-        await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+        const metaWebp = await addStickerMetadata(webp);
+        await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal membuat meme.', { quotedMessageId: ctx.id });
@@ -268,16 +278,17 @@ export class StickerSuiteCommand implements Command {
     // 9. /stiker or /s (normal conversion)
     if (cmd === 'stiker' || cmd === 's') {
       try {
-        let pack = 'Javas Bot';
-        let author = 'Bot WA';
-        
-        // Parse metadata args: pack:Name author:Author
+        // Use env defaults; allow per-message override via pack:/author: args
+        let pack = env.STICKER_PACK_NAME || 'Javas Bot WA';
+        let author = env.STICKER_AUTHOR_NAME || 'bot wa javas';
+
         const packArg = args.find(a => a.startsWith('pack:'))?.replace('pack:', '');
         const authorArg = args.find(a => a.startsWith('author:'))?.replace('author:', '');
         if (packArg) pack = packArg;
         if (authorArg) author = authorArg;
 
         const webp = await sharp(buffer)
+          .ensureAlpha()
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
           .webp()
           .toBuffer();
@@ -285,7 +296,8 @@ export class StickerSuiteCommand implements Command {
         const metaWebp = await addStickerMetadata(webp, pack, author);
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
-      } catch (err) {
+      } catch (err: any) {
+        console.error('[Sticker] Error:', err);
         await adapter.sendMessage(ctx.chatId, '❌ Gagal memproses stiker.', { quotedMessageId: ctx.id });
       }
       return;
@@ -362,10 +374,12 @@ export class StickerSuiteCommand implements Command {
       await adapter.sendMessage(ctx.chatId, '⏳ Memproses batch stiker...', { quotedMessageId: ctx.id });
       try {
         const webp = await sharp(buffer)
+          .ensureAlpha()
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
           .webp()
           .toBuffer();
-        await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+        const metaWebp = await addStickerMetadata(webp);
+        await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal memproses batch stiker.', { quotedMessageId: ctx.id });

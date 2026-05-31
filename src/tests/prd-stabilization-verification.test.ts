@@ -105,4 +105,60 @@ describe('PRD Stabilization & Integration Tests', () => {
     });
   });
 
+  describe('Sticker Metadata Service', () => {
+    it('injects metadata into a transparent (VP8X) WebP and remains valid', async () => {
+      // RGBA canvas -> Sharp produces VP8X-extended WebP
+      const rawWebp = await sharp({
+        create: {
+          width: 512,
+          height: 512,
+          channels: 4,
+          background: { r: 0, g: 255, b: 0, alpha: 200 }
+        }
+      })
+      .webp()
+      .toBuffer();
+
+      const { injectWebpExif } = await import('../services/sticker/sticker-metadata.service.js');
+      const metaWebp = injectWebpExif(rawWebp, 'Javas Test Pack', 'Javas Author');
+      expect(metaWebp).toBeInstanceOf(Buffer);
+
+      const metadata = await sharp(metaWebp).metadata();
+      expect(metadata.width).toBe(512);
+      expect(metadata.height).toBe(512);
+      expect(metadata.format).toBe('webp');
+    });
+
+    it('injects metadata into an opaque (VP8 simple) WebP and remains valid', async () => {
+      // RGB canvas with ensureAlpha -> JPEG-like opaque image converted to WebP
+      // Sharp may produce a simple VP8 or VP8L bitstream without VP8X header
+      const jpegBuffer = await sharp({
+        create: {
+          width: 300,
+          height: 200,
+          channels: 3,
+          background: { r: 200, g: 100, b: 50 }
+        }
+      })
+      .jpeg()
+      .toBuffer();
+
+      // Convert to WebP the same way /stiker command does
+      const rawWebp = await sharp(jpegBuffer)
+        .ensureAlpha()
+        .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .webp()
+        .toBuffer();
+
+      const { injectWebpExif } = await import('../services/sticker/sticker-metadata.service.js');
+      const metaWebp = injectWebpExif(rawWebp, 'Javas Test Pack', 'bot wa javas');
+      expect(metaWebp).toBeInstanceOf(Buffer);
+
+      const metadata = await sharp(metaWebp).metadata();
+      expect(metadata.width).toBe(512);
+      expect(metadata.height).toBe(512);
+      expect(metadata.format).toBe('webp');
+    });
+  });
+
 });
