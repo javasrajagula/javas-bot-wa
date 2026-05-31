@@ -151,11 +151,11 @@ export function injectWebpExif(webpBuffer: Buffer, packname: string, author: str
     vp8xData[0] = vp8xData[0] | 0x08;
     chunks[vp8xChunkIndex] = { fourCC: 'VP8X', size: vp8xData.length, data: vp8xData };
 
-    // Replace existing EXIF or append
+    // Replace existing EXIF or insert right after VP8X (index vp8xChunkIndex + 1)
     if (exifChunkIndex !== -1) {
       chunks[exifChunkIndex] = newExifChunk;
     } else {
-      chunks.push(newExifChunk);
+      chunks.splice(vp8xChunkIndex + 1, 0, newExifChunk);
     }
     return serializeChunks(chunks);
   }
@@ -178,7 +178,7 @@ export function injectWebpExif(webpBuffer: Buffer, packname: string, author: str
   const vp8xData = buildVP8XData(dims.width, dims.height, 0x08);
   const vp8xChunk = { fourCC: 'VP8X', size: vp8xData.length, data: vp8xData };
 
-  // VP8X must be the very first chunk in an extended WebP
-  const reordered = [vp8xChunk, ...chunks, newExifChunk];
+  // VP8X must be the very first chunk, followed immediately by EXIF, then the rest
+  const reordered = [vp8xChunk, newExifChunk, ...chunks];
   return serializeChunks(reordered);
 }

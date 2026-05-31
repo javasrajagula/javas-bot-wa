@@ -85,7 +85,7 @@ export class StickerSuiteCommand implements Command {
         </svg>
       `;
 
-      const webp = await sharp(Buffer.from(svg)).webp().toBuffer();
+      const webp = await sharp(Buffer.from(svg)).webp({ quality: 50 }).toBuffer();
       await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
       unlockStickerMaker(ctx, adapter);
       return;
@@ -107,7 +107,7 @@ export class StickerSuiteCommand implements Command {
         const response = await axios.get(`https://api.lolhuman.xyz/api/emojimix?apikey=freekey&emoji1=${encodeURIComponent(emoji1)}&emoji2=${encodeURIComponent(emoji2)}`, {
           responseType: 'arraybuffer'
         });
-        const webp = await sharp(Buffer.from(response.data)).webp().toBuffer();
+        const webp = await sharp(Buffer.from(response.data)).webp({ quality: 50 }).toBuffer();
         await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
@@ -155,7 +155,7 @@ export class StickerSuiteCommand implements Command {
         const noBgPng = await sharp(buffer)
           .ensureAlpha()
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-          .webp()
+          .webp({ quality: 50 })
           .toBuffer();
         const metaWebp = await addStickerMetadata(noBgPng);
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
@@ -177,7 +177,7 @@ export class StickerSuiteCommand implements Command {
           .ensureAlpha()
           .resize(512, 512, { fit: 'cover' })
           .composite([{ input: circleMask, blend: 'dest-in' }])
-          .webp()
+          .webp({ quality: 50 })
           .toBuffer();
         const metaWebp = await addStickerMetadata(webp);
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
@@ -197,7 +197,7 @@ export class StickerSuiteCommand implements Command {
         const webp = await sharp(transparentPng)
           .ensureAlpha()
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-          .webp()
+          .webp({ quality: 50 })
           .toBuffer();
         const metaWebp = await addStickerMetadata(webp);
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
@@ -277,7 +277,7 @@ export class StickerSuiteCommand implements Command {
         const webp = await sharp(buffer)
           .ensureAlpha()
           .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-          .webp()
+          .webp({ quality: 50 })
           .toBuffer();
 
         const metaWebp = await addStickerMetadata(webp);
@@ -306,7 +306,7 @@ export class StickerSuiteCommand implements Command {
         const webp = await sharp(buffer)
           .ensureAlpha()
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-          .webp()
+          .webp({ quality: 50 })
           .toBuffer();
         sharpDone = true;
 
@@ -405,7 +405,7 @@ export class StickerSuiteCommand implements Command {
         const webp = await sharp(buffer)
           .ensureAlpha()
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-          .webp()
+          .webp({ quality: 50 })
           .toBuffer();
         const metaWebp = await addStickerMetadata(webp);
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
