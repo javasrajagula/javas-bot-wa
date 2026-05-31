@@ -148,4 +148,45 @@ describe('Quota & Credit commands', () => {
 
     expect(replyText).toContain('KUOTA HARIAN GRUP HABIS');
   });
+
+  it('should not block command execution for bypass commands even if group daily quota is exceeded', async () => {
+    await prisma.groupSubscription.create({
+      data: {
+        groupId: testGroup,
+        plan: 'basic',
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000)
+      }
+    });
+
+    const logsData = Array.from({ length: 200 }).map(() => ({
+      userId: testUser,
+      groupId: testGroup,
+      feature: 'general'
+    }));
+
+    await prisma.usageLog.createMany({
+      data: logsData
+    });
+
+    let replyText = '';
+    const adapter = {
+      sendMessage: async (chatId: string, text: string) => {
+        replyText = text;
+      }
+    } as any;
+
+    const ctx = {
+      chatId: testGroup,
+      isGroup: true,
+      body: '/sewa',
+      senderId: testUser,
+      id: 'msg-sewa-test-1'
+    } as any;
+
+    await import('../commands/subscription.command.js');
+
+    await routeMessage(ctx, adapter);
+
+    expect(replyText).not.toContain('KUOTA HARIAN GRUP HABIS');
+  });
 });

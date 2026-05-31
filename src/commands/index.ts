@@ -561,6 +561,19 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
+    const quotaBypassCommands = [
+      'sewa',
+      'ceksewa',
+      'fitursewa',
+      'invoice',
+      'sewaconfirm',
+      'trial',
+      'menu',
+      'help',
+      'rules'
+    ];
+    const shouldBypassQuota = quotaBypassCommands.includes(commandName);
+
     if (isGroup) {
       let groupPlan = 'free';
       const sub = await prisma.groupSubscription.findUnique({
@@ -581,7 +594,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
         maxCmd = sub.maxDailyCmd;
       }
 
-      if (groupPlan !== 'premium') {
+      if (groupPlan !== 'premium' && !shouldBypassQuota) {
         const usageCount = await prisma.usageLog.count({
           where: {
             groupId: ctx.chatId,
@@ -601,7 +614,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
     } else {
       // Private chat quota check
       const isSenderPremium = await isPremium(ctx.senderId);
-      if (!isSenderPremium && !isSenderOwner) {
+      if (!isSenderPremium && !isSenderOwner && !shouldBypassQuota) {
         const maxCmd = 20; // Default quota for free user in private chat
         const usageCount = await prisma.usageLog.count({
           where: {
