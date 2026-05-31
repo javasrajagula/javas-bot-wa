@@ -154,7 +154,10 @@ describe('WhatsApp Bot System Tests', () => {
   describe('Owner Tools & Plugin System', () => {
     it('should toggle plugins correctly', async () => {
       const { pluginManager } = await import('../config/plugins.js');
-      
+
+      // Ensure clean state before test regardless of parallel test execution
+      pluginManager.setPluginStatus('sticker', true);
+
       expect(pluginManager.isCommandEnabled('stiker')).toBe(true);
 
       pluginManager.setPluginStatus('sticker', false);

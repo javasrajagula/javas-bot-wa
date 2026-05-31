@@ -333,7 +333,17 @@ export class OwnerSuiteCommand implements Command {
           }
 
           const result = await backupService.importConfigFromBuffer(await media.getBuffer());
-          await adapter.sendMessage(ctx.chatId, `✅ Config berhasil diimport: ${result.groups} grup, ${result.subscriptions} subscription.`, { quotedMessageId: ctx.id });
+          await adapter.sendMessage(ctx.chatId, [
+            `✅ *Config berhasil diimport!*`,
+            ``,
+            `📋 *Ringkasan Import:*`,
+            `• Grup: ${result.groups}`,
+            `• Sewa/Subscription: ${result.subscriptions}`,
+            `• Premium Users: ${result.premiumUsers}`,
+            `• Warning Rules: ${result.warningRules}`,
+            `• Shop Items: ${result.shopItems}`,
+            `• Achievements: ${result.achievements}`
+          ].join('\n'), { quotedMessageId: ctx.id });
           return;
         }
       } catch (err: any) {

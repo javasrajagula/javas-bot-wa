@@ -8,8 +8,10 @@ export interface MessageMedia {
 export interface MessageContext {
   id: string;
   senderId: string;
+  senderCanonicalId?: string;
   senderName: string;
   chatId: string;
+  chatCanonicalId?: string;
   isGroup: boolean;
   body: string;
   media?: MessageMedia;
@@ -21,6 +23,7 @@ export interface MessageContext {
 export interface MessageContextQuoted {
   id: string;
   senderId: string;
+  senderCanonicalId?: string;
   body: string;
   media?: MessageMedia;
 }

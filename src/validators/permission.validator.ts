@@ -42,18 +42,34 @@ export async function requireFeatureEnabled(
   }
 }
 
+import { normalizeJid } from '../utils/jid.util.js';
+
 export async function requireNotBlacklisted(
   chatId: string | null,
   senderId: string
 ): Promise<void> {
+  const senderCanonical = normalizeJid(senderId);
+  const chatCanonical = chatId ? normalizeJid(chatId) : null;
+
   const blacklisted = await prisma.blacklist.findFirst({
     where: {
-      userId: senderId,
-      OR: [
-        { scope: 'global' },
+      AND: [
         {
-          scope: 'group',
-          groupId: chatId || undefined
+          OR: [
+            { userId: senderCanonical },
+            { userId: senderId }
+          ]
+        },
+        {
+          OR: [
+            { scope: 'global' },
+            {
+              scope: 'group',
+              groupId: {
+                in: [chatId, chatCanonical].filter(Boolean) as string[]
+              }
+            }
+          ]
         }
       ]
     }

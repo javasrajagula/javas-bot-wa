@@ -166,7 +166,7 @@ export class BackupService {
     return fs.promises.readFile(backup.filePath);
   }
 
-  public async importConfigFromBuffer(buffer: Buffer): Promise<{ groups: number; subscriptions: number }> {
+  public async importConfigFromBuffer(buffer: Buffer): Promise<{ groups: number; subscriptions: number; premiumUsers: number; warningRules: number; shopItems: number; achievements: number }> {
     const payload = JSON.parse(buffer.toString('utf-8'));
     if (!payload || payload.version !== 1) {
       throw new Error('Format backup config tidak dikenali.');
@@ -174,6 +174,10 @@ export class BackupService {
 
     const groups = Array.isArray(payload.groups) ? payload.groups : [];
     const subscriptions = Array.isArray(payload.subscriptions) ? payload.subscriptions : [];
+    const premiumUsers = Array.isArray(payload.premiumUsers) ? payload.premiumUsers : [];
+    const warningRules = Array.isArray(payload.warningRules) ? payload.warningRules : [];
+    const shopItems = Array.isArray(payload.shopItems) ? payload.shopItems : [];
+    const achievements = Array.isArray(payload.achievements) ? payload.achievements : [];
 
     for (const group of groups) {
       await prisma.groupConfig.upsert({
@@ -215,7 +219,78 @@ export class BackupService {
       });
     }
 
-    return { groups: groups.length, subscriptions: subscriptions.length };
+    for (const pu of premiumUsers) {
+      if (!pu.userId) continue;
+      await prisma.premiumUser.upsert({
+        where: { userId: pu.userId },
+        create: { userId: pu.userId, expiresAt: pu.expiresAt ? new Date(pu.expiresAt) : new Date(0) },
+        update: { expiresAt: pu.expiresAt ? new Date(pu.expiresAt) : new Date(0) }
+      });
+    }
+
+    for (const wr of warningRules) {
+      if (!wr.groupId) continue;
+      // Insert new rule — clearing duplicates would require groupId+threshold unique which doesn't exist
+      await prisma.warningRule.create({
+        data: {
+          groupId: wr.groupId,
+          threshold: wr.threshold ?? 3,
+          action: wr.action || 'kick',
+          duration: wr.duration ?? null
+        }
+      }).catch(() => { /* Skip duplicates */ });
+    }
+
+    for (const item of shopItems) {
+      if (!item.name) continue;
+      await prisma.shopItem.upsert({
+        where: { name: item.name },
+        create: {
+          name: item.name,
+          type: item.type || 'misc',
+          price: item.price ?? 0,
+          metadataJson: item.metadataJson || '{}',
+          enabled: item.enabled ?? true
+        },
+        update: {
+          type: item.type || 'misc',
+          price: item.price ?? 0,
+          metadataJson: item.metadataJson || '{}',
+          enabled: item.enabled ?? true
+        }
+      });
+    }
+
+    for (const ach of achievements) {
+      if (!ach.key) continue;
+      await prisma.achievement.upsert({
+        where: { key: ach.key },
+        create: {
+          key: ach.key,
+          name: ach.name || ach.key,
+          description: ach.description || '',
+          rarity: ach.rarity || 'common',
+          rewardJson: ach.rewardJson || '{}'
+        },
+        update: {
+          name: ach.name || ach.key,
+          description: ach.description || '',
+          rarity: ach.rarity || 'common',
+          rewardJson: ach.rewardJson || '{}'
+        }
+      });
+    }
+
+    console.log(`[Backup] Import selesai: ${groups.length} grup, ${subscriptions.length} sewa, ${premiumUsers.length} premium, ${warningRules.length} warning rules, ${shopItems.length} shop items, ${achievements.length} achievements.`);
+
+    return {
+      groups: groups.length,
+      subscriptions: subscriptions.length,
+      premiumUsers: premiumUsers.length,
+      warningRules: warningRules.length,
+      shopItems: shopItems.length,
+      achievements: achievements.length
+    };
   }
 
   public async cleanupOldBackups(): Promise<void> {

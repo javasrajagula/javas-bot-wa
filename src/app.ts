@@ -41,7 +41,7 @@ import './commands/community/finance.command.js';
 import './commands/community/automation.command.js';
 import './commands/games/games.command.js';
 import './commands/games/mission.command.js';
-import './commands/owner/owner.command.js';
+import { getMaintenanceMode } from './commands/owner/owner.command.js';
 import './commands/owner/error.command.js';
 import './commands/owner/queue.command.js';
 import './commands/owner/status.command.js';
@@ -63,6 +63,9 @@ async function bootstrap() {
   console.log('[System] Connecting to database...');
   await prisma.$connect();
   console.log('[System] Database connected successfully.');
+
+  console.log('[System] Loading maintenance mode status...');
+  await getMaintenanceMode();
 
   console.log('[System] Synchronizing plugin states...');
   await pluginManager.syncWithDatabase();

@@ -43,6 +43,9 @@ model UsageLog {
   errorId    String?
   durationMs Int?
   createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([groupId, createdAt])
 }
 
 model PremiumUser {
@@ -59,6 +62,8 @@ model Warning {
   reason    String?
   warnedBy  String?
   createdAt DateTime @default(now())
+
+  @@index([groupId, userId])
 }
 
 model Badword {
@@ -77,6 +82,9 @@ model Blacklist {
   reason    String?
   createdBy String?
   createdAt DateTime @default(now())
+
+  @@index([userId, scope])
+  @@index([groupId, scope])
 }
 
 model AutoReply {
@@ -111,6 +119,9 @@ model Reminder {
   timezone  String   @default("Asia/Jakarta")
   status    String   @default("pending") // "pending" or "sent"
   createdAt DateTime @default(now())
+
+  @@index([status, runAt])
+  @@index([userId])
 }
 
 model AttendanceSession {
@@ -265,6 +276,9 @@ model QueueJobRecord {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   expiresAt    DateTime?
+
+  @@index([queue, status])
+  @@index([userId, status])
 }
 
 model CommandAlias {
@@ -365,6 +379,9 @@ model InfractionLog {
   action    String?
   createdBy String?
   createdAt DateTime @default(now())
+
+  @@index([groupId, userId])
+  @@index([groupId, createdAt])
 }
 
 model GroupLog {
@@ -376,6 +393,9 @@ model GroupLog {
   message     String?
   metadataJson String @default("{}")
   createdAt   DateTime @default(now())
+
+  @@index([groupId, type])
+  @@index([groupId, createdAt])
 }
 
 model Task {

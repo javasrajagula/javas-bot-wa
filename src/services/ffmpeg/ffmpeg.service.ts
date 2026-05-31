@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { env } from '../../config/env.js';
 
 /**
  * Runs FFmpeg safely by spawning it as a child process with a tokenized argument array
@@ -40,6 +41,7 @@ export function runFfmpeg(args: string[]): Promise<void> {
 /**
  * Uses ffprobe to parse the media duration (in seconds).
  * Rejects with an error if ffprobe fails or duration cannot be parsed.
+ * Honors FFPROBE_TIMEOUT_SECONDS env variable (default: 30 seconds).
  */
 export function getMediaDuration(filePath: string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -51,9 +53,15 @@ export function getMediaDuration(filePath: string): Promise<number> {
       filePath
     ]);
 
+    const timeoutSeconds = env.FFPROBE_TIMEOUT_SECONDS ?? 30;
     let stdout = '';
     let stderr = '';
-    
+
+    const timer = setTimeout(() => {
+      proc.kill('SIGKILL');
+      reject(new Error(`ffprobe timed out after ${timeoutSeconds} seconds.`));
+    }, timeoutSeconds * 1000);
+
     proc.stdout.on('data', (data) => {
       stdout += data.toString();
     });
@@ -63,6 +71,7 @@ export function getMediaDuration(filePath: string): Promise<number> {
     });
 
     proc.on('close', (code) => {
+      clearTimeout(timer);
       if (code === 0) {
         const parsed = parseFloat(stdout.trim());
         if (isNaN(parsed)) {
@@ -76,6 +85,7 @@ export function getMediaDuration(filePath: string): Promise<number> {
     });
 
     proc.on('error', (err) => {
+      clearTimeout(timer);
       reject(new Error(`Failed to execute ffprobe: ${err.message}`));
     });
   });

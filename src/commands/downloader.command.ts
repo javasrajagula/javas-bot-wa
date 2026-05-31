@@ -3,7 +3,7 @@ import { MessageContext } from '../bot/message.types.js';
 import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
 import { downloadMedia, isValidUrl } from '../services/downloader/downloader.service.js';
 import { downloaderQueue } from '../queues/queue.js';
-import { safeDelete } from '../utils/file.util.js';
+import { safeDeleteTemp } from '../utils/file.util.js';
 import { getMediaDuration } from '../services/ffmpeg/ffmpeg.service.js';
 import prisma from '../db/client.js';
 import fs from 'fs';
@@ -126,7 +126,7 @@ export class DownloaderCommand implements Command {
         } finally {
           // Auto clean up temporary files immediately after sending
           for (const file of result.files) {
-            safeDelete(file.path);
+            safeDeleteTemp(file.path);
           }
         }
       },

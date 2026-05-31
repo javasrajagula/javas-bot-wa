@@ -250,9 +250,15 @@ export class BusinessCommand implements Command {
         parsed.status = 'sold';
         parsed.soldAt = Date.now();
 
-        await prisma.customVariable.update({
+        await prisma.customVariable.upsert({
           where: { id: itemRecord.id },
-          data: { value: JSON.stringify(parsed) }
+          update: { value: JSON.stringify(parsed) },
+          create: {
+            groupId: ctx.isGroup ? ctx.chatId : 'private',
+            userId: ctx.senderId,
+            key: `jual:${id}`,
+            value: JSON.stringify(parsed)
+          }
         });
 
         await adapter.sendMessage(ctx.chatId, `🎉 *PRODUK TERJUAL!* 🎉\n\nProduk *${parsed.name}* [ID: \`${id}\`] telah ditandai sebagai *TERJUAL* oleh penjualnya @${ctx.senderId.split('@')[0]}. Terima kasih!`, { mentions: [ctx.senderId], quotedMessageId: ctx.id });

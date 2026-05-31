@@ -42,6 +42,10 @@ export const envSchema = z.object({
   OWNER_BYPASS_RATE_LIMIT: booleanFromString.default(true),
   PRIVATE_CHAT_BYPASS_RATE_LIMIT: booleanFromString.default(true),
   TRUST_PROXY: booleanFromString.default(false),
+  FFPROBE_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).default(30),
+  DOWNLOAD_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(300).default(30),
+  DOWNLOAD_MAX_BYTES: z.coerce.number().int().min(1048576).max(524288000).default(104857600), // default 100MB
+  DOWNLOAD_TRUSTED_HOSTS: optionalString.default(''), // comma-separated list
 }).passthrough();
 
 export type Env = z.infer<typeof envSchema> & {

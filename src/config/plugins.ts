@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import prisma from '../db/client.js';
+import { env } from './env.js';
 
 export interface PluginMetadata {
   name: string;
@@ -13,6 +14,35 @@ export interface PluginMetadata {
 const STATE_FILE = path.join(process.cwd(), 'data', 'plugins_state.json');
 
 const INITIAL_PLUGINS: PluginMetadata[] = [
+  {
+    name: 'downloader',
+    commands: [
+      'tt',
+      'tiktok',
+      'ig',
+      'instagram',
+      'ytmp3',
+      'youtube-audio',
+      'ytmp4',
+      'youtube-video',
+      'fb',
+      'facebook',
+      'fbdown',
+      'twitter',
+      'x',
+      'twtdl',
+      'threads',
+      'thread',
+      'pinterest',
+      'pin',
+      'pindl',
+      'capcut',
+      'cc'
+    ],
+    enabled: true,
+    permission: 'USER',
+    category: 'Downloader'
+  },
   {
     name: 'sticker',
     commands: ['stiker', 's', 'toimg', 'brat', 'quote', 'removebg', 'rbg', 'stikerbg', 'nobgstick', 'circle', 'bulat', 'outline', 'meme', 'emojimix', 'mix', 'vstiker', 'gifstiker', 'batchstiker', 'pack'],
@@ -189,7 +219,27 @@ class PluginManager {
 
   public isPluginEnabled(pluginName: string): boolean {
     const plugin = this.plugins.find(p => p.name.toLowerCase() === pluginName.toLowerCase());
-    return plugin ? plugin.enabled : true;
+
+    if (!plugin) {
+      console.warn(`[Plugins] Unknown plugin requested: ${pluginName}`);
+      return env.NODE_ENV === 'production' ? false : true;
+    }
+
+    return plugin.enabled;
+  }
+
+  public validatePluginsOnStartup(registeredPlugins: Set<string>): void {
+    const knownPluginNames = new Set(INITIAL_PLUGINS.map(p => p.name.toLowerCase()));
+    for (const pluginName of registeredPlugins) {
+      if (!knownPluginNames.has(pluginName.toLowerCase())) {
+        const msg = `[Plugins] STARTUP VALIDATION: Command metadata references unknown plugin: "${pluginName}"`;
+        if (env.NODE_ENV === 'production') {
+          throw new Error(msg);
+        } else {
+          console.warn(msg);
+        }
+      }
+    }
   }
 }
 

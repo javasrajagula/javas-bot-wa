@@ -196,7 +196,7 @@ export class AutomationCommand implements Command {
           return;
         }
 
-        await prisma.customVariable.delete({
+        await prisma.customVariable.deleteMany({
           where: { id: dbVar.id }
         });
 

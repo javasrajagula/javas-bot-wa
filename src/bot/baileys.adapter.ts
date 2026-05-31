@@ -14,6 +14,19 @@ import pino from 'pino';
 import { WhatsAppAdapter, SendMessageOptions } from './whatsapp.adapter.js';
 import { MessageContext, MessageMedia } from './message.types.js';
 import { env } from '../config/env.js';
+import { normalizeJid } from '../utils/jid.util.js';
+
+function maskJid(jid: string): string {
+  if (!jid) return '';
+  const parts = jid.split('@');
+  const user = parts[0];
+  const server = parts[1] || '';
+  if (user.includes(':')) {
+    const subParts = user.split(':');
+    return `${subParts[0].slice(0, 4)}***:${subParts[1]}@${server}`;
+  }
+  return `${user.slice(0, 4)}***@${server}`;
+}
 
 function unwrapMessage(msg: any): any {
   if (!msg) return msg;
@@ -168,12 +181,14 @@ export class BaileysAdapter extends WhatsAppAdapter {
     const isGroup = chatId.endsWith('@g.us');
     const senderId = msg.key.participant || msg.key.remoteJid!;
     const senderName = msg.pushName || senderId;
-    console.log('[DEBUG CHAT ID]', {
-      chatId,
-      isGroup,
-      senderId,
-      senderName
-    });
+    if (env.LOG_LEVEL === 'debug') {
+      console.log('[DEBUG CHAT ID]', {
+        chatId: maskJid(chatId),
+        isGroup,
+        senderId: maskJid(senderId),
+        senderName
+      });
+    }
 
     if (msg.key.id) {
       this.messageKeyCache.set(msg.key.id, msg.key);
@@ -328,6 +343,7 @@ export class BaileysAdapter extends WhatsAppAdapter {
       quotedMessage = {
         id: contextInfo.stanzaId || '',
         senderId: contextInfo.participant || '',
+        senderCanonicalId: contextInfo.participant ? normalizeJid(contextInfo.participant) : undefined,
         body: quotedBody,
         media: quotedMedia,
       };
@@ -343,8 +359,10 @@ export class BaileysAdapter extends WhatsAppAdapter {
     return {
       id: msg.key.id!,
       senderId,
+      senderCanonicalId: normalizeJid(senderId),
       senderName,
       chatId,
+      chatCanonicalId: normalizeJid(chatId),
       isGroup,
       body,
       media,

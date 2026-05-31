@@ -747,9 +747,15 @@ export class FinanceCommand implements Command {
           parsed.status = 'paid';
           parsed.paidAt = Date.now();
 
-          await prisma.customVariable.update({
+          await prisma.customVariable.upsert({
             where: { id: dbBill.id },
-            data: { value: JSON.stringify(parsed) }
+            update: { value: JSON.stringify(parsed) },
+            create: {
+              groupId: ctx.chatId,
+              userId: 'system',
+              key: `tagihan:${billId}`,
+              value: JSON.stringify(parsed)
+            }
           });
 
           await adapter.sendMessage(ctx.chatId, `✅ *TAGIHAN LUNAS!* 🎉\n\nTagihan \`${billId}\` (*${parsed.name}* - Rp ${parsed.amount.toLocaleString('id-ID')}) telah ditandai lunas oleh @${ctx.senderId.split('@')[0]}.`, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
