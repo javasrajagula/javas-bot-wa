@@ -4,6 +4,7 @@ import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
 import prisma from '../db/client.js';
 import crypto from 'crypto';
 import { isOwner } from '../bot/permission.js';
+import { env } from '../config/env.js';
 
 export class SubscriptionCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
@@ -152,7 +153,7 @@ Ketik \`/sewa\` untuk panduan berlangganan.`;
 
 *=================================*
 💡 *METODE PEMBAYARAN:*
-• Bank Transfer (Simulasi): *Bank Javas (VA 9876543210)*
+• ${env.PREMIUM_PAYMENT_METHOD || 'GoPay'}: *${env.PREMIUM_PAYMENT_NUMBER || '085338123425'}*
 • Batas Waktu Pembayaran: *24 Jam*
 
 ℹ️ Setelah melakukan pembayaran simulasi, gunakan perintah:

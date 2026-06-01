@@ -59,7 +59,7 @@ export const envSchema = z.object({
   PRIVATE_DAILY_CMD_LIMIT: z.string().default('20'),
   PREMIUM_PRIVATE_DAILY_CMD_LIMIT: z.string().default('200'),
   PREMIUM_PAYMENT_METHOD: z.string().default('GoPay'),
-  PREMIUM_PAYMENT_NUMBER: z.string().default('083136467966'),
+  PREMIUM_PAYMENT_NUMBER: z.string().default('085338123425'),
   TTS_COMMAND: optionalString.default(''),
   TTS_API_BASE_URL: optionalString.default(''),
   TTS_API_KEY: optionalString.default(''),

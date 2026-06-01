@@ -641,7 +641,7 @@ export class MenuCommand implements Command {
       text += `─────────────────────────\n`;
       text += `💳 *METODE PEMBAYARAN PREMIUM* 💳\n`;
       text += `• *Provider:* ${env.PREMIUM_PAYMENT_METHOD || 'GoPay'}\n`;
-      text += `• *Nomor:* \`${env.PREMIUM_PAYMENT_NUMBER || '083136467966'}\`\n`;
+      text += `• *Nomor:* \`${env.PREMIUM_PAYMENT_NUMBER || '085338123425'}\`\n`;
       text += `• Hubungi owner dengan ketik \`${prefix}owner\` untuk aktivasi/konfirmasi.\n`;
       text += `─────────────────────────\n`;
       text += `💡 Ketik \`${prefix}help <command>\` untuk detail.`;
