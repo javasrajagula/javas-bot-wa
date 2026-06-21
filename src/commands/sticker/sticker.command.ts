@@ -380,8 +380,8 @@ export class StickerSuiteCommand implements Command {
       return;
     }
 
-    // 11. /vstiker, /gifstiker, /sgif
-    if (cmd === 'vstiker' || cmd === 'gifstiker' || cmd === 'sgif') {
+    // 11. /vstiker, /gifstiker — konversi video → stiker animasi (WebP)
+    if (cmd === 'vstiker' || cmd === 'gifstiker') {
       // Validasi tipe media — harus video atau gif
       const isVideo = media.type === 'video' || media.type === 'gif' ||
         media.mimetype?.startsWith('video/') || media.mimetype === 'image/gif';
@@ -405,7 +405,7 @@ export class StickerSuiteCommand implements Command {
       const isPrem = await isPremiumUser(ctx.senderId);
       const maxSeconds = isPrem ? 10 : 5;
 
-      await adapter.sendMessage(ctx.chatId, `⏳ Mengonversi video ke stiker (Maksimal ${maxSeconds} detik)...`, { quotedMessageId: ctx.id });
+      await adapter.sendMessage(ctx.chatId, `⏳ Mengonversi video ke stiker animasi (maks. ${maxSeconds} detik)...`, { quotedMessageId: ctx.id });
 
       const tempIn = getTempPath('mp4');
       const tempOut = getTempPath('webp');
@@ -421,7 +421,6 @@ export class StickerSuiteCommand implements Command {
         let finalStickerBuffer: Buffer | null = null;
 
         while (attempts < 3) {
-          // FFmpeg safe conversion argument list
           const argsList = [
             '-y',
             '-i', tempIn,
@@ -446,22 +445,90 @@ export class StickerSuiteCommand implements Command {
             break;
           }
 
-          // If size exceeds 1MB, reduce quality, framerate, and scale for the next attempt
           attempts++;
           quality = Math.max(20, quality - 15);
           fps = Math.max(10, fps - 3);
           scale = attempts === 1 ? 384 : 256;
-          compressionLevel = 6; // Use higher compression effort
-          finalStickerBuffer = metaWebp; // Fallback to last buffer if all attempts fail
+          compressionLevel = 6;
+          finalStickerBuffer = metaWebp;
         }
 
         validateStickerBuffer(finalStickerBuffer!);
-
         await adapter.sendSticker(ctx.chatId, finalStickerBuffer!, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err: any) {
         console.error('[VideoSticker] Error converting:', err);
         await adapter.sendMessage(ctx.chatId, `❌ Gagal mengonversi video ke stiker: ${err.message || 'Pastikan format video valid.'}`, { quotedMessageId: ctx.id });
+      } finally {
+        safeDelete(tempIn);
+        safeDelete(tempOut);
+      }
+      return;
+    }
+
+    // 11b. /sgif — konversi video → file GIF animasi (bukan stiker)
+    if (cmd === 'sgif') {
+      const isVideo = media.type === 'video' || media.type === 'gif' ||
+        media.mimetype?.startsWith('video/') || media.mimetype === 'image/gif';
+      if (!isVideo) {
+        const p = ctx.command?.prefix || '/';
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⚠️ Harus *balas video* atau *kirim video* bersama \`${p}sgif\`.\n\nContoh: balas video → ketik \`${p}sgif\``,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+
+      const isPrem = await isPremiumUser(ctx.senderId);
+      const maxSec = isPrem ? 15 : 8;
+      const maxWidth = isPrem ? 480 : 320;
+      const gifFps = isPrem ? 20 : 15;
+
+      await adapter.sendMessage(ctx.chatId, `⏳ Mengonversi video ke GIF (maks. ${maxSec} detik, ${maxWidth}px)...`, { quotedMessageId: ctx.id });
+
+      const tempIn = getTempPath('mp4');
+      const tempOut = getTempPath('gif');
+
+      try {
+        fs.writeFileSync(tempIn, buffer);
+
+        // Two-pass: palette dulu baru gif (kualitas optimal)
+        const tempPalette = getTempPath('png');
+        try {
+          await runFfmpeg([
+            '-y', '-i', tempIn,
+            '-t', String(maxSec),
+            '-vf', `fps=${gifFps},scale=${maxWidth}:-1:flags=lanczos,palettegen=stats_mode=diff`,
+            '-frames:v', '1',
+            tempPalette
+          ]);
+          await runFfmpeg([
+            '-y', '-i', tempIn, '-i', tempPalette,
+            '-t', String(maxSec),
+            '-lavfi', `fps=${gifFps},scale=${maxWidth}:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5`,
+            tempOut
+          ]);
+        } catch {
+          // Fallback: simple one-pass jika palette gagal
+          await runFfmpeg([
+            '-y', '-i', tempIn,
+            '-t', String(maxSec),
+            '-vf', `fps=${gifFps},scale=${maxWidth}:-1`,
+            tempOut
+          ]);
+        } finally {
+          safeDelete(tempPalette);
+        }
+
+        const gifBuf = fs.readFileSync(tempOut);
+        const sizeMB = (gifBuf.length / 1024 / 1024).toFixed(1);
+
+        // Kirim sebagai video (GIF) bukan stiker
+        await adapter.sendVideo(ctx.chatId, gifBuf, `🎞️ GIF (${sizeMB} MB)`, { quotedMessageId: ctx.id });
+      } catch (err: any) {
+        console.error('[sgif] Error:', err);
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal membuat GIF: ${err.message || 'Format video tidak didukung.'}`, { quotedMessageId: ctx.id });
       } finally {
         safeDelete(tempIn);
         safeDelete(tempOut);
