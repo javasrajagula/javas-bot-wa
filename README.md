@@ -378,6 +378,240 @@ Utility non-paid AI & Offline System Dependencies:
 
 ---
 
+### 🧠 AI Lanjutan & Multimodal *(Dynamic AI Module)*
+
+| Command | Deskripsi | Peran |
+|:--------|:----------|:------|
+| `/draw <prompt>` | Generasi gambar AI (Stable Diffusion / Flux) | Premium |
+| `/setpersona <gaya>` | Ubah persona AI bot (formal/santai/anime/lucu/tsundere) | Admin |
+| `/resetpersona` | Reset persona AI ke default | Admin |
+| `/solve <soal>` | Solver matematika step-by-step berbasis AI | User |
+| `/cekcv` | Evaluasi CV / resume dengan AI | Premium |
+| `/buatcv` | Generate template CV berbasis prompt | Premium |
+| `/pitchdeck` | Buat outline pitch deck bisnis | Premium |
+| `/debat <topik>` | AI argumen dua sisi topik | User |
+| `/roast @user` | AI roasting lucu (mode fun) | User |
+| `/pujian @user` | AI pujian kreatif | User |
+| `/ceritapendek <tema>` | Generate cerita pendek | User |
+| `/puisi <tema>` | Generate puisi | User |
+| `/lirik <judul>` | Generate lirik lagu | User |
+| `/skenario <genre>` | Generate skenario film/drama | Premium |
+| `/chatmulti <topik>` | Multi-turn AI conversation dalam grup | Premium |
+| `/fakta <topik>` | AI facts generator | User |
+| `/brainstorm <topik>` | AI brainstorm ideas | User |
+| `/analisa <teks>` | Analisa sentimen & tone teks | User |
+| `/bagusintulis` | Perbaiki tulisan yang kurang rapi | User |
+| `/parafrase` | Parafrase teks dengan gaya berbeda | User |
+| `/countword` | Hitung kata & karakter dalam teks | User |
+| `/emailpro` | Buat email profesional dari poin-poin | Premium |
+| `/proposalai` | Generate proposal usaha dari prompt | Premium |
+| `/setaimodel <model>` | Set model AI yang digunakan bot | Owner |
+| `/aiusage` | Statistik penggunaan AI di grup | Admin |
+| `/limitai <limit>` | Set limit request AI per hari per user | Admin |
+
+### 🎨 Stiker Kreatif *(Dynamic AI Module)*
+
+| Command | Deskripsi | Peran |
+|:--------|:----------|:------|
+| `/sfilter <efek>` | Filter stiker (vintage/grayscale/neon/blur/oil/sketch) | User |
+| `/sanim <arah>` | Animasi stiker (shake/bounce/spin/flip) | User |
+| `/sframe <bingkai>` | Tambah bingkai dekoratif ke stiker | User |
+| `/sbubble <teks>` | Stiker speech bubble kustom | User |
+| `/scomic <teks>` | Stiker gaya komik dengan teks | User |
+| `/sglitch` | Efek glitch pixel pada stiker | User |
+| `/scolor <warna>` | Recolor stiker dengan palette kustom | User |
+| `/scollage` | Gabungkan beberapa stiker menjadi satu | User |
+| `/smirror` | Stiker efek cermin | User |
+| `/shollow` | Efek hollow/outline pada stiker | User |
+| `/sstamp <teks>` | Tambah cap/stamp teks ke stiker | User |
+| `/sminecraft` | Konversi gambar ke pixel-art gaya Minecraft | User |
+| `/slego` | Konversi gambar ke pixel-art LEGO | User |
+| `/swatercolor` | Efek cat air pada gambar/stiker | Premium |
+| `/sai <prompt>` | Generate stiker berbasis prompt AI | Premium |
+
+### 🛡️ Keamanan Lanjutan *(Dynamic Security Module)*
+
+| Command | Deskripsi | Peran |
+|:--------|:----------|:------|
+| `/join-captcha [on/off]` | CAPTCHA matematika untuk member baru | Admin |
+| `/linkdecode <url>` | Decode URL shortener & cek keamanan | User |
+| `/lockdown` | Kunci total grup (hanya admin bisa chat) | Admin |
+| `/unlockdown` | Buka lockdown grup | Admin |
+| `/shadowban @user` | Ban tersembunyi tanpa notifikasi | Admin |
+| `/unshadowban @user` | Hapus shadow ban | Admin |
+| `/slowmode <detik>` | Atur jeda minimum antar pesan user | Admin |
+| `/antiscam [on/off]` | Deteksi otomatis pola pesan scam | Admin |
+| `/antiflood <limit> <detik>` | Batas maksimum pesan per interval | Admin |
+| `/trustscore @user` | Tampilkan skor kepercayaan member | Admin |
+| `/cloneguard [on/off]` | Deteksi & blokir akun kloning | Admin |
+| `/tempban @user <menit>` | Ban sementara dengan auto-unban | Admin |
+| `/antihoax [on/off]` | Filter konten hoax & disinformasi | Admin |
+| `/raidprotect [on/off]` | Proteksi anti-raid otomatis | Admin |
+| `/verifikasi @user` | Verifikasi manual identitas member | Admin |
+| `/muteall` | Mute semua member kecuali admin | Admin |
+| `/unmuteall` | Unmute semua member | Admin |
+| `/antivirus [on/off]` | Scan link & file berbahaya otomatis | Admin |
+| `/resensi @user` | Riwayat pelanggaran & perilaku member | Admin |
+| `/logexport` | Export log grup ke file teks | Admin |
+
+### 🎮 RPG & Games Lanjutan *(Dynamic Games Module)*
+
+| Command | Deskripsi | Peran |
+|:--------|:----------|:------|
+| `/mancing` | Simulator mancing laut dalam (simpan ke DB) | User |
+| `/jual-ikan` | Jual hasil tangkapan ikan ke pasar | User |
+| `/raid <bos>` | Multiplayer boss raid (tim vs bos) | User |
+| `/petbreed` | Kawinkan dua pet untuk menghasilkan keturunan | User |
+| `/petevolve` | Evolusi pet ke tier lebih tinggi | User |
+| `/gachacard` | Gacha kartu koleksi dengan rarity system | User |
+| `/tradingcard` | Jual/beli kartu koleksi antar user | User |
+| `/blackjack <taruhan>` | Blackjack versus dealer AI | User |
+| `/roulette <taruhan> <pilihan>` | Roulette kasino virtual | User |
+| `/poker` | Texas Hold'em Poker multiplayer | User |
+| `/dadu <taruhan>` | Permainan dadu dengan taruhan | User |
+| `/kotak-misteri` | Buka kotak misteri berhadiah acak | User |
+| `/saham <beli/jual> <saham> <jumlah>` | Simulasi saham & investasi virtual | User |
+| `/crypto <beli/jual> <koin>` | Simulasi trading crypto virtual | User |
+| `/tambang` | Mining cryptocurrency virtual | User |
+| `/ladang` | Berkebun virtual & panen produk | User |
+| `/masak <resep>` | Mini-game memasak | User |
+| `/guild [buat/gabung/keluar/info]` | Sistem guild/klan pemain | User |
+| `/guild-war` | Perang antar guild | User |
+| `/turnamen` | Daftar & ikut turnamen mingguan | User |
+| `/achievement` | Lihat daftar pencapaian & badge | User |
+| `/leaderboard-global` | Papan skor global seluruh server | User |
+| `/craft <item>` | Crafting item dari bahan-bahan | User |
+| `/map-dungeon` | Eksplorasi peta dungeon interaktif | User |
+| `/bosslist` | Daftar bos aktif yang bisa di-raid | User |
+| `/karyawan [rekrut/pecat/gaji]` | Kelola karyawan virtual bisnis | User |
+| `/properti [beli/sewa/jual]` | Investasi properti virtual | User |
+
+### 💼 Utility & Produktivitas *(Dynamic Utility Module)*
+
+| Command | Deskripsi | Peran |
+|:--------|:----------|:------|
+| `/pdfmerge` | Gabungkan beberapa PDF menjadi satu | User |
+| `/pdfsplit <halaman>` | Pisahkan halaman spesifik dari PDF | User |
+| `/ocrtranslate [lang]` | OCR gambar lalu terjemahkan hasilnya | User |
+| `/vntext` | Transkripsi voice note ke teks | User |
+| `/zipfile` | Kompres file menjadi arsip ZIP | User |
+| `/unzipfile` | Ekstrak arsip ZIP | User |
+| `/konversi <nilai> <dari> <ke>` | Konversi satuan (panjang/berat/suhu/mata uang) | User |
+| `/kalkulator <ekspresi>` | Kalkulator saintifik | User |
+| `/kalkulatorgizi` | Hitung kebutuhan kalori & gizi harian | User |
+| `/bmi <tinggi> <berat>` | Hitung Body Mass Index | User |
+| `/todo [add/done/list/clear]` | Daftar tugas personal (to-do list) | User |
+| `/reminder <waktu> <pesan>` | Atur pengingat personal | User |
+| `/timer <menit>` | Countdown timer di grup | User |
+| `/polling <pertanyaan> | <opsi1> | <opsi2>` | Buat polling interaktif | Admin |
+| `/formlink <url>` | Bagikan link form Google/Typeform | Admin |
+| `/encryptteks` | Enkripsi teks dengan password | User |
+| `/decryptteks` | Dekripsi teks terenkripsi | User |
+| `/passwordgen <panjang>` | Generator password kuat | User |
+| `/uuid` | Generate UUID/GUID unik | User |
+| `/ipinfo <ip>` | Informasi & geolokasi IP address | User |
+| `/dns <domain>` | Cek DNS record domain | User |
+| `/whois <domain>` | WHOIS lookup domain | User |
+| `/base64 <encode/decode>` | Encode/decode Base64 | User |
+| `/hash <teks>` | Generate hash MD5/SHA256 teks | User |
+| `/shortlink <url>` | Persingkat URL panjang | User |
+| `/calender` | Tampilkan kalender bulan ini | User |
+| `/daysleft <tanggal>` | Hitung sisa hari menuju tanggal | User |
+| `/zodiak <tanggal-lahir>` | Info zodiak & ramalan | User |
+| `/wm-pos <posisi>` | Watermark video dengan posisi kustom (5 opsi: tl/tr/bl/br/center) | User |
+
+### 📊 Analitik Grup *(Dynamic Utility Module)*
+
+| Command | Deskripsi | Peran |
+|:--------|:----------|:------|
+| `/wordcloud` | Visualisasi awan kata dari obrolan grup | Admin |
+| `/heatmap` | Peta panas aktivitas chat per jam | Admin |
+| `/trendtopik` | Topik yang paling banyak dibahas | Admin |
+| `/aktivitas` | Grafik aktivitas chat harian/mingguan | Admin |
+| `/sentimengrup` | Analisa sentimen positif/negatif grup | Admin |
+| `/topstiker` | Stiker paling sering digunakan | Admin |
+| `/topreaksi` | Emoji/reaksi paling populer | Admin |
+| `/toplink` | Link paling sering dibagikan | Admin |
+| `/waktuaktif` | Jam tersibuk grup dalam seminggu | Admin |
+| `/retensi` | Statistik retensi member per bulan | Admin |
+| `/pertumbuhangrup` | Grafik pertumbuhan anggota | Admin |
+| `/exportstats` | Export statistik grup ke file CSV | Admin |
+
+### 🎵 Audio Suite Lanjutan *(Dynamic Integration Module)*
+
+| Command | Deskripsi | Peran |
+|:--------|:----------|:------|
+| `/shazam` | Identifikasi lagu dari file audio/VN | User |
+| `/lyric <judul> <artis>` | Cari lirik lagu | User |
+| `/pitch <semitone>` | Ubah pitch audio tanpa mengubah tempo | User |
+| `/tempo <bpm>` | Ubah tempo audio | User |
+| `/equalizer <preset>` | Preset EQ (bass boost/treble/flat) | User |
+| `/noisereduce` | Kurangi noise dari audio | Premium |
+| `/vocal-isolate` | Pisahkan vokal dari instrumen (AI Stem) | Premium |
+| `/audioconv <format>` | Konversi format audio (mp3/ogg/wav/flac) | User |
+| `/audiomerge` | Gabungkan beberapa file audio | User |
+| `/audiomix` | Mix dua audio secara overlay | User |
+| `/audioloop <kali>` | Loop audio sebanyak N kali | User |
+| `/radikal` | Rekam audio & efek heavy distortion | User |
+
+### 📚 Edukasi & Layanan Publik *(Dynamic Integration Module)*
+
+| Command | Deskripsi | Peran |
+|:--------|:----------|:------|
+| `/sholat <kota>` | Jadwal waktu sholat harian per kota | User |
+| `/hijriyah` | Konversi tanggal Masehi ↔ Hijriyah | User |
+| `/doa <nama>` | Doa harian dari database doa Islam | User |
+| `/quran <surah>:<ayat>` | Tampilkan ayat Al-Quran + terjemahan | User |
+| `/hadis <topik>` | Cari hadis berdasarkan topik | User |
+| `/kbbi <kata>` | Cari definisi kata di KBBI | User |
+| `/sinonim <kata>` | Cari sinonim & antonim | User |
+| `/ejaan <kata>` | Cek ejaan bahasa Indonesia | User |
+| `/proverb` | Peribahasa acak + artinya | User |
+| `/ensiklopedia <topik>` | Ringkasan Wikipedia | User |
+| `/berita [kategori]` | Berita terkini Indonesia | User |
+| `/bmkg [kota]` | Info cuaca & peringatan BMKG | User |
+| `/gempa` | Info gempa terbaru dari BMKG | User |
+| `/kurs <mata-uang>` | Kurs mata uang real-time | User |
+| `/harga-bbm` | Harga BBM terbaru | User |
+| `/cekpajak <nopol>` | Cek pajak kendaraan bermotor | User |
+| `/cekresi <nomor>` | Lacak paket pengiriman (JNE/J&T/SiCepat) | User |
+| `/cekbpjs <nomor>` | Cek status keaktifan BPJS | User |
+| `/pln <id-pel>` | Cek tagihan & token PLN | User |
+| `/covid` | Statistik COVID-19 terkini | User |
+| `/kalkpph` | Kalkulator PPh 21 (pajak penghasilan) | User |
+
+### 🔗 Integrasi API Eksternal *(Dynamic Integration Module)*
+
+| Command | Deskripsi | Peran |
+|:--------|:----------|:------|
+| `/github <user>` | Profil & repositori GitHub user | User |
+| `/github-repo <user/repo>` | Detail repo GitHub + commit terbaru | User |
+| `/npm <package>` | Info package NPM | User |
+| `/pypi <package>` | Info package PyPI (Python) | User |
+| `/stackoverflow <query>` | Cari jawaban di Stack Overflow | User |
+| `/cuaca <kota>` | Cuaca real-time dari OpenWeatherMap | User |
+| `/gempa-dunia` | Data gempa global dari USGS | User |
+| `/covid-dunia <negara>` | Statistik COVID negara tertentu | User |
+| `/kalkgizi <makanan>` | Cek nilai gizi makanan dari database | User |
+| `/vaksin` | Jadwal & lokasi vaksinasi terdekat | User |
+| `/shopee <query>` | Cari & monitor harga di Shopee | User |
+| `/tokopedia <query>` | Cari produk di Tokopedia | User |
+| `/lazada <query>` | Cari produk di Lazada | User |
+| `/hargaemas` | Harga emas Antam real-time | User |
+| `/bursaefek` | Indeks saham BEI terkini | User |
+| `/jktproperty <area>` | Cek harga properti Jakarta | User |
+| `/translate-api <lang>` | Terjemahkan via Google Translate API | User |
+| `/detect-lang` | Deteksi bahasa teks otomatis | User |
+| `/timezone <kota>` | Waktu terkini di kota manapun | User |
+| `/country <nama>` | Info lengkap negara (peta, mata uang, bahasa) | User |
+| `/movie <judul>` | Info film dari IMDb/OMDB | User |
+| `/anime <judul>` | Info anime dari MyAnimeList | User |
+| `/manga <judul>` | Info manga dari MangaDex | User |
+| `/spotify-song <judul>` | Cari lagu di Spotify | User |
+| `/youtube <query>` | Cari video di YouTube | User |
+
+---
+
 ## ⚙️ Feature Flags Grup
 
 Gunakan `/feature <nama> <on/off>` untuk mengaktifkan/menonaktifkan:
