@@ -65,10 +65,11 @@ export class StickerSuiteCommand implements Command {
       const isClassic = cleanArgs[0]?.toLowerCase() === 'classic';
       const text = (isClassic ? cleanArgs.slice(1) : cleanArgs).join(' ').trim();
       if (!text) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/brat hello` atau `/brat classic hello`', { quotedMessageId: ctx.id });
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/brat hello world` atau `/brat classic hello world`', { quotedMessageId: ctx.id });
         return;
       }
-      const buffer = await generateBratSticker(text, { mode: isClassic ? 'classic' : 'grid' });
+      // mode 'brat' = background putih (default), 'classic' = background putih juga tapi blur lebih halus
+      const buffer = await generateBratSticker(text, { mode: isClassic ? 'classic' : 'brat' });
       const metaWebp = await addStickerMetadata(buffer, pack, author);
       await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
       unlockStickerMaker(ctx, adapter);
