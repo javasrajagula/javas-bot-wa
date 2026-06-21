@@ -18,752 +18,484 @@ const ROLE_LEVEL: Record<Role, number> = {
   owner: 4
 };
 
-const CATEGORY_INFO: Record<string, { emoji: string; title: string; desc: string }> = {
-  sticker: {
-    emoji: '🎨',
-    title: 'Sticker',
-    desc: 'Buat stiker, brat, meme, emoji mix'
-  },
-  media: {
-    emoji: '🖼️',
-    title: 'Media',
-    desc: 'Edit gambar/video, HD, crop, watermark'
-  },
-  audio: {
-    emoji: '🎧',
-    title: 'Audio',
-    desc: 'TTS, MP3, voice effect, potong audio'
-  },
-  downloader: {
-    emoji: '📥',
-    title: 'Downloader',
-    desc: 'Download TikTok dan Instagram'
-  },
-  text: {
-    emoji: '📝',
-    title: 'Text',
-    desc: 'OCR, translate, ringkas, typo'
-  },
-  document: {
-    emoji: '📄',
-    title: 'Document',
-    desc: 'PDF, QR, scan, unzip'
-  },
-  games: {
-    emoji: '🎮',
-    title: 'Games',
-    desc: 'TOD, tebak kata, suit, slot, werewolf'
-  },
-  economy: {
-    emoji: '💰',
-    title: 'Economy',
-    desc: 'Saldo, rank, shop, pet, dungeon'
-  },
-  admin: {
-    emoji: '🛡️',
-    title: 'Admin',
-    desc: 'Moderasi dan pengaturan grup'
-  },
-  owner: {
-    emoji: '👑',
-    title: 'Owner',
-    desc: 'Tool khusus owner bot'
-  },
-  general: {
-    emoji: 'ℹ️',
-    title: 'General',
-    desc: 'Info umum bot'
-  }
+// ─── Category definitions ────────────────────────────────────────────────────
+const CATEGORIES: Record<string, { emoji: string; title: string; desc: string; tag?: string }> = {
+  sticker:    { emoji: '🎨', title: 'Stiker',      desc: 'Brat, meme, stiker kreatif, emoji mix'  },
+  media:      { emoji: '🖼️', title: 'Media',       desc: 'HD, crop, watermark, GIF, video edit',  tag: '💎' },
+  audio:      { emoji: '🎵', title: 'Audio',       desc: 'MP3, TTS, efek suara, potong audio'     },
+  downloader: { emoji: '📥', title: 'Downloader',  desc: 'TikTok, Instagram, YouTube',            tag: '💎' },
+  text:       { emoji: '📝', title: 'Teks & AI',   desc: 'OCR, terjemah, ringkas, AI chat'        },
+  document:   { emoji: '📄', title: 'Dokumen',     desc: 'PDF, QR code, scan, unzip',             tag: '💎' },
+  games:      { emoji: '🎮', title: 'Game',        desc: 'TOD, Werewolf, suit, slot, tebak kata'  },
+  economy:    { emoji: '💰', title: 'Ekonomi',     desc: 'Saldo, rank, shop, pet, dungeon, RPG'   },
+  admin:      { emoji: '🛡️', title: 'Admin',       desc: 'Moderasi, fitur grup, pengaturan',      tag: '🛡️' },
+  owner:      { emoji: '👑', title: 'Owner',       desc: 'Tool khusus owner bot',                 tag: '👑' },
+  general:    { emoji: 'ℹ️', title: 'Umum',        desc: 'Info dan utilitas umum'                 },
 };
 
 const CATEGORY_ORDER = [
-  'sticker',
-  'media',
-  'audio',
-  'downloader',
-  'text',
-  'document',
-  'games',
-  'economy',
-  'admin',
-  'owner',
-  'general'
+  'sticker', 'media', 'audio', 'downloader', 'text',
+  'document', 'games', 'economy', 'admin', 'owner', 'general'
 ];
 
-function line(char = '─', length = 32) {
-  return char.repeat(length);
-}
-
-function formatCommand(prefix: string, name: string) {
-  return `*${prefix}${name}*`;
-}
-
-function normalizeCategory(input?: string) {
+// ─── Alias normalization ─────────────────────────────────────────────────────
+function normalizeCategory(input?: string): string {
   if (!input) return '';
-
-  const value = input.toLowerCase().trim();
-
-  const aliases: Record<string, string> = {
-    stiker: 'sticker',
-    sticker: 'sticker',
-    stickers: 'sticker',
-
-    media: 'media',
-    foto: 'media',
-    video: 'media',
-
-    audio: 'audio',
-    voice: 'audio',
-    vn: 'audio',
-
-    download: 'downloader',
-    downloader: 'downloader',
-    dl: 'downloader',
-
-    text: 'text',
-    teks: 'text',
-    ai: 'text',
-
-    document: 'document',
-    dokumen: 'document',
-    doc: 'document',
-    pdf: 'document',
-
-    game: 'games',
-    games: 'games',
-
-    ekonomi: 'economy',
-    economy: 'economy',
-    eco: 'economy',
-
-    admin: 'admin',
-    owner: 'owner',
-    all: 'all',
-    semua: 'all',
-    premium: 'premium'
+  const v = input.toLowerCase().trim();
+  const map: Record<string, string> = {
+    stiker: 'sticker', stickers: 'sticker', sticker: 'sticker',
+    media: 'media', foto: 'media', video: 'media',
+    audio: 'audio', voice: 'audio', vn: 'audio',
+    download: 'downloader', downloader: 'downloader', dl: 'downloader',
+    text: 'text', teks: 'text', ai: 'text', 'teks&ai': 'text',
+    document: 'document', dokumen: 'document', doc: 'document', pdf: 'document',
+    game: 'games', games: 'games',
+    ekonomi: 'economy', economy: 'economy', eco: 'economy',
+    admin: 'admin', owner: 'owner',
+    all: 'all', semua: 'all',
+    premium: 'premium', saya: 'saya'
   };
-
-  return aliases[value] || value;
+  return map[v] || v;
 }
 
+// ─── Permission filter ───────────────────────────────────────────────────────
+function canDisplay(meta: any, ctx: {
+  role: Role; roleValue: number; isGroup: boolean;
+  features: Record<string, boolean>; plan: string;
+}): boolean {
+  const minRole = (meta.minRole || 'user') as Role;
+  if (ctx.roleValue < ROLE_LEVEL[minRole]) return false;
+  if (meta.premiumOnly && ctx.roleValue < ROLE_LEVEL.premium) return false;
+  if (!pluginManager.isPluginEnabled(meta.plugin)) return false;
+
+  if (ctx.isGroup && meta.featureFlag !== 'general') {
+    const enabled = ctx.features[meta.featureFlag] ?? DEFAULT_FEATURES[meta.featureFlag] ?? true;
+    if (!enabled) return false;
+  }
+  if (ctx.isGroup) {
+    const cat = meta.category;
+    if (ctx.plan === 'free' && cat !== 'general' && cat !== 'sticker') return false;
+    if (ctx.plan === 'basic' && (cat === 'downloader' || cat === 'media' || cat === 'document')) return false;
+  }
+  return true;
+}
+
+function groupByCategory(commands: any[]): Record<string, any[]> {
+  const result: Record<string, any[]> = {};
+  for (const c of commands) {
+    const cat = c.metadata.category || 'general';
+    if (!result[cat]) result[cat] = [];
+    result[cat].push(c);
+  }
+  return result;
+}
+
+// ─── Context loader ──────────────────────────────────────────────────────────
+async function loadContext(ctx: MessageContext) {
+  let prefix = '/';
+  let features: Record<string, boolean> = { ...DEFAULT_FEATURES };
+  let plan = 'free';
+
+  if (ctx.isGroup) {
+    const cfg = await prisma.groupConfig.findUnique({ where: { groupId: ctx.chatId } });
+    if (cfg) {
+      prefix = cfg.prefix || '/';
+      try { features = { ...DEFAULT_FEATURES, ...JSON.parse(cfg.featuresJson || '{}') }; } catch { /**/ }
+    }
+    const sub = await prisma.groupSubscription.findUnique({ where: { groupId: ctx.chatId } });
+    const expired = sub?.expiresAt && sub.expiresAt.getTime() < Date.now();
+    plan = (sub && !expired) ? (sub.plan || 'free') : 'free';
+  }
+  return { prefix, features, plan };
+}
+
+// ─── Quota helper ────────────────────────────────────────────────────────────
+async function getQuotaText(ctx: MessageContext, role: Role, plan: string): Promise<string> {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  if (role === 'owner') return '♾️ Unlimited';
+  if (role === 'premium') {
+    if (!ctx.isGroup) {
+      const max = parseInt(env.PREMIUM_PRIVATE_DAILY_CMD_LIMIT || '200', 10);
+      const used = await prisma.usageLog.count({ where: { userId: ctx.senderId, groupId: null, createdAt: { gte: today } } });
+      return `${Math.max(0, max - used)}/${max} (PM Premium)`;
+    }
+    return '♾️ Unlimited (Premium)';
+  }
+  const max = ctx.isGroup
+    ? (plan === 'basic' ? 200 : 50)
+    : parseInt(env.PRIVATE_DAILY_CMD_LIMIT || '20', 10);
+  const where = ctx.isGroup
+    ? { groupId: ctx.chatId, createdAt: { gte: today } }
+    : { userId: ctx.senderId, groupId: null as any, createdAt: { gte: today } };
+  const used = await prisma.usageLog.count({ where });
+  return `${Math.max(0, max - used)}/${max}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MenuCommand
+// ═══════════════════════════════════════════════════════════════════════════════
 export class MenuCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
     const role = await getUserRole(ctx.chatId, ctx.senderId, adapter);
     const roleValue = ROLE_LEVEL[role];
+    const { prefix, features, plan } = await loadContext(ctx);
 
-    const { prefix, groupFeatures, groupPlan } = await this.getMenuContext(ctx);
-    
-    // Determine command type from trigger
-    const commandType = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
+    const cmdType = ctx.command?.commandName
+      || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
-    const allCommands = commandRegistry.getAll();
-    const visibleCommands = allCommands.filter(cmd =>
-      this.canDisplayCommand(cmd.metadata, {
-        role,
-        roleValue,
-        isGroup: ctx.isGroup,
-        groupFeatures,
-        groupPlan
-      })
-    );
+    const allCmds = commandRegistry.getAll();
+    const visible = allCmds.filter(c => canDisplay(c.metadata, {
+      role, roleValue, isGroup: ctx.isGroup, features, plan
+    }));
 
-    // 1. Handle /start
-    if (commandType === 'start') {
-      const startText = [
+    // ── /start ──────────────────────────────────────────────────────────────
+    if (cmdType === 'start') {
+      await adapter.sendMessage(ctx.chatId, [
         `🤖 *Selamat Datang di Javas Bot WA!* 👋`,
         ``,
-        `Halo *${ctx.senderName || 'User'}*, saya adalah bot WhatsApp asisten serbaguna yang siap membantu kebutuhan harian Anda.`,
+        `Halo *${ctx.senderName || 'User'}* — saya bot WhatsApp multifungsi siap membantu.`,
         ``,
-        `💡 *Cara Memulai:*`,
-        `• Ketik *${prefix}menu* untuk menampilkan menu utama.`,
-        `• Ketik *${prefix}rules* untuk melihat aturan penggunaan bot.`,
-        `• Ketik *${prefix}ping* untuk mengecek kecepatan respon bot.`,
-        ``,
-        `Semoga bermanfaat!`
-      ].join('\n');
-      await adapter.sendMessage(ctx.chatId, startText, { quotedMessageId: ctx.id });
+        `📌 *Mulai dari sini:*`,
+        `• \`${prefix}menu\` → Menu utama`,
+        `• \`${prefix}help <command>\` → Cara pakai command`,
+        `• \`${prefix}cari <kata>\` → Cari command`,
+        `• \`${prefix}ping\` → Cek respon bot`,
+      ].join('\n'), { quotedMessageId: ctx.id });
       return;
     }
 
-    // 2. Handle /premiumguide
-    if (commandType === 'premiumguide') {
-      const guideText = [
-        `⭐ *Panduan Fitur Premium Javas Bot WA* ⭐`,
-        ``,
-        `Pengguna Premium mendapatkan akses eksklusif ke fitur-fitur kelas atas bot:`,
+    // ── /premiumguide ────────────────────────────────────────────────────────
+    if (cmdType === 'premiumguide') {
+      await adapter.sendMessage(ctx.chatId, [
+        `⭐ *Panduan Premium Javas Bot WA*`,
         ``,
         `🚀 *Keuntungan Premium:*`,
-        `1. *Media & Downloader*: Tanpa batasan limit/durasi video.`,
-        `2. *HD Upscaling*: Hasil upscaling resolusi gambar lebih tajam (hingga 4x).`,
-        `3. *Kecepatan Prioritas*: Pemrosesan antrian media lebih diprioritaskan.`,
-        `4. *Command Tanpa Batas*: Bebas cooldown penggunaan command.`,
+        `• Media & Downloader tanpa limit`,
+        `• HD Upscaling hingga 4x`,
+        `• Antrian prioritas`,
+        `• Cooldown dihapus`,
         ``,
-        `💰 *Cara Mendapatkan Premium:*`,
-        `Silakan hubungi Owner bot dengan mengetik *${prefix}owner* untuk informasi harga dan aktivasi.`,
-        `Anda juga dapat memeriksa status sewa grup dengan command *${prefix}ceksewa*.`
-      ].join('\n');
-      await adapter.sendMessage(ctx.chatId, guideText, { quotedMessageId: ctx.id });
+        `💳 *Cara mendapatkan Premium:*`,
+        `Ketik \`${prefix}owner\` untuk info harga & aktivasi.`,
+        `Ketik \`${prefix}ceksewa\` untuk status sewa grup.`,
+      ].join('\n'), { quotedMessageId: ctx.id });
       return;
     }
 
-    // 3. Handle /cari or /cmd or /menu search <keyword>
-    if (commandType === 'cari' || commandType === 'cmd' || (args[0]?.toLowerCase() === 'search' && args.length > 1)) {
-      const keyword = (commandType === 'cari' || commandType === 'cmd') 
-        ? args.join(' ').trim().toLowerCase()
-        : args.slice(1).join(' ').trim().toLowerCase();
-
-      if (!keyword) {
-        await adapter.sendMessage(ctx.chatId, `⚠️ Masukkan keyword pencarian.\nContoh: *${prefix}cari stiker* atau *${prefix}cmd brat*`, { quotedMessageId: ctx.id });
+    // ── /cari & /cmd ─────────────────────────────────────────────────────────
+    if (cmdType === 'cari' || cmdType === 'cmd') {
+      const kw = args.join(' ').trim().toLowerCase();
+      if (!kw) {
+        await adapter.sendMessage(ctx.chatId,
+          `🔍 Masukkan kata kunci.\nContoh: \`${prefix}cari stiker\``,
+          { quotedMessageId: ctx.id });
         return;
       }
-
-      const matches = visibleCommands.filter(cmd => {
-        const name = cmd.metadata.name.toLowerCase();
-        const desc = (cmd.metadata.description || '').toLowerCase();
-        const aliases = (cmd.metadata.aliases || []).map((a: string) => a.toLowerCase());
-        return name.includes(keyword) || desc.includes(keyword) || aliases.some((a: string) => a.includes(keyword));
+      const hits = visible.filter(c => {
+        const m = c.metadata;
+        return m.name.includes(kw)
+          || (m.description || '').toLowerCase().includes(kw)
+          || (m.aliases || []).some((a: string) => a.includes(kw));
       });
-
-      if (matches.length === 0) {
-        await adapter.sendMessage(ctx.chatId, `🔍 Pencarian untuk *"${keyword}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+      if (!hits.length) {
+        await adapter.sendMessage(ctx.chatId, `🔍 Tidak ada command untuk *"${kw}"*.`, { quotedMessageId: ctx.id });
         return;
       }
-
-      let searchText = `🔍 *Hasil Pencarian: "${keyword}"*\n\n`;
-      matches.forEach((m, index) => {
-        searchText += `*${index + 1}. ${prefix}${m.metadata.name}*\n`;
-        searchText += `   ${m.metadata.description}\n`;
-        if (m.metadata.aliases?.length) {
-          searchText += `   Alias: ${m.metadata.aliases.map((a: string) => `*${prefix}${a}*`).join(', ')}\n`;
-        }
-        searchText += `\n`;
-      });
-      await adapter.sendMessage(ctx.chatId, searchText, { quotedMessageId: ctx.id });
-      return;
-    }
-
-    // 4. Handle /menu saya
-    if (args[0]?.toLowerCase() === 'saya') {
-      let filtered = visibleCommands;
-      if (role === 'premium') {
-        filtered = visibleCommands.filter(cmd => cmd.metadata.premiumOnly || cmd.metadata.minRole === 'premium' || cmd.metadata.minRole === 'user' || !cmd.metadata.minRole);
-      } else if (role === 'user') {
-        filtered = visibleCommands.filter(cmd => !cmd.metadata.premiumOnly && (!cmd.metadata.minRole || cmd.metadata.minRole === 'user'));
-      }
-      if (!ctx.isGroup) {
-        filtered = filtered.filter(cmd => cmd.metadata.category !== 'admin');
-      }
-      // Show custom menu for user
-      await this.sendAllMenu(ctx, adapter, filtered, prefix, role, groupPlan);
+      const lines = hits.slice(0, 20).map((c, i) =>
+        `${i + 1}. \`${prefix}${c.metadata.name}\` — _${c.metadata.description}_`
+      );
+      if (hits.length > 20) lines.push(`_... dan ${hits.length - 20} lainnya_`);
+      await adapter.sendMessage(ctx.chatId,
+        `🔍 *Hasil "${kw}":*\n\n${lines.join('\n')}\n\n💡 \`${prefix}help <command>\` untuk detail.`,
+        { quotedMessageId: ctx.id });
       return;
     }
 
     const rawArg = args[0]?.trim();
-    const commandArg = normalizeCategory(rawArg);
+    const catArg = normalizeCategory(rawArg);
 
-    if (commandArg && commandArg !== 'all' && commandArg !== 'premium') {
-      const knownCategories = [...CATEGORY_ORDER, 'general'];
-
-      if (!knownCategories.includes(commandArg)) {
-        const cleanCommandName = rawArg?.startsWith(prefix)
-          ? rawArg.slice(prefix.length)
-          : rawArg;
-
-        const command = cleanCommandName ? commandRegistry.get(cleanCommandName) : undefined;
-
-        if (command) {
-          await this.sendHelp(ctx, adapter, command.metadata, {
-            prefix,
-            groupFeatures,
-            groupPlan
-          });
-          return;
-        }
-
-        await adapter.sendMessage(
-          ctx.chatId,
-          `⚠️ Menu atau command *${rawArg}* tidak ditemukan.\n\nCoba ketik:\n• *${prefix}menu*\n• *${prefix}menu sticker*\n• *${prefix}help brat*\n• *${prefix}cari stiker*`,
-          { quotedMessageId: ctx.id }
-        );
+    // ── /menu <category> ─────────────────────────────────────────────────────
+    if (catArg && CATEGORY_ORDER.includes(catArg)) {
+      if (!ctx.isGroup && catArg === 'admin') {
+        await adapter.sendMessage(ctx.chatId, `⚠️ Kategori Admin Grup tidak tersedia di chat pribadi.`, { quotedMessageId: ctx.id });
         return;
       }
-    }
-
-    if (commandArg === 'all') {
-      await this.sendAllMenu(ctx, adapter, visibleCommands, prefix, role, groupPlan);
+      await this.sendCategory(ctx, adapter, visible, prefix, catArg);
       return;
     }
 
-    if (commandArg === 'premium') {
-      await this.sendPremiumMenu(ctx, adapter, visibleCommands, prefix, role, groupPlan);
+    // ── /menu all ────────────────────────────────────────────────────────────
+    if (catArg === 'all') {
+      await this.sendAll(ctx, adapter, visible, prefix, role, plan);
       return;
     }
 
-    if (commandArg && CATEGORY_ORDER.includes(commandArg)) {
-      if (!ctx.isGroup && commandArg === 'admin') {
-        await adapter.sendMessage(
-          ctx.chatId,
-          `⚠️ Kategori Admin Grup tidak tersedia di chat pribadi.`,
-          { quotedMessageId: ctx.id }
-        );
+    // ── /menu premium ────────────────────────────────────────────────────────
+    if (catArg === 'premium') {
+      await this.sendPremium(ctx, adapter, visible, prefix, role, plan);
+      return;
+    }
+
+    // ── /menu saya ───────────────────────────────────────────────────────────
+    if (catArg === 'saya') {
+      await this.sendHome(ctx, adapter, visible.filter(c => {
+        if (role === 'user') return !c.metadata.premiumOnly && (!c.metadata.minRole || c.metadata.minRole === 'user');
+        return true;
+      }), prefix, role, plan);
+      return;
+    }
+
+    // ── /help <command> ──────────────────────────────────────────────────────
+    if (rawArg) {
+      const cmdName = rawArg.startsWith(prefix) ? rawArg.slice(prefix.length) : rawArg;
+      const found = commandRegistry.get(cmdName);
+      if (found) {
+        await this.sendHelp(ctx, adapter, found.metadata, { prefix, features, plan });
         return;
       }
-      await this.sendCategoryMenu(ctx, adapter, visibleCommands, prefix, commandArg);
+      await adapter.sendMessage(ctx.chatId,
+        `⚠️ Command atau kategori *${rawArg}* tidak dikenali.\n\n` +
+        `Coba:\n• \`${prefix}menu\`\n• \`${prefix}menu sticker\`\n• \`${prefix}cari <kata>\``,
+        { quotedMessageId: ctx.id });
       return;
     }
 
-    await this.sendHomeMenu(ctx, adapter, visibleCommands, prefix, role, groupPlan);
+    // ── Default: home menu ───────────────────────────────────────────────────
+    await this.sendHome(ctx, adapter, visible, prefix, role, plan);
   }
 
-  private async getMenuContext(ctx: MessageContext): Promise<{
-    prefix: string;
-    groupFeatures: Record<string, boolean>;
-    groupPlan: string;
-  }> {
-    let prefix = '/';
-    let groupFeatures: Record<string, boolean> = {};
-    let groupPlan = 'private';
-
-    if (!ctx.isGroup) {
-      return { prefix, groupFeatures, groupPlan };
-    }
-
-    const config = await prisma.groupConfig.findUnique({
-      where: { groupId: ctx.chatId }
-    });
-
-    if (config) {
-      prefix = config.prefix || '/';
-
-      try {
-        groupFeatures = {
-          ...DEFAULT_FEATURES,
-          ...JSON.parse(config.featuresJson || '{}')
-        };
-      } catch {
-        groupFeatures = { ...DEFAULT_FEATURES };
-      }
-    } else {
-      groupFeatures = { ...DEFAULT_FEATURES };
-    }
-
-    const subscription = await prisma.groupSubscription.findUnique({
-      where: { groupId: ctx.chatId }
-    });
-
-    const expired = subscription?.expiresAt && subscription.expiresAt.getTime() < Date.now();
-    groupPlan = subscription && !expired ? subscription.plan || 'free' : 'free';
-
-    return { prefix, groupFeatures, groupPlan };
-  }
-
-  private canDisplayCommand(
-    meta: any,
-    context: {
-      role: Role;
-      roleValue: number;
-      isGroup: boolean;
-      groupFeatures: Record<string, boolean>;
-      groupPlan: string;
-    }
-  ): boolean {
-    const minRole = (meta.minRole || 'user') as Role;
-
-    if (context.roleValue < ROLE_LEVEL[minRole]) return false;
-    if (meta.premiumOnly && context.roleValue < ROLE_LEVEL.premium) return false;
-
-    if (!pluginManager.isPluginEnabled(meta.plugin)) return false;
-
-    if (context.isGroup && meta.featureFlag !== 'general') {
-      const enabled = context.groupFeatures[meta.featureFlag] !== undefined
-        ? context.groupFeatures[meta.featureFlag]
-        : DEFAULT_FEATURES[meta.featureFlag] ?? true;
-
-      if (!enabled) return false;
-    }
-
-    if (context.isGroup) {
-      const category = meta.category;
-
-      if (context.groupPlan === 'free') {
-        if (category !== 'general' && category !== 'sticker') return false;
-      }
-
-      if (context.groupPlan === 'basic') {
-        if (category === 'downloader' || category === 'media' || category === 'document') {
-          return false;
-        }
-      }
-    }
-
-    return true;
-  }
-
-  private groupByCategory(commands: any[]) {
-    const grouped: Record<string, any[]> = {};
-
-    for (const command of commands) {
-      const category = command.metadata.category || 'general';
-
-      if (!grouped[category]) {
-        grouped[category] = [];
-      }
-
-      grouped[category].push(command);
-    }
-
-    return grouped;
-  }
-
-  private async sendHomeMenu(
-    ctx: MessageContext,
-    adapter: WhatsAppAdapter,
-    commands: any[],
-    prefix: string,
-    role: Role,
-    groupPlan: string
+  // ── HOME MENU (compact, navigasi saja) ──────────────────────────────────────
+  private async sendHome(
+    ctx: MessageContext, adapter: WhatsAppAdapter,
+    commands: any[], prefix: string, role: Role, plan: string
   ) {
-    const grouped = this.groupByCategory(commands);
+    const grouped = groupByCategory(commands);
+    const quota = await getQuotaText(ctx, role, plan);
 
-    // Calculate quota remaining
-    let quotaText = 'Unlimited (Owner/Premium)';
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const isPremiumOrOwner = role === 'owner' || role === 'premium';
-
-    if (!isPremiumOrOwner) {
-      if (ctx.isGroup) {
-        let maxCmd = 50;
-        if (groupPlan === 'basic') maxCmd = 200;
-        else if (groupPlan === 'premium') maxCmd = 999999;
-        
-        const usageCount = await prisma.usageLog.count({
-          where: {
-            groupId: ctx.chatId,
-            createdAt: { gte: startOfDay }
-          }
-        });
-        const left = Math.max(0, maxCmd - usageCount);
-        quotaText = `${left} / ${maxCmd} (Grup)`;
-      } else {
-        const maxCmd = parseInt(env.PRIVATE_DAILY_CMD_LIMIT || '20', 10);
-        const usageCount = await prisma.usageLog.count({
-          where: {
-            userId: ctx.senderId,
-            groupId: null,
-            createdAt: { gte: startOfDay }
-          }
-        });
-        const left = Math.max(0, maxCmd - usageCount);
-        quotaText = `${left} / ${maxCmd} (PC)`;
-      }
-    } else if (role === 'premium' && !ctx.isGroup) {
-      const maxCmd = parseInt(env.PREMIUM_PRIVATE_DAILY_CMD_LIMIT || '200', 10);
-      const usageCount = await prisma.usageLog.count({
-        where: {
-          userId: ctx.senderId,
-          groupId: null,
-          createdAt: { gte: startOfDay }
-        }
-      });
-      const left = Math.max(0, maxCmd - usageCount);
-      quotaText = `${left} / ${maxCmd} (PC Premium)`;
+    const premStatus = await getPremiumStatus(ctx.senderId);
+    let premLine = '';
+    if (premStatus.isPremium && premStatus.expiresAt) {
+      premLine = `\n⏳ Expired Premium: *${premStatus.expiresAt.toLocaleDateString('id-ID')}* (${premStatus.daysLeft} hari lagi)`;
+    } else if (premStatus.isPremium) {
+      premLine = `\n⭐ Expired Premium: *Selamanya*`;
     }
 
-    const premiumStatus = await getPremiumStatus(ctx.senderId);
-    let premiumDetails = '';
-    if (premiumStatus.isPremium) {
-      if (premiumStatus.expiresAt) {
-        const dateStr = premiumStatus.expiresAt.toLocaleDateString('id-ID', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-        premiumDetails = `\n✦ Expired Premium: *${dateStr}* (${premiumStatus.daysLeft} hari lagi)`;
-      } else {
-        premiumDetails = `\n✦ Expired Premium: *Selamanya*`;
-      }
-    }
-
-    let text = [
-      `╔════════════════════════╗`,
-      `║       *JAVAS BOT WA*       ║`,
-      `╚════════════════════════╝`,
-      `✦ Halo, *${ctx.senderName || 'User'}* 👋`,
-      `✦ Role: *${role.toUpperCase()}*` + (ctx.isGroup ? ` | Plan: *${groupPlan.toUpperCase()}*` : '') + premiumDetails,
-      `✦ Sisa Kuota: *${quotaText}*`,
-      `✦ Prefix Bot: *${prefix}*`,
-      `─────────────────────────`,
-      `*KATEGORI MENU:*`,
+    const header = [
+      `🤖 *JAVAS BOT WA*`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `👤 *${ctx.senderName || 'User'}* · ${role.toUpperCase()}${ctx.isGroup ? ` · ${plan.toUpperCase()}` : ''}${premLine}`,
+      `📊 Kuota hari ini: *${quota}*`,
+      `⌨️ Prefix: *${prefix}*`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `📂 *PILIH KATEGORI:*`,
       ``
     ].join('\n');
 
-    for (const category of CATEGORY_ORDER) {
-      if (!ctx.isGroup && category === 'admin') continue; // Hide admin category in private chat
+    const cats: string[] = [];
+    for (const cat of CATEGORY_ORDER) {
+      if (!ctx.isGroup && cat === 'admin') continue;
+      if (cat === 'owner' && role !== 'owner') continue;
+      const cmds = grouped[cat] || [];
+      if (!cmds.length) continue;
 
-      const categoryCommands = grouped[category] || [];
-      if (categoryCommands.length === 0) continue;
-
-      const info = CATEGORY_INFO[category] || CATEGORY_INFO.general;
-
-      let statusLabel = '🟢 Free';
-      if (category === 'downloader' || category === 'media' || category === 'document') {
-        statusLabel = '💎 Premium';
-      } else if (category === 'owner') {
-        statusLabel = '👑 Owner Only';
-      } else if (category === 'admin') {
-        statusLabel = '🛡️ Admin Only';
-      }
-
-      text += `${info.emoji} *${info.title}* [${statusLabel}]\n`;
-      text += `└ _${info.desc}_\n`;
-      text += `└ Ketik: \`${prefix}menu ${category}\`\n\n`;
+      const info = CATEGORIES[cat];
+      const tag = info.tag ? ` ${info.tag}` : '';
+      cats.push(`${info.emoji} *${info.title}*${tag} _(${cmds.length} cmd)_`);
+      cats.push(`   └ \`${prefix}menu ${cat}\``);
     }
 
-    text += [
-      `─────────────────────────`,
-      `╔════════════════════════╗`,
-      `║       *SHORTCUTS*      ║`,
-      `╚════════════════════════╝`,
-      `• \`${prefix}menu all\` ─ Semua command`,
-      `• \`${prefix}menu premium\` ─ Fitur premium`,
-      `• \`${prefix}help <command>\` ─ Detail command`,
-      `• Contoh: \`${prefix}help brat\``,
-      `─────────────────────────`
+    const footer = [
+      ``,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `🔍 \`${prefix}cari <kata>\` — cari command`,
+      `❓ \`${prefix}help <cmd>\` — cara pakai`,
+      `📋 \`${prefix}menu all\` — semua command`,
+      `⭐ \`${prefix}menu premium\` — fitur premium`,
     ].join('\n');
 
-    await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
+    await adapter.sendMessage(ctx.chatId, header + cats.join('\n') + footer, { quotedMessageId: ctx.id });
   }
 
-  private async sendAllMenu(
-    ctx: MessageContext,
-    adapter: WhatsAppAdapter,
-    commands: any[],
-    prefix: string,
-    role: Role,
-    groupPlan: string
+  // ── CATEGORY MENU (detail 1 kategori) ────────────────────────────────────────
+  private async sendCategory(
+    ctx: MessageContext, adapter: WhatsAppAdapter,
+    commands: any[], prefix: string, category: string
   ) {
-    const grouped = this.groupByCategory(commands);
+    const info = CATEGORIES[category] || CATEGORIES.general;
+    const cmds = commands.filter(c => c.metadata.category === category);
 
-    let text = [
-      `╔════════════════════════╗`,
-      `║      *SEMUA COMMAND*     ║`,
-      `╚════════════════════════╝`,
-      `✦ Role: *${role.toUpperCase()}*` + (ctx.isGroup ? ` | Plan: *${groupPlan.toUpperCase()}*` : ''),
-      `─────────────────────────`,
-      ``
-    ].join('\n');
-
-    for (const category of CATEGORY_ORDER) {
-      if (!ctx.isGroup && category === 'admin') continue;
-
-      const categoryCommands = grouped[category] || [];
-      if (categoryCommands.length === 0) continue;
-
-      const info = CATEGORY_INFO[category] || CATEGORY_INFO.general;
-      const commandNames = categoryCommands
-        .map(command => `\`${prefix}${command.metadata.name}\``)
-        .join('  ');
-
-      text += `${info.emoji} *${info.title.toUpperCase()}*\n`;
-      text += `${commandNames}\n\n`;
-    }
-
-    text += [
-      `─────────────────────────`,
-      `💡 Ketik \`${prefix}help <command>\` untuk detail.`,
-      `Contoh: \`${prefix}help brat\``
-    ].join('\n');
-
-    await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
-  }
-
-  private async sendCategoryMenu(
-    ctx: MessageContext,
-    adapter: WhatsAppAdapter,
-    commands: any[],
-    prefix: string,
-    category: string
-  ) {
-    const categoryCommands = commands.filter(command => command.metadata.category === category);
-    const info = CATEGORY_INFO[category] || CATEGORY_INFO.general;
-
-    if (categoryCommands.length === 0) {
-      await adapter.sendMessage(
-        ctx.chatId,
-        `⚠️ Tidak ada command aktif di kategori *${category}*.\n\nKemungkinan plugin/fitur sedang OFF atau role kamu belum cukup.`,
-        { quotedMessageId: ctx.id }
-      );
+    if (!cmds.length) {
+      await adapter.sendMessage(ctx.chatId,
+        `⚠️ Tidak ada command aktif di *${info.title}*.\nFitur mungkin OFF atau role belum cukup.`,
+        { quotedMessageId: ctx.id });
       return;
     }
 
-    let text = [
-      `╔════════════════════════╗`,
-      `  ${info.emoji} *MENU ${info.title.toUpperCase()}*`,
-      `╚════════════════════════╝`,
-      `✦ _${info.desc}_`,
-      `─────────────────────────`,
+    const header = [
+      `${info.emoji} *MENU ${info.title.toUpperCase()}*`,
+      `_${info.desc}_`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
       ``
     ].join('\n');
 
-    categoryCommands.forEach((command) => {
-      const meta = command.metadata;
-      const aliasesStr = meta.aliases && meta.aliases.length > 0
-        ? ` (${meta.aliases.map((alias: string) => `\`${prefix}${alias}\``).join(', ')})`
+    // Max 25 commands ditampilkan, sisanya "...dan N lainnya"
+    const shown = cmds.slice(0, 25);
+    const lines = shown.map(c => {
+      const m = c.metadata;
+      const alias = m.aliases?.length
+        ? ` _(${m.aliases.slice(0, 2).map((a: string) => `${prefix}${a}`).join(', ')})_`
         : '';
-      const desc = meta.description || 'Tidak ada deskripsi.';
-      text += `• \`${prefix}${meta.name}\`${aliasesStr}\n  └ _${desc}_\n\n`;
+      return `• \`${prefix}${m.name}\`${alias}\n  _${m.description || '–'}_`;
     });
+    if (cmds.length > 25) {
+      lines.push(`_…dan ${cmds.length - 25} command lainnya_`);
+    }
 
-    text += [
-      `─────────────────────────`,
-      `💡 Ketik \`${prefix}help <command>\` untuk contoh penggunaan.`,
-      `Contoh: \`${prefix}help ${categoryCommands[0].metadata.name}\``
+    const footer = [
+      ``,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `💡 \`${prefix}help ${shown[0].metadata.name}\` untuk contoh penggunaan.`,
+      `🔙 \`${prefix}menu\` kembali ke menu utama.`
     ].join('\n');
 
-    await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
+    await adapter.sendMessage(ctx.chatId, header + lines.join('\n\n') + footer, { quotedMessageId: ctx.id });
   }
 
-  private async sendPremiumMenu(
-    ctx: MessageContext,
-    adapter: WhatsAppAdapter,
-    commands: any[],
-    prefix: string,
-    role: Role,
-    groupPlan: string
+  // ── ALL MENU (ringkas, semua kategori tanpa deskripsi panjang) ────────────────
+  private async sendAll(
+    ctx: MessageContext, adapter: WhatsAppAdapter,
+    commands: any[], prefix: string, role: Role, plan: string
   ) {
-    const premiumCommands = commands.filter(command => {
-      const meta = command.metadata;
-      return meta.premiumOnly || meta.category === 'downloader' || meta.category === 'media' || meta.category === 'document';
-    });
+    const grouped = groupByCategory(commands);
+    const total = commands.length;
 
     let text = [
-      `╔════════════════════════╗`,
-      `║      ⭐ *MENU PREMIUM*   ║`,
-      `╚════════════════════════╝`,
-      `✦ Role: *${role.toUpperCase()}*` + (ctx.isGroup ? ` | Plan: *${groupPlan.toUpperCase()}*` : ''),
-      `─────────────────────────`,
+      `📋 *SEMUA COMMAND* _(${total} total)_`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
       ``
     ].join('\n');
 
-    if (premiumCommands.length === 0) {
-      text += `Belum ada command premium yang aktif untuk konteks ini.\n\n`;
-      text += `Cek:\n`;
-      text += `• \`${prefix}ceksewa\`\n`;
-      text += `• \`${prefix}fitursewa\`\n`;
-      text += `• \`${prefix}menu all\``;
+    for (const cat of CATEGORY_ORDER) {
+      if (!ctx.isGroup && cat === 'admin') continue;
+      if (cat === 'owner' && role !== 'owner') continue;
+      const cmds = grouped[cat] || [];
+      if (!cmds.length) continue;
+
+      const info = CATEGORIES[cat];
+      // Tampilkan nama command dalam baris singkat, max 10 per kategori
+      const names = cmds.slice(0, 10).map(c => `\`${prefix}${c.metadata.name}\``).join(' ');
+      const more = cmds.length > 10 ? ` _+${cmds.length - 10}_` : '';
+      text += `${info.emoji} *${info.title}* _(${cmds.length})_\n${names}${more}\n\n`;
+    }
+
+    text += [
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `💡 \`${prefix}menu <kategori>\` untuk detail per kategori.`,
+      `❓ \`${prefix}help <cmd>\` untuk cara pakai.`
+    ].join('\n');
+
+    await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
+  }
+
+  // ── PREMIUM MENU ──────────────────────────────────────────────────────────────
+  private async sendPremium(
+    ctx: MessageContext, adapter: WhatsAppAdapter,
+    commands: any[], prefix: string, role: Role, plan: string
+  ) {
+    const premCmds = commands.filter(c => {
+      const m = c.metadata;
+      return m.premiumOnly || m.category === 'downloader' || m.category === 'media' || m.category === 'document';
+    });
+
+    let text = [
+      `⭐ *MENU PREMIUM*`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      ``
+    ].join('\n');
+
+    if (!premCmds.length) {
+      text += `Belum ada command premium aktif untuk role/plan Anda.\n\n`;
+      text += `Cek: \`${prefix}ceksewa\` · \`${prefix}menu all\``;
     } else {
-      const grouped = this.groupByCategory(premiumCommands);
-
-      for (const category of CATEGORY_ORDER) {
-        const categoryCommands = grouped[category] || [];
-        if (categoryCommands.length === 0) continue;
-
-        const info = CATEGORY_INFO[category] || CATEGORY_INFO.general;
-
-        text += `${info.emoji} *${info.title}*\n`;
-        text += categoryCommands
-          .map(command => `• \`${prefix}${command.metadata.name}\` ─ _${command.metadata.description}_`)
-          .join('\n');
-        text += `\n\n`;
+      const grouped = groupByCategory(premCmds);
+      for (const cat of CATEGORY_ORDER) {
+        const cmds = grouped[cat] || [];
+        if (!cmds.length) continue;
+        const info = CATEGORIES[cat];
+        const names = cmds.map(c => `\`${prefix}${c.metadata.name}\``).join(' ');
+        text += `${info.emoji} *${info.title}*\n${names}\n\n`;
       }
-
-      text += `─────────────────────────\n`;
-      text += `💳 *METODE PEMBAYARAN PREMIUM* 💳\n`;
-      text += `• *Provider:* ${env.PREMIUM_PAYMENT_METHOD || 'GoPay'}\n`;
-      text += `• *Nomor:* \`${env.PREMIUM_PAYMENT_NUMBER || '085338123425'}\`\n`;
-      text += `• Hubungi owner dengan ketik \`${prefix}owner\` untuk aktivasi/konfirmasi.\n`;
-      text += `─────────────────────────\n`;
-      text += `💡 Ketik \`${prefix}help <command>\` untuk detail.`;
+      text += [
+        `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+        `💳 *Aktivasi Premium:*`,
+        `• Metode: *${env.PREMIUM_PAYMENT_METHOD || 'GoPay/Transfer'}*`,
+        `• Nomor: \`${env.PREMIUM_PAYMENT_NUMBER || '085338123425'}\``,
+        `• Ketik \`${prefix}owner\` untuk konfirmasi ke owner.`
+      ].join('\n');
     }
 
     await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
   }
 
+  // ── HELP (detail satu command) ────────────────────────────────────────────────
   private async sendHelp(
-    ctx: MessageContext,
-    adapter: WhatsAppAdapter,
-    meta: any,
-    context: {
-      prefix: string;
-      groupFeatures: Record<string, boolean>;
-      groupPlan: string;
-    }
+    ctx: MessageContext, adapter: WhatsAppAdapter,
+    meta: any, context: { prefix: string; features: Record<string, boolean>; plan: string }
   ) {
-    const globalEnabled = pluginManager.isPluginEnabled(meta.plugin);
-
-    const groupEnabled = ctx.isGroup && meta.featureFlag !== 'general'
-      ? context.groupFeatures[meta.featureFlag] !== undefined
-        ? context.groupFeatures[meta.featureFlag]
-        : DEFAULT_FEATURES[meta.featureFlag] ?? true
+    const info = CATEGORIES[meta.category] || CATEGORIES.general;
+    const p = context.prefix;
+    const globalOn = pluginManager.isPluginEnabled(meta.plugin);
+    const groupOn = ctx.isGroup && meta.featureFlag !== 'general'
+      ? (context.features[meta.featureFlag] ?? DEFAULT_FEATURES[meta.featureFlag] ?? true)
       : true;
 
-    const info = CATEGORY_INFO[meta.category] || CATEGORY_INFO.general;
-
     let text = [
-      `╔════════════════════════╗`,
-      `  ${info.emoji} *HELP: ${context.prefix}${meta.name}*`,
-      `╚════════════════════════╝`,
-      `─────────────────────────`,
-      `📝 *Deskripsi:*`,
-      `${meta.description}`,
+      `${info.emoji} *HELP: ${p}${meta.name}*`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `📝 ${meta.description || '–'}`,
       ``,
-      `💡 *Cara Pakai:*`,
-      `\`${meta.usage.replace(/\//g, context.prefix)}\``,
-      ``
+      `💡 *Cara pakai:*`,
+      `\`${(meta.usage || `/${meta.name}`).replace(/\//g, p)}\``,
     ].join('\n');
 
-    if (meta.examples && meta.examples.length > 0) {
-      text += `📌 *Contoh:* \n`;
-      text += meta.examples
-        .map((example: string) => `• \`${example.replace(/\//g, context.prefix)}\``)
-        .join('\n');
-      text += `\n\n`;
+    if (meta.examples?.length) {
+      text += `\n\n📌 *Contoh:*\n`;
+      text += meta.examples.slice(0, 3).map((e: string) => `• \`${e.replace(/\//g, p)}\``).join('\n');
     }
 
-    if (meta.aliases && meta.aliases.length > 0) {
-      text += `🔀 *Alias:* \n`;
-      text += meta.aliases.map((alias: string) => `• \`${context.prefix}${alias}\``).join('\n');
-      text += `\n\n`;
+    if (meta.aliases?.length) {
+      text += `\n\n🔀 *Alias:* ${meta.aliases.map((a: string) => `\`${p}${a}\``).join(' · ')}`;
     }
 
-    text += [
-      `⚙️ *Status & Ketentuan:*`,
-      `• Kategori: *${info.title}*`,
-      `• Role Minimal: *${meta.minRole || 'user'}*`,
-      `• Premium Only: *${meta.premiumOnly ? 'Ya' : 'Tidak'}*`,
-      `• Status Fitur: *${globalEnabled ? 'ON' : 'OFF'}*`
-    ].join('\n');
-
+    text += `\n\n⚙️ *Status:*`;
+    text += `\n• Kategori: *${info.title}*`;
+    text += `\n• Role min: *${meta.minRole || 'user'}*`;
+    text += `\n• Premium: *${meta.premiumOnly ? 'Ya ⭐' : 'Tidak'}*`;
+    text += `\n• Plugin: *${globalOn ? '🟢 ON' : '🔴 OFF'}*`;
     if (ctx.isGroup) {
-      text += `\n• Fitur Grup: *${groupEnabled ? 'ON' : 'OFF'}*`;
-      text += `\n• Plan Grup: *${context.groupPlan.toUpperCase()}*`;
+      text += `\n• Fitur grup: *${groupOn ? '🟢 ON' : '🔴 OFF'}*`;
+      text += `\n• Plan grup: *${context.plan.toUpperCase()}*`;
     }
 
     await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
   }
 }
 
+// ─── Rules command ───────────────────────────────────────────────────────────
 export class RulesCommand implements Command {
-  public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const rulesText = `╭────────────────────────╮
-│ ⚠️ *ATURAN PENGGUNAAN BOT*
-╰────────────────────────╯
-
-1. Gunakan bot secara bijak dan bertanggung jawab.
-2. Fitur downloader hanya untuk konten milik sendiri, berizin, atau legal untuk diunduh.
-3. Bot tidak mendukung bypass DRM, akun privat, login pihak ketiga, atau pelanggaran hak cipta.
-4. Media yang diproses bersifat sementara dan akan dibersihkan otomatis.
-5. Admin/owner berhak membatasi fitur jika terjadi spam atau penyalahgunaan.`;
-
-    await adapter.sendMessage(ctx.chatId, rulesText, { quotedMessageId: ctx.id });
+  public async execute(ctx: MessageContext, _args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    await adapter.sendMessage(ctx.chatId, [
+      `⚠️ *ATURAN PENGGUNAAN BOT*`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `1. Gunakan bot secara bijak dan bertanggung jawab.`,
+      `2. Fitur downloader hanya untuk konten legal/milik sendiri.`,
+      `3. Bot tidak mendukung bypass DRM, akun privat, atau pelanggaran hak cipta.`,
+      `4. Media yang diproses bersifat sementara dan dibersihkan otomatis.`,
+      `5. Admin/owner berhak membatasi fitur jika terjadi penyalahgunaan.`,
+    ].join('\n'), { quotedMessageId: ctx.id });
   }
 }
 
-// Register commands
-const menuCmd = new MenuCommand();
-registerCommand(['menu', 'help', 'cmd', 'cari', 'premiumguide', 'start'], menuCmd);
-
-const rulesCmd = new RulesCommand();
-registerCommand(['rules'], rulesCmd);
+// ─── Register ────────────────────────────────────────────────────────────────
+registerCommand(['menu', 'help', 'cmd', 'cari', 'premiumguide', 'start'], new MenuCommand());
+registerCommand(['rules'], new RulesCommand());
