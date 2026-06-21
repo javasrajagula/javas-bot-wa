@@ -44,6 +44,9 @@ export function startReminderWorker(adapter: WhatsAppAdapter) {
       console.error('[ReminderWorker] Error in reminder loop:', err.message);
     }
   }, 30000);
+  if (typeof interval.unref === 'function') {
+    interval.unref();
+  }
 
   return interval;
 }

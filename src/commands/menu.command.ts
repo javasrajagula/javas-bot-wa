@@ -7,6 +7,7 @@ import { pluginManager } from '../config/plugins.js';
 import { DEFAULT_FEATURES } from '../config/feature-flags.js';
 import prisma from '../db/client.js';
 import { env } from '../config/env.js';
+import { getPremiumStatus } from '../services/premium/premium.service.js';
 
 type Role = 'owner' | 'admin' | 'premium' | 'user';
 
@@ -153,7 +154,7 @@ export class MenuCommand implements Command {
     const { prefix, groupFeatures, groupPlan } = await this.getMenuContext(ctx);
     
     // Determine command type from trigger
-    const commandType = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const commandType = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     const allCommands = commandRegistry.getAll();
     const visibleCommands = allCommands.filter(cmd =>
@@ -249,6 +250,9 @@ export class MenuCommand implements Command {
       } else if (role === 'user') {
         filtered = visibleCommands.filter(cmd => !cmd.metadata.premiumOnly && (!cmd.metadata.minRole || cmd.metadata.minRole === 'user'));
       }
+      if (!ctx.isGroup) {
+        filtered = filtered.filter(cmd => cmd.metadata.category !== 'admin');
+      }
       // Show custom menu for user
       await this.sendAllMenu(ctx, adapter, filtered, prefix, role, groupPlan);
       return;
@@ -296,6 +300,14 @@ export class MenuCommand implements Command {
     }
 
     if (commandArg && CATEGORY_ORDER.includes(commandArg)) {
+      if (!ctx.isGroup && commandArg === 'admin') {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⚠️ Kategori Admin Grup tidak tersedia di chat pribadi.`,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
       await this.sendCategoryMenu(ctx, adapter, visibleCommands, prefix, commandArg);
       return;
     }
@@ -459,12 +471,27 @@ export class MenuCommand implements Command {
       quotaText = `${left} / ${maxCmd} (PC Premium)`;
     }
 
+    const premiumStatus = await getPremiumStatus(ctx.senderId);
+    let premiumDetails = '';
+    if (premiumStatus.isPremium) {
+      if (premiumStatus.expiresAt) {
+        const dateStr = premiumStatus.expiresAt.toLocaleDateString('id-ID', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+        premiumDetails = `\n✦ Expired Premium: *${dateStr}* (${premiumStatus.daysLeft} hari lagi)`;
+      } else {
+        premiumDetails = `\n✦ Expired Premium: *Selamanya*`;
+      }
+    }
+
     let text = [
       `╔════════════════════════╗`,
       `║       *JAVAS BOT WA*       ║`,
       `╚════════════════════════╝`,
       `✦ Halo, *${ctx.senderName || 'User'}* 👋`,
-      `✦ Role: *${role.toUpperCase()}*` + (ctx.isGroup ? ` | Plan: *${groupPlan.toUpperCase()}*` : ''),
+      `✦ Role: *${role.toUpperCase()}*` + (ctx.isGroup ? ` | Plan: *${groupPlan.toUpperCase()}*` : '') + premiumDetails,
       `✦ Sisa Kuota: *${quotaText}*`,
       `✦ Prefix Bot: *${prefix}*`,
       `─────────────────────────`,
@@ -473,6 +500,8 @@ export class MenuCommand implements Command {
     ].join('\n');
 
     for (const category of CATEGORY_ORDER) {
+      if (!ctx.isGroup && category === 'admin') continue; // Hide admin category in private chat
+
       const categoryCommands = grouped[category] || [];
       if (categoryCommands.length === 0) continue;
 
@@ -527,6 +556,8 @@ export class MenuCommand implements Command {
     ].join('\n');
 
     for (const category of CATEGORY_ORDER) {
+      if (!ctx.isGroup && category === 'admin') continue;
+
       const categoryCommands = grouped[category] || [];
       if (categoryCommands.length === 0) continue;
 

@@ -1,10 +1,45 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { PDFDocument, PageSizes } from 'pdf-lib';
 import JSZip from 'jszip';
 import sharp from 'sharp';
 import { getTempPath, safeDelete } from '../../utils/file.util.js';
+
+function getPopplerBinary(name: string): string {
+  // Check if globally available
+  try {
+    const cmd = process.platform === 'win32' ? 'where' : 'which';
+    execSync(`${cmd} ${name}`, { stdio: 'ignore' });
+    return name;
+  } catch (err) {
+    // If not found globally and on Windows, try finding under Winget packages
+    if (process.platform === 'win32') {
+      try {
+        const homeDir = process.env.USERPROFILE || process.env.HOMEPATH || '';
+        const wingetDir = path.join(homeDir, 'AppData', 'Local', 'Microsoft', 'WinGet', 'Packages');
+        if (fs.existsSync(wingetDir)) {
+          const packages = fs.readdirSync(wingetDir);
+          const popplerPkg = packages.find(p => p.startsWith('oschwartz10612.Poppler'));
+          if (popplerPkg) {
+            const pkgPath = path.join(wingetDir, popplerPkg);
+            const subdirs = fs.readdirSync(pkgPath);
+            const popplerDir = subdirs.find(d => d.startsWith('poppler-'));
+            if (popplerDir) {
+              const fullPath = path.join(pkgPath, popplerDir, 'Library', 'bin', `${name}.exe`);
+              if (fs.existsSync(fullPath)) {
+                return fullPath;
+              }
+            }
+          }
+        }
+      } catch (searchErr) {
+        console.error('[Poppler Resolver] Failed to resolve local path:', searchErr);
+      }
+    }
+  }
+  return name;
+}
 
 const EXECUTABLE_EXTENSIONS = new Set([
   '.exe', '.bat', '.cmd', '.com', '.scr', '.ps1', '.vbs', '.js', '.msi', '.jar'
@@ -56,7 +91,7 @@ export async function renderPdfPage(buffer: Buffer, pageNumber: number): Promise
 
   try {
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn('pdftoppm', ['-png', '-f', String(pageNumber), '-l', String(pageNumber), '-singlefile', input, outputBase], {
+      const proc = spawn(getPopplerBinary('pdftoppm'), ['-png', '-f', String(pageNumber), '-l', String(pageNumber), '-singlefile', input, outputBase], {
         windowsHide: true
       });
       let stderr = '';
@@ -88,7 +123,7 @@ export async function extractTextFromPdfWithPoppler(buffer: Buffer): Promise<str
 
   try {
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn('pdftotext', [input, outputTxt], {
+      const proc = spawn(getPopplerBinary('pdftotext'), [input, outputTxt], {
         windowsHide: true
       });
       let stderr = '';

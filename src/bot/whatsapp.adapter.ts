@@ -8,6 +8,7 @@ export interface SendMessageOptions {
 }
 
 export abstract class WhatsAppAdapter {
+  public isConnected: boolean = false;
   protected messageHandler?: (ctx: MessageContext) => Promise<void>;
   protected groupUpdateHandler?: (update: { groupId: string, participants: string[], action: 'add' | 'remove' }) => Promise<void>;
 

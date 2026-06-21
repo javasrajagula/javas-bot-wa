@@ -1,3 +1,4 @@
+import { normalizeJid } from '../../utils/jid.util.js';
 import { Command, registerCommand, checkIfAdmin } from '../index.js';
 import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
@@ -18,7 +19,7 @@ const DAYS_REVERSE = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sa
 
 export class ScheduleSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // ==========================================
     // REMINDERS: /remind, /remindgroup, /listremind, /delremind
@@ -481,7 +482,7 @@ export class ScheduleSuiteCommand implements Command {
           return;
         }
 
-        const targetJid = mention.includes('@') ? mention.replace('@', '').trim() + '@s.whatsapp.net' : mention.trim();
+        const targetJid = normalizeJid(mention);
         const dateRegex = /^\d{2}-\d{2}$/;
         if (!dateRegex.test(dateStr)) {
           await adapter.sendMessage(ctx.chatId, '⚠️ Format tanggal lahir salah. Gunakan format DD-MM (contoh: 12-08 untuk 12 Agustus).', { quotedMessageId: ctx.id });
@@ -521,7 +522,7 @@ export class ScheduleSuiteCommand implements Command {
           return;
         }
 
-        const targetJid = mention.includes('@') ? mention.replace('@', '').trim() + '@s.whatsapp.net' : mention.trim();
+        const targetJid = normalizeJid(mention);
         const deleted = await prisma.birthday.deleteMany({
           where: { groupId: ctx.chatId, userId: targetJid }
         });

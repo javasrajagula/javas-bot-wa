@@ -27,50 +27,100 @@ export async function generateBratSticker(text: string, options?: BratOptions): 
   const textColor = options?.textColor || '#000000';
   const blurVal = options?.blur !== undefined ? options.blur : (Math.random() * 0.8 + 0.4); // blur 0.4 - 1.2 px
 
-  let svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`;
-  svgContent += `
-    <style>
-      .brat-text {
-        fill: ${textColor};
-        font-family: 'Arial Black', 'Helvetica Neue', 'Arial', sans-serif;
-        font-weight: 900;
-        letter-spacing: -1.5px;
-      }
-    </style>
-  `;
+  let svgContent = '';
 
   if (mode === 'grid') {
-    const words = cleanText.split(/\s+/);
-    // Grid layout: 2 to 3 columns
-    const cols = words.length > 6 ? 3 : 2;
-    const rows: string[][] = [];
-    for (let i = 0; i < words.length; i += cols) {
-      rows.push(words.slice(i, i + cols));
+    let rows: string[][] = [];
+    let cols = 3;
+
+    if (cleanText.includes('\n')) {
+      const lines = cleanText.split('\n').map(line => line.trim()).filter(Boolean);
+      // Find the max number of words in any line (up to 3)
+      let maxCols = 2;
+      const lineWordLists = lines.map(line => {
+        const words = line.split(/\s+/).filter(Boolean);
+        if (words.length > maxCols) {
+          maxCols = Math.min(3, words.length);
+        }
+        return words;
+      });
+      cols = maxCols;
+
+      // Distribute words in columns based on maximum cols count
+      rows = lineWordLists.map(words => {
+        const row = new Array(cols).fill('');
+        if (words.length === 1) {
+          row[0] = words[0];
+        } else if (words.length === 2 && cols === 3) {
+          row[0] = words[0];
+          row[2] = words[1]; // Align second word to the last column for gaps
+        } else {
+          for (let i = 0; i < Math.min(cols, words.length); i++) {
+            row[i] = words[i];
+          }
+        }
+        return row;
+      });
+    } else {
+      // Normal auto-wrapping fallback for single line text
+      const words = cleanText.split(/\s+/).filter(Boolean);
+      cols = words.length > 6 ? 3 : 2;
+      for (let i = 0; i < words.length; i += cols) {
+        rows.push(words.slice(i, i + cols));
+      }
     }
 
     const rowCount = rows.length;
-    const fontSize = Math.max(32, Math.min(64, Math.floor(450 / (rowCount || 1))));
-    const lineHeight = fontSize * 1.35;
+    const fontSize = Math.max(36, Math.min(80, Math.floor(390 / (rowCount || 1))));
+    const lineHeight = fontSize * 1.3;
     const totalHeight = rowCount * lineHeight;
-    const yStart = (height - totalHeight) / 2 + fontSize * 0.8;
+    const yStart = (height - totalHeight) / 2 + fontSize * 0.85;
+
+    svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`;
+    svgContent += `
+      <style>
+        .brat-text {
+          fill: ${textColor};
+          font-family: Arial, Helvetica, sans-serif;
+          font-weight: normal;
+          letter-spacing: -0.5px;
+        }
+      </style>
+    `;
+
+    // Horizontal scale factor of 0.72 to stretch/condense characters vertically
+    const horizontalScale = 0.72;
+    svgContent += `<g transform="scale(${horizontalScale}, 1.0)">`;
 
     rows.forEach((rowWords, rIdx) => {
-      const colCountInRow = rowWords.length;
       rowWords.forEach((word, cIdx) => {
-        // Space columns evenly
-        const colWidth = (width - 100) / cols;
-        const randomXOffset = Math.random() * 16 - 8; // random offset kecil
-        const randomYOffset = Math.random() * 10 - 5;
+        if (!word) return;
         
-        const x = 50 + cIdx * colWidth + randomXOffset;
+        let targetX = 50;
+        if (cols === 3) {
+          if (cIdx === 0) targetX = 45;
+          else if (cIdx === 1) targetX = 195;
+          else targetX = 345;
+        } else {
+          if (cIdx === 0) targetX = 50;
+          else targetX = 275;
+        }
+
+        // Add a tiny random offset for organic compressed look
+        const randomXOffset = Math.random() * 8 - 4;
+        const randomYOffset = Math.random() * 6 - 3;
+
+        const x = (targetX + randomXOffset) / horizontalScale;
         const y = yStart + rIdx * lineHeight + randomYOffset;
 
         svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}px" class="brat-text">${escapeSvgText(word)}</text>`;
       });
     });
+
+    svgContent += `</g></svg>`;
   } else {
     // Classic multiline layout
-    const words = cleanText.split(/\s+/);
+    const words = cleanText.split(/\s+/).filter(Boolean);
     const lines: string[] = [];
     let currentLine = '';
     const maxLineChars = 15;
@@ -86,18 +136,34 @@ export async function generateBratSticker(text: string, options?: BratOptions): 
     if (currentLine) lines.push(currentLine);
 
     const rowCount = lines.length;
-    const fontSize = Math.max(36, Math.min(72, Math.floor(450 / (rowCount || 1))));
+    const fontSize = Math.max(36, Math.min(80, Math.floor(400 / (rowCount || 1))));
     const lineHeight = fontSize * 1.25;
     const totalHeight = rowCount * lineHeight;
     const yStart = (height - totalHeight) / 2 + fontSize * 0.8;
 
-    lines.forEach((line, index) => {
-      const y = yStart + index * lineHeight;
-      svgContent += `<text x="50" y="${y}" font-size="${fontSize}px" class="brat-text">${escapeSvgText(line)}</text>`;
-    });
-  }
+    svgContent = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`;
+    svgContent += `
+      <style>
+        .brat-text {
+          fill: ${textColor};
+          font-family: Arial, Helvetica, sans-serif;
+          font-weight: normal;
+          letter-spacing: -0.5px;
+        }
+      </style>
+    `;
 
-  svgContent += `</svg>`;
+    const horizontalScale = 0.72;
+    svgContent += `<g transform="scale(${horizontalScale}, 1.0)">`;
+
+    lines.forEach((line, index) => {
+      const x = 50 / horizontalScale;
+      const y = yStart + index * lineHeight;
+      svgContent += `<text x="${x}" y="${y}" font-size="${fontSize}px" class="brat-text">${escapeSvgText(line)}</text>`;
+    });
+
+    svgContent += `</g></svg>`;
+  }
 
   // Create canvas background
   const bgImage = await sharp({

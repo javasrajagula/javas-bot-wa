@@ -1,3 +1,4 @@
+import { normalizeJid } from '../../utils/jid.util.js';
 import { Command, registerCommand } from '../index.js';
 import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
@@ -38,7 +39,7 @@ const darePrompts = [
 
 export class GamesSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // 1. Truth or Dare: /tod, /truth, /dare
     if (cmd === 'tod' || cmd === 'truth' || cmd === 'dare') {
@@ -108,7 +109,7 @@ export class GamesSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/suit @user`', { quotedMessageId: ctx.id });
         return;
       }
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
 
       suitGames.set(ctx.chatId, { player1: ctx.senderId, player2: targetJid });
       await adapter.sendMessage(ctx.chatId, `⚔️ *SUIT CHALLENGE* ⚔️\n\n@${ctx.senderId.split('@')[0]} menantang @${targetJid.split('@')[0]} bertanding!\nKetik \`/pilih <batu/gunting/kertas>\` secara privat ke bot.`, { mentions: [ctx.senderId, targetJid] });
@@ -216,7 +217,7 @@ export class GamesSuiteCommand implements Command {
           await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/ttt @user`', { quotedMessageId: ctx.id });
           return;
         }
-        const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+        const targetJid = normalizeJid(rawUser);
 
         const newGame = {
           player1: ctx.senderId,
@@ -265,7 +266,7 @@ export class GamesSuiteCommand implements Command {
         return;
       }
 
-      const user2 = targetUser.includes('@') ? targetUser.replace('@', '').trim() + '@s.whatsapp.net' : targetUser.trim();
+      const user2 = normalizeJid(targetUser);
       const percent = Math.floor(Math.random() * 101);
 
       const response = `❤️ *COMPATIBILITY CHECK* ❤️\n\n@${user1.split('@')[0]} & @${user2.split('@')[0]}\n🎯 Kecocokan: *${percent}%*`;

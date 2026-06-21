@@ -20,12 +20,38 @@ import './commands/media/media.command.js';
 import './commands/audio/audio.command.js';
 import './commands/text/text.command.js';
 import './commands/text/ai.command.js';
+import './commands/text/ai-advanced.command.js';
+import './commands/games/games-advanced.command.js';
+import './commands/economy/economy-advanced.command.js';
+import './commands/community/community-advanced.command.js';
+import './commands/media/media-advanced.command.js';
+import './commands/community/analytics-advanced.command.js';
+import './commands/admin/admin-advanced.command.js';
+import './commands/text/education-advanced.command.js';
+import './commands/text/integration-advanced.command.js';
+import './commands/text/ai-multimodal.command.js';
+import './commands/games/rpg-advanced.command.js';
+import './commands/document/utility-advanced.command.js';
+import './commands/moderation/security-advanced.command.js';
+import './commands/community/analytics-v2.command.js';
+import './commands/audio/audio-advanced.command.js';
+import './commands/text/integrations-v2.command.js';
+import './commands/owner/owner-advanced.command.js';
+import './commands/sticker/sticker-creative.command.js';
+import './commands/economy/commerce-simulation.command.js';
 import './commands/document/document.command.js';
 import './commands/document/safety.command.js';
 import './commands/moderation/moderation.command.js';
 import './commands/moderation/antispam.command.js';
 import './commands/moderation/warning-rule.command.js';
 import './commands/moderation/group-log.command.js';
+import './commands/moderation/antiraid.command.js';
+import './commands/moderation/backup-config.command.js';
+import './commands/text/dynamic-ai.command.js';
+import './commands/moderation/dynamic-security.command.js';
+import './commands/games/dynamic-games.command.js';
+import './commands/document/dynamic-utility.command.js';
+import './commands/text/dynamic-integration.command.js';
 import './commands/community/community.command.js';
 import './commands/community/schedule.command.js';
 import './commands/community/alias.command.js';
@@ -54,6 +80,7 @@ import './commands/owner/webhook.command.js';
 import './commands/prd/prd-coverage.command.js';
 import { startReminderWorker } from './workers/reminder.worker.js';
 import { startTempAdminWorker } from './workers/tempadmin.worker.js';
+import { startSchedMuteWorker } from './workers/schedmute.worker.js';
 import { achievementService } from './services/achievement/achievement.service.js';
 import { backupService } from './services/backup/backup.service.js';
 import { startDashboardServer } from './services/dashboard/dashboard.server.js';
@@ -114,6 +141,9 @@ async function bootstrap() {
     adapter = new ConsoleAdapter();
   }
 
+  const { AdapterHolder } = await import('./bot/adapter-holder.js');
+  AdapterHolder.setAdapter(adapter);
+
   // Register werewolf callbacks for adaptive messaging (group and private DMs)
   werewolfEngine.setNotificationCallbacks({
     sendGroupMessage: async (groupId, text) => {
@@ -124,6 +154,8 @@ async function bootstrap() {
     }
   });
 
+  const groupJoins = new Map<string, number[]>();
+
   // Register group participant updates for welcome/goodbye
   adapter.onGroupUpdate(async (update: any) => {
     const { groupId, participants, action } = update;
@@ -133,7 +165,49 @@ async function bootstrap() {
       });
       if (!config) return;
 
-      const features = JSON.parse(config.featuresJson || '{}');
+      const { parseFeatureFlags } = await import('./config/feature-flags.js');
+      const features = parseFeatureFlags(config.featuresJson);
+
+      // --- ANTI-RAID SHIELD CHECK ---
+      if (action === 'add' && features.antiraid) {
+        const now = Date.now();
+        const limit = features.antiraidLimit || 10;
+        const duration = (features.antiraidDuration || 60) * 1000;
+
+        if (!groupJoins.has(groupId)) {
+          groupJoins.set(groupId, []);
+        }
+
+        const timestamps = groupJoins.get(groupId)!;
+        for (const p of participants) {
+          timestamps.push(now);
+        }
+
+        // Clean old timestamps
+        const validTimestamps = timestamps.filter(t => now - t <= duration);
+        groupJoins.set(groupId, validTimestamps);
+
+        if (validTimestamps.length > limit) {
+          try {
+            const socket = (adapter as any).sock;
+            if (socket && typeof socket.groupSettingUpdate === 'function') {
+              await socket.groupSettingUpdate(groupId, 'announcement');
+              
+              // Update status lockdown di features
+              const updatedFeatures = { ...features, lockdown: true };
+              await prisma.groupConfig.update({
+                where: { groupId },
+                data: { featuresJson: JSON.stringify(updatedFeatures) }
+              });
+
+              const alertMsg = `⚠️ *ANTI-RAID SHIELD TERPICU* ⚠️\n\nTerdeteksi join massal sebanyak *${validTimestamps.length}* pengguna dalam *${features.antiraidDuration || 60}* detik.\n\n🛡️ *Tindakan Keamanan:* Grup telah dikunci otomatis (hanya Admin yang dapat mengirim pesan) untuk mencegah spam/serangan raid.`;
+              await adapter.sendMessage(groupId, alertMsg);
+            }
+          } catch (err) {
+            console.error('[Anti-Raid] Gagal mengunci grup:', err);
+          }
+        }
+      }
 
       // 1. Welcome Msg
       if (action === 'add') {
@@ -266,6 +340,11 @@ async function bootstrap() {
   startReminderWorker(adapter);
   console.log('[System] Starting background temp admin worker...');
   startTempAdminWorker(adapter);
+  console.log('[System] Starting background scheduled mute worker...');
+  startSchedMuteWorker(adapter);
+  console.log('[System] Starting background retention worker...');
+  const { startRetentionWorker } = await import('./workers/retention.worker.js');
+  startRetentionWorker();
   console.log('[System] Bot is now active and ready to process commands.');
 }
 

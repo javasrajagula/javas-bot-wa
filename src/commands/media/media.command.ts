@@ -7,17 +7,20 @@ import { getTempPath, safeDelete } from '../../utils/file.util.js';
 import { enhanceImage } from '../../services/hd/hd.service.js';
 import { isPremium } from '../../bot/permission.js';
 import { runFfmpeg } from '../../services/ffmpeg/ffmpeg.service.js';
+import { hdQueue } from '../../queues/queue.js';
 import {
   validateMediaSize,
   validateWatermarkText,
   validateTimestamp,
-  parseTimeToSeconds
+  parseTimeToSeconds,
+  validateImageResolution,
+  validateVideoDurationByPath
 } from '../../validators/media.validator.js';
 import { watermarkImage, watermarkVideo } from '../../services/watermark/watermark.service.js';
 
 export class MediaSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // 1. /hd (Image quality enhancer)
     if (cmd === 'hd') {
@@ -28,6 +31,16 @@ export class MediaSuiteCommand implements Command {
 
       if (!media || (media.type !== 'image' && media.type !== 'sticker')) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Reply/kirim gambar dulu, lalu pakai command ini.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      let buffer: Buffer;
+      try {
+        buffer = await media.getBuffer();
+        await validateMediaSize(buffer.length, ctx.senderId);
+        await validateImageResolution(buffer, ctx.senderId);
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `⚠️ ${err.message}`, { quotedMessageId: ctx.id });
         return;
       }
 
@@ -43,9 +56,21 @@ export class MediaSuiteCommand implements Command {
 
       await adapter.sendMessage(ctx.chatId, '🔄 Sedang meningkatkan kualitas gambar...', { quotedMessageId: ctx.id });
       try {
-        const buffer = await media.getBuffer();
-        const enhanced = await enhanceImage(buffer, { scale });
-        await adapter.sendImage(ctx.chatId, enhanced, `Enhanced ${scale}x.`, { quotedMessageId: ctx.id });
+        const tempInPath = getTempPath(media.type === 'sticker' ? 'webp' : 'png');
+        fs.writeFileSync(tempInPath, buffer);
+
+        await hdQueue.add({
+          id: `hd-${ctx.id}`,
+          data: {
+            type: 'hd',
+            payload: {
+              chatId: ctx.chatId,
+              quotedMessageId: ctx.id,
+              scale,
+              tempInPath
+            }
+          }
+        });
       } catch (err: any) {
         await adapter.sendMessage(ctx.chatId, `❌ Gagal memproses gambar: ${err.message || err}`, { quotedMessageId: ctx.id });
       }
@@ -66,6 +91,9 @@ export class MediaSuiteCommand implements Command {
     const buffer = await media.getBuffer();
     try {
       await validateMediaSize(buffer.length, ctx.senderId);
+      if (media.type === 'image') {
+        await validateImageResolution(buffer, ctx.senderId);
+      }
     } catch (err: any) {
       await adapter.sendMessage(ctx.chatId, `⚠️ ${err.message}`, { quotedMessageId: ctx.id });
       return;
@@ -92,6 +120,7 @@ export class MediaSuiteCommand implements Command {
         const tempOut = getTempPath('mp4');
         try {
           fs.writeFileSync(tempIn, buffer);
+          await validateVideoDurationByPath(tempIn, ctx.senderId);
           let crf = 28;
           if (level === 'high') crf = 35;
           if (level === 'low') crf = 22;
@@ -192,6 +221,13 @@ export class MediaSuiteCommand implements Command {
         }
       } else if (media.type === 'video') {
         try {
+          const tempIn = getTempPath('mp4');
+          fs.writeFileSync(tempIn, buffer);
+          try {
+            await validateVideoDurationByPath(tempIn, ctx.senderId);
+          } finally {
+            safeDelete(tempIn);
+          }
           const wmVideo = await watermarkVideo(buffer, cleanText);
           await adapter.sendVideo(ctx.chatId, wmVideo, 'Video watermark berhasil.', { quotedMessageId: ctx.id });
         } catch (err: any) {
@@ -211,6 +247,8 @@ export class MediaSuiteCommand implements Command {
     fs.writeFileSync(tempIn, buffer);
 
     try {
+      await validateVideoDurationByPath(tempIn, ctx.senderId);
+
       // 6. /togif
       if (cmd === 'togif') {
         const isPrem = await isPremium(ctx.senderId);
@@ -391,3 +429,20 @@ registerCommand(
   ['hd', 'compress', 'kompres', 'resize', 'crop', 'wm', 'togif', 'thumb', 'cut', 'subtitle', 'mute', 'reverse'],
   mediaSuite
 );
+
+export async function processHdJob(payload: any): Promise<void> {
+  const { chatId, quotedMessageId, scale, tempInPath } = payload;
+  const { AdapterHolder } = await import('../../bot/adapter-holder.js');
+  const adapter = AdapterHolder.getAdapter();
+
+  try {
+    const buffer = fs.readFileSync(tempInPath);
+    const enhanced = await enhanceImage(buffer, { scale });
+    await adapter.sendImage(chatId, enhanced, `Enhanced ${scale}x.`, { quotedMessageId });
+  } catch (err: any) {
+    await adapter.sendMessage(chatId, `❌ Gagal memproses gambar HD: ${err.message || err}`, { quotedMessageId });
+    throw err;
+  } finally {
+    safeDelete(tempInPath);
+  }
+}

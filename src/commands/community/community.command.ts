@@ -1,3 +1,4 @@
+import { normalizeJid } from '../../utils/jid.util.js';
 import { Command, registerCommand, checkIfAdmin } from '../index.js';
 import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
@@ -5,7 +6,7 @@ import prisma from '../../db/client.js';
 
 export class CommunitySuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // 1. Auto Reply: /addreply, /delreply, /listreply
     if (cmd === 'addreply' || cmd === 'delreply' || cmd === 'listreply') {
@@ -193,7 +194,7 @@ export class CommunitySuiteCommand implements Command {
           return;
         }
 
-        const targetJid = rawTarget.includes('@') ? rawTarget.replace('@', '').trim() + '@s.whatsapp.net' : rawTarget.trim();
+        const targetJid = normalizeJid(rawTarget);
         await adapter.sendMessage(targetJid, `💌 *MENFESS RAHASIA* 💌\n\nSeseorang mengirimkan pesan untukmu:\n"${msg}"`);
         await adapter.sendMessage(ctx.chatId, '✅ Menfess berhasil dikirim secara rahasia ke target.', { quotedMessageId: ctx.id });
       }

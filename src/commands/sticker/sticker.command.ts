@@ -46,25 +46,38 @@ export function validateStickerBuffer(buffer: Buffer): void {
 
 export class StickerSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
+
+    // Extract pack and author metadata overrides if present
+    let pack = env.STICKER_PACK_NAME || 'Javas Bot WA';
+    let author = env.STICKER_AUTHOR_NAME || 'bot wa javas';
+
+    const packArg = args.find(a => a.startsWith('pack:'))?.replace('pack:', '');
+    const authorArg = args.find(a => a.startsWith('author:'))?.replace('author:', '');
+    if (packArg) pack = packArg;
+    if (authorArg) author = authorArg;
+
+    // Filter out pack: and author: from command arguments so they don't pollute text args
+    const cleanArgs = args.filter(a => !a.startsWith('pack:') && !a.startsWith('author:'));
 
     // 1. /brat & /brat classic
     if (cmd === 'brat') {
-      const isClassic = args[0]?.toLowerCase() === 'classic';
-      const text = (isClassic ? args.slice(1) : args).join(' ').trim();
+      const isClassic = cleanArgs[0]?.toLowerCase() === 'classic';
+      const text = (isClassic ? cleanArgs.slice(1) : cleanArgs).join(' ').trim();
       if (!text) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/brat hello` atau `/brat classic hello`', { quotedMessageId: ctx.id });
         return;
       }
       const buffer = await generateBratSticker(text, { mode: isClassic ? 'classic' : 'grid' });
-      await adapter.sendSticker(ctx.chatId, buffer, { quotedMessageId: ctx.id });
+      const metaWebp = await addStickerMetadata(buffer, pack, author);
+      await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
       unlockStickerMaker(ctx, adapter);
       return;
     }
 
     // 2. /quote <teks>
     if (cmd === 'quote') {
-      const text = args.join(' ').trim();
+      const text = cleanArgs.join(' ').trim();
       if (!text) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/quote Hidup ini indah`', { quotedMessageId: ctx.id });
         return;
@@ -86,15 +99,16 @@ export class StickerSuiteCommand implements Command {
       `;
 
       const webp = await sharp(Buffer.from(svg)).webp({ quality: 50 }).toBuffer();
-      await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+      const metaWebp = await addStickerMetadata(webp, pack, author);
+      await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
       unlockStickerMaker(ctx, adapter);
       return;
     }
 
     // 3. /emojimix 😂 + 😭
     if (cmd === 'emojimix' || cmd === 'mix') {
-      const emoji1 = args[0]?.trim();
-      const emoji2 = args[2]?.trim() || args[1]?.trim();
+      const emoji1 = cleanArgs[0]?.trim();
+      const emoji2 = cleanArgs[2]?.trim() || cleanArgs[1]?.trim();
 
       if (!emoji1 || !emoji2) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/mix 😂 + 😭` atau `/mix 😂 😭`', { quotedMessageId: ctx.id });
@@ -108,7 +122,8 @@ export class StickerSuiteCommand implements Command {
           responseType: 'arraybuffer'
         });
         const webp = await sharp(Buffer.from(response.data)).webp({ quality: 50 }).toBuffer();
-        await adapter.sendSticker(ctx.chatId, webp, { quotedMessageId: ctx.id });
+        const metaWebp = await addStickerMetadata(webp, pack, author);
+        await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
         await adapter.sendMessage(ctx.chatId, '❌ Gagal menggabungkan emoji. Emoji tidak didukung.', { quotedMessageId: ctx.id });
@@ -157,7 +172,7 @@ export class StickerSuiteCommand implements Command {
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
           .webp({ quality: 50 })
           .toBuffer();
-        const metaWebp = await addStickerMetadata(noBgPng);
+        const metaWebp = await addStickerMetadata(noBgPng, pack, author);
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
@@ -179,7 +194,7 @@ export class StickerSuiteCommand implements Command {
           .composite([{ input: circleMask, blend: 'dest-in' }])
           .webp({ quality: 50 })
           .toBuffer();
-        const metaWebp = await addStickerMetadata(webp);
+        const metaWebp = await addStickerMetadata(webp, pack, author);
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
@@ -188,9 +203,33 @@ export class StickerSuiteCommand implements Command {
       return;
     }
 
+    // 6.5. /heart or /love
+    if (cmd === 'heart' || cmd === 'love') {
+      await adapter.sendMessage(ctx.chatId, '⏳ Membuat stiker hati...', { quotedMessageId: ctx.id });
+      try {
+        const heartMask = Buffer.from(
+          `<svg viewBox="0 0 512 512">` +
+          `<path d="M256 470 C256 470 50 280 50 140 C50 60 110 30 180 30 C220 30 245 50 256 70 C267 50 292 30 332 30 C402 30 462 60 462 140 C462 280 256 470 256 470 Z" fill="#ffffff"/>` +
+          `</svg>`
+        );
+        const webp = await sharp(buffer)
+          .ensureAlpha()
+          .resize(512, 512, { fit: 'cover' })
+          .composite([{ input: heartMask, blend: 'dest-in' }])
+          .webp({ quality: 50 })
+          .toBuffer();
+        const metaWebp = await addStickerMetadata(webp, pack, author);
+        await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
+        unlockStickerMaker(ctx, adapter);
+      } catch (err) {
+        await adapter.sendMessage(ctx.chatId, '❌ Gagal membuat stiker hati.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
     // 7. /outline [white/black]
     if (cmd === 'outline') {
-      const color = args[0]?.toLowerCase() === 'black' ? '#000000' : '#ffffff';
+      const color = cleanArgs[0]?.toLowerCase() === 'black' ? '#000000' : '#ffffff';
       await adapter.sendMessage(ctx.chatId, '⏳ Menambahkan outline...', { quotedMessageId: ctx.id });
       try {
         const transparentPng = await sharp(buffer).ensureAlpha().toBuffer();
@@ -199,7 +238,7 @@ export class StickerSuiteCommand implements Command {
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
           .webp({ quality: 50 })
           .toBuffer();
-        const metaWebp = await addStickerMetadata(webp);
+        const metaWebp = await addStickerMetadata(webp, pack, author);
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
@@ -210,7 +249,7 @@ export class StickerSuiteCommand implements Command {
 
     // 8. /meme <top text> | <bottom text>
     if (cmd === 'meme') {
-      const joinedArgs = args.join(' ');
+      const joinedArgs = cleanArgs.join(' ');
       const [top, bottom] = joinedArgs.split('|').map(t => t.trim());
 
       if (!top && !bottom) {
@@ -280,7 +319,7 @@ export class StickerSuiteCommand implements Command {
           .webp({ quality: 50 })
           .toBuffer();
 
-        const metaWebp = await addStickerMetadata(webp);
+        const metaWebp = await addStickerMetadata(webp, pack, author);
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
@@ -294,15 +333,6 @@ export class StickerSuiteCommand implements Command {
       let sharpDone = false;
       let metaDone = false;
       try {
-        // Use env defaults; allow per-message override via pack:/author: args
-        let pack = env.STICKER_PACK_NAME || 'Javas Bot WA';
-        let author = env.STICKER_AUTHOR_NAME || 'bot wa javas';
-
-        const packArg = args.find(a => a.startsWith('pack:'))?.replace('pack:', '');
-        const authorArg = args.find(a => a.startsWith('author:'))?.replace('author:', '');
-        if (packArg) pack = packArg;
-        if (authorArg) author = authorArg;
-
         const webp = await sharp(buffer)
           .ensureAlpha()
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
@@ -364,33 +394,55 @@ export class StickerSuiteCommand implements Command {
       try {
         fs.writeFileSync(tempIn, buffer);
 
-        // FFmpeg safe conversion argument list
-        const args = [
-          '-y',
-          '-i', tempIn,
-          '-t', String(maxSeconds),
-          '-vf', 'fps=15,scale=512:512:force_original_aspect_ratio=increase,crop=512:512,format=yuva420p',
-          '-vcodec', 'libwebp',
-          '-lossless', '0',
-          '-compression_level', '4',
-          '-q:v', '50',
-          '-loop', '0',
-          '-an',
-          '-vsync', '0',
-          tempOut
-        ];
-        await runFfmpeg(args);
+        let quality = 50;
+        let fps = 15;
+        let scale = 512;
+        let compressionLevel = 4;
+        let attempts = 0;
+        let finalStickerBuffer: Buffer | null = null;
 
-        const webpOut = fs.readFileSync(tempOut);
-        const metaWebp = await addStickerMetadata(webpOut);
+        while (attempts < 3) {
+          // FFmpeg safe conversion argument list
+          const argsList = [
+            '-y',
+            '-i', tempIn,
+            '-t', String(maxSeconds),
+            '-vf', `fps=${fps},scale=${scale}:${scale}:force_original_aspect_ratio=increase,crop=${scale}:${scale},format=yuva420p`,
+            '-vcodec', 'libwebp',
+            '-lossless', '0',
+            '-compression_level', String(compressionLevel),
+            '-q:v', String(quality),
+            '-loop', '0',
+            '-an',
+            '-vsync', '0',
+            tempOut
+          ];
+          await runFfmpeg(argsList);
 
-        validateStickerBuffer(metaWebp);
+          const webpOut = fs.readFileSync(tempOut);
+          const metaWebp = await addStickerMetadata(webpOut, pack, author);
 
-        await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
+          if (metaWebp.length <= 1024 * 1024) {
+            finalStickerBuffer = metaWebp;
+            break;
+          }
+
+          // If size exceeds 1MB, reduce quality, framerate, and scale for the next attempt
+          attempts++;
+          quality = Math.max(20, quality - 15);
+          fps = Math.max(10, fps - 3);
+          scale = attempts === 1 ? 384 : 256;
+          compressionLevel = 6; // Use higher compression effort
+          finalStickerBuffer = metaWebp; // Fallback to last buffer if all attempts fail
+        }
+
+        validateStickerBuffer(finalStickerBuffer!);
+
+        await adapter.sendSticker(ctx.chatId, finalStickerBuffer!, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err: any) {
         console.error('[VideoSticker] Error converting:', err);
-        await adapter.sendMessage(ctx.chatId, '❌ Gagal mengonversi video ke stiker. Pastikan format video valid.', { quotedMessageId: ctx.id });
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal mengonversi video ke stiker: ${err.message || 'Pastikan format video valid.'}`, { quotedMessageId: ctx.id });
       } finally {
         safeDelete(tempIn);
         safeDelete(tempOut);
@@ -407,7 +459,7 @@ export class StickerSuiteCommand implements Command {
           .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
           .webp({ quality: 50 })
           .toBuffer();
-        const metaWebp = await addStickerMetadata(webp);
+        const metaWebp = await addStickerMetadata(webp, pack, author);
         await adapter.sendSticker(ctx.chatId, metaWebp, { quotedMessageId: ctx.id });
         unlockStickerMaker(ctx, adapter);
       } catch (err) {
@@ -468,6 +520,6 @@ function wrapText(text: string, maxCharsPerLine = 20): string[] {
 
 const stickerSuite = new StickerSuiteCommand();
 registerCommand(
-  ['stiker', 's', 'toimg', 'brat', 'quote', 'removebg', 'rbg', 'stikerbg', 'nobgstick', 'circle', 'bulat', 'outline', 'meme', 'emojimix', 'mix', 'vstiker', 'gifstiker', 'batchstiker', 'pack'],
+  ['stiker', 's', 'toimg', 'brat', 'quote', 'removebg', 'rbg', 'stikerbg', 'nobgstick', 'circle', 'bulat', 'outline', 'meme', 'emojimix', 'mix', 'vstiker', 'gifstiker', 'batchstiker', 'pack', 'heart', 'love'],
   stickerSuite
 );

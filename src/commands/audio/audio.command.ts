@@ -11,7 +11,7 @@ import { parseTimeToSeconds, validateSpeed, validateTimestamp } from '../../vali
 
 export class AudioSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     if (cmd === 'tts') {
       const text = args.join(' ').trim();

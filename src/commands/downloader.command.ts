@@ -47,7 +47,7 @@ export class DownloaderCommand implements Command {
     }
 
     // Heavy downloaders: ytmp3, ytmp4, fb, twitter, threads
-    const isHeavy = ['ytmp3', 'ytmp4', 'fb', 'facebook', 'fbdown', 'twitter', 'x', 'twtdl', 'threads', 'thread'].includes(type);
+    const isHeavy = ['ytmp3', 'ytmp4', 'youtube-audio', 'youtube-video', 'fb', 'facebook', 'fbdown', 'twitter', 'x', 'twtdl', 'threads', 'thread'].includes(type);
     if (isHeavy) {
       let groupIsPremium = false;
       if (ctx.isGroup) {
@@ -70,75 +70,158 @@ export class DownloaderCommand implements Command {
     }
 
     const url = args[0]?.trim();
-    if (!url) {
-      await adapter.sendMessage(
-        ctx.chatId,
-        `⚠️ Format salah. Contoh: \`/${type} <url>\``,
-        { quotedMessageId: ctx.id }
-      );
-      return;
-    }
+    let targetUrl = url;
+    let searchMetadata: any = null;
 
-    if (!isValidUrl(url)) {
-      await adapter.sendMessage(
-        ctx.chatId,
-        '⚠️ Link tidak valid. Kirim link publik dari platform yang didukung.',
-        { quotedMessageId: ctx.id }
-      );
-      return;
+    const isYoutube = ['ytmp3', 'ytmp4', 'youtube-audio', 'youtube-video'].includes(type);
+    if (isYoutube && (!url || !isValidUrl(url))) {
+      const query = args.join(' ').trim();
+      if (!query) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⚠️ Format salah. Contoh: \`/${type} <url atau keyword>\``,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+
+      await adapter.sendMessage(ctx.chatId, `🔍 Mencari *"${query}"* di YouTube...`, { quotedMessageId: ctx.id });
+
+      try {
+        const { yts } = await import('btch-downloader');
+        const searchResult = (await yts(query)) as any;
+        if (!searchResult || !searchResult.status || !searchResult.result?.videos?.length) {
+          await adapter.sendMessage(ctx.chatId, '❌ Video tidak ditemukan di YouTube.', { quotedMessageId: ctx.id });
+          return;
+        }
+        const firstVideo = searchResult.result.videos[0];
+        targetUrl = firstVideo.url;
+        searchMetadata = {
+          title: firstVideo.title,
+          views: firstVideo.views,
+          duration: firstVideo.timestamp || firstVideo.duration?.timestamp || 'unknown',
+          author: firstVideo.author?.name || 'unknown'
+        };
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal melakukan pencarian YouTube: ${err.message}`, { quotedMessageId: ctx.id });
+        return;
+      }
+    } else {
+      if (!url) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⚠️ Format salah. Contoh: \`/${type} <url>\``,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+
+      if (!isValidUrl(url)) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          '⚠️ Link tidak valid. Kirim link publik dari platform yang didukung.',
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
     }
 
     // Send loading feedback
-    await adapter.sendMessage(ctx.chatId, '⏳ Sedang mengunduh media...', { quotedMessageId: ctx.id });
+    await adapter.sendMessage(
+      ctx.chatId,
+      searchMetadata 
+        ? `🎬 *Menemukan:* ${searchMetadata.title}\n⏳ Sedang mengunduh media...`
+        : '⏳ Sedang mengunduh media...',
+      { quotedMessageId: ctx.id }
+    );
 
     const jobId = `downloader-${ctx.id}`;
 
     await downloaderQueue.add({
       id: jobId,
-      data: { url, userId: ctx.senderId },
-      process: async () => {
-        const result = await downloadMedia(url, type, maxBytes);
-        
-        try {
-          for (let i = 0; i < result.files.length; i++) {
-            const file = result.files[i];
-            const buffer = fs.readFileSync(file.path);
-            
-            // Check duration if it's audio or video
-            const isAudioOrVideo = file.mimeType.startsWith('video/') || file.mimeType.startsWith('audio/');
-            if (isAudioOrVideo) {
-              const durationSeconds = await getMediaDuration(file.path);
-              if (durationSeconds > maxDurationSeconds) {
-                throw new Error(`Durasi media (${Math.ceil(durationSeconds / 60)} menit) melebihi batas maksimal ${Math.ceil(maxDurationSeconds / 60)} menit.`);
-              }
-            }
-
-            const caption = result.files.length > 1 ? `${result.title} (${i + 1}/${result.files.length})` : result.title;
-
-            if (file.mimeType.startsWith('video/')) {
-              await adapter.sendVideo(ctx.chatId, buffer, caption, { quotedMessageId: ctx.id });
-            } else if (file.mimeType.startsWith('audio/')) {
-              await adapter.sendAudio(ctx.chatId, buffer, { quotedMessageId: ctx.id });
-            } else {
-              await adapter.sendImage(ctx.chatId, buffer, caption, { quotedMessageId: ctx.id });
-            }
-          }
-        } finally {
-          // Auto clean up temporary files immediately after sending
-          for (const file of result.files) {
-            safeDeleteTemp(file.path);
-          }
+      data: {
+        type: 'downloader',
+        payload: {
+          url: targetUrl,
+          type,
+          maxBytes,
+          maxDurationSeconds,
+          chatId: ctx.chatId,
+          quotedMessageId: ctx.id,
+          userIsPremium,
+          userId: ctx.senderId,
+          searchMetadata
         }
-      },
-      onSuccess: () => {
-        if (!userIsPremium) {
-          freeDownloaderCooldowns.set(senderId, Date.now());
-        }
-      },
-      onFailure: async (err) => {
-        await adapter.sendMessage(ctx.chatId, `❌ Gagal mengunduh media: ${err.message || 'Terjadi kesalahan sistem.'}`, { quotedMessageId: ctx.id });
       }
     });
+  }
+}
+
+export async function processDownloaderJob(payload: any): Promise<void> {
+  const { url, type, maxBytes, maxDurationSeconds, chatId, quotedMessageId, userIsPremium, userId, searchMetadata } = payload;
+  const { AdapterHolder } = await import('../bot/adapter-holder.js');
+  const adapter = AdapterHolder.getAdapter();
+
+  try {
+    const result = await downloadMedia(url, type, maxBytes);
+    try {
+      for (let i = 0; i < result.files.length; i++) {
+        const file = result.files[i];
+        const buffer = fs.readFileSync(file.path);
+        
+        // Check duration if it's audio or video
+        const isAudioOrVideo = file.mimeType.startsWith('video/') || file.mimeType.startsWith('audio/');
+        if (isAudioOrVideo) {
+          const durationSeconds = await getMediaDuration(file.path);
+          if (durationSeconds > maxDurationSeconds) {
+            throw new Error(`Durasi media (${Math.ceil(durationSeconds / 60)} menit) melebihi batas maksimal ${Math.ceil(maxDurationSeconds / 60)} menit.`);
+          }
+        }
+
+        const caption = result.files.length > 1 ? `${result.title} (${i + 1}/${result.files.length})` : result.title;
+
+        if (file.mimeType.startsWith('video/')) {
+          await adapter.sendVideo(chatId, buffer, caption, { quotedMessageId });
+        } else if (file.mimeType.startsWith('audio/')) {
+          await adapter.sendAudio(chatId, buffer, { quotedMessageId });
+          
+          if (['ytmp3', 'youtube-audio'].includes(type)) {
+            const sizeMB = (buffer.length / (1024 * 1024)).toFixed(2);
+            let durationStr = 'unknown';
+            try {
+              const durationSeconds = await getMediaDuration(file.path);
+              const durationMin = Math.floor(durationSeconds / 60);
+              const durationSec = Math.floor(durationSeconds % 60);
+              durationStr = `${durationMin}:${durationSec.toString().padStart(2, '0')}`;
+            } catch {}
+
+            let detailsMsg = `🎵 *YouTube Audio Terkirim* 🎵\n\n`;
+            detailsMsg += `• *Judul:* ${caption}\n`;
+            detailsMsg += `• *Durasi:* ${durationStr}\n`;
+            detailsMsg += `• *Ukuran:* ${sizeMB} MB\n`;
+            if (searchMetadata) {
+              detailsMsg += `• *Channel:* ${searchMetadata.author || 'unknown'}\n`;
+              detailsMsg += `• *Views:* ${searchMetadata.views ? searchMetadata.views.toLocaleString('id-ID') : '0'}\n`;
+            }
+            detailsMsg += `\n💡 Nikmati audionya!`;
+            await adapter.sendMessage(chatId, detailsMsg, { quotedMessageId });
+          }
+        } else {
+          await adapter.sendImage(chatId, buffer, caption, { quotedMessageId });
+        }
+      }
+
+      if (!userIsPremium) {
+        freeDownloaderCooldowns.set(userId, Date.now());
+      }
+    } finally {
+      for (const file of result.files) {
+        safeDeleteTemp(file.path);
+      }
+    }
+  } catch (err: any) {
+    await adapter.sendMessage(chatId, `❌ Gagal mengunduh media: ${err.message || 'Terjadi kesalahan sistem.'}`, { quotedMessageId });
+    throw err;
   }
 }
 

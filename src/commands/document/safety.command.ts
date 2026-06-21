@@ -7,7 +7,7 @@ import { runOcr } from '../../services/ocr/ocr.service.js';
 
 export class SafetyCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // --- 1. /readqr [safe] ---
     if (cmd === 'readqr') {

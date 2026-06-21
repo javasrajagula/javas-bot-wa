@@ -8,7 +8,7 @@ import { env } from '../config/env.js';
 
 export class SubscriptionCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // 1. /sewa
     if (cmd === 'sewa') {
@@ -248,25 +248,25 @@ Ketik \`/sewa\` untuk panduan berlangganan.`;
         }
       } else {
         // Jika invoice privat (misalnya sewa user premium)
-        const expiresAt = new Date();
-        expiresAt.setMonth(expiresAt.getMonth() + targetDuration);
+        // Gunakan addPremiumUser agar ID dinormalisasi (bukan @lid)
+        try {
+          const { addPremiumUser } = await import('../services/premium/premium.service.js');
+          const daysToAdd = targetDuration * 30;
+          const res = await addPremiumUser(data.userId, daysToAdd, ctx.senderId);
 
-        await prisma.premiumUser.upsert({
-          where: { userId: data.userId },
-          create: {
-            userId: data.userId,
-            expiresAt
-          },
-          update: {
-            expiresAt
-          }
-        });
-
-        await adapter.sendMessage(
-          ctx.chatId,
-          `✅ *Invoice ${invoiceId} BERHASIL DIKONFIRMASI!* \n\nMasa aktif Premium User @${data.userId.split('@')[0]} ditambahkan selama *${targetDuration} Bulan*.`,
-          { mentions: [data.userId], quotedMessageId: ctx.id }
-        );
+          await adapter.sendMessage(
+            ctx.chatId,
+            `✅ *Invoice ${invoiceId} BERHASIL DIKONFIRMASI!*\n\n• *User:* ${res.userId}\n• *Nomor:* ${res.userId.split('@')[0]}\n• *Durasi:* ${targetDuration} Bulan\n• *Expired:* ${res.expiresAt.toLocaleDateString('id-ID')}`,
+            { mentions: [res.userId], quotedMessageId: ctx.id }
+          );
+        } catch (normErr: any) {
+          // Fallback jika normalisasi gagal (misal ID tidak valid)
+          await adapter.sendMessage(
+            ctx.chatId,
+            `⚠️ Invoice dikonfirmasi tapi gagal mengaktifkan premium: ${normErr.message}\n\nGunakan \`/premium add <nomor_hp> ${targetDuration * 30}\` secara manual.`,
+            { quotedMessageId: ctx.id }
+          );
+        }
       }
       return;
     }

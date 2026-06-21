@@ -16,7 +16,7 @@ export class GroupLogCommand implements Command {
       return;
     }
 
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     if (cmd === 'clearlog') {
       const deleted = await prisma.groupLog.deleteMany({

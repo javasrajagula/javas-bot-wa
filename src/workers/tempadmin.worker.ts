@@ -52,6 +52,9 @@ export function startTempAdminWorker(adapter: WhatsAppAdapter) {
       console.error('[TempAdminWorker] Error in worker loop:', err.message);
     }
   }, 30000);
+  if (typeof interval.unref === 'function') {
+    interval.unref();
+  }
 
   return interval;
 }

@@ -63,7 +63,11 @@ export async function watermarkImage(buffer: Buffer, text: string): Promise<Buff
 /**
  * Adds watermark to a video buffer
  */
-export async function watermarkVideo(buffer: Buffer, text: string): Promise<Buffer> {
+export async function watermarkVideo(
+  buffer: Buffer,
+  text: string,
+  position: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'center' = 'bottom-right'
+): Promise<Buffer> {
   const tempIn = getTempPath('mp4');
   const tempOut = getTempPath('mp4');
   fs.writeFileSync(tempIn, buffer);
@@ -71,6 +75,24 @@ export async function watermarkVideo(buffer: Buffer, text: string): Promise<Buff
   const cleanText = text.replace(/[^a-zA-Z0-9\s.,!?-]/g, '');
 
   let tempOverlay: string | null = null;
+
+  // Map position to FFmpeg overlay parameters
+  let overlayPos = 'W-w-10:H-h-10'; // default: bottom-right
+  let drawtextPos = 'x=w-tw-10:y=h-th-10';
+
+  if (position === 'bottom-left') {
+    overlayPos = '10:H-h-10';
+    drawtextPos = 'x=10:y=h-th-10';
+  } else if (position === 'top-right') {
+    overlayPos = 'W-w-10:10';
+    drawtextPos = 'x=w-tw-10:y=10';
+  } else if (position === 'top-left') {
+    overlayPos = '10:10';
+    drawtextPos = 'x=10:y=10';
+  } else if (position === 'center') {
+    overlayPos = '(W-w)/2:(H-h)/2';
+    drawtextPos = 'x=(w-tw)/2:y=(h-th)/2';
+  }
 
   const runOverlayFallback = async () => {
     const fontSize = 24;
@@ -105,7 +127,7 @@ export async function watermarkVideo(buffer: Buffer, text: string): Promise<Buff
       '-y',
       '-i', tempIn,
       '-i', tempOverlay,
-      '-filter_complex', 'overlay=W-w-10:H-h-10',
+      '-filter_complex', `overlay=${overlayPos}`,
       '-codec:a', 'copy',
       tempOut
     ];
@@ -118,7 +140,7 @@ export async function watermarkVideo(buffer: Buffer, text: string): Promise<Buff
       try {
         const escapedText = escapeFfmpegDrawtext(cleanText);
         const escapedFontPath = env.FONT_FILE_PATH.replace(/\\/g, '/').replace(/:/g, '\\:');
-        const filter = `drawtext=text='${escapedText}':x=w-tw-10:y=h-th-10:fontsize=24:fontcolor=white@0.6:fontfile='${escapedFontPath}'`;
+        const filter = `drawtext=text='${escapedText}':${drawtextPos}:fontsize=24:fontcolor=white@0.6:fontfile='${escapedFontPath}'`;
 
         const args = [
           '-y',

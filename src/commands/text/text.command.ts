@@ -21,7 +21,7 @@ export const activeQuizzes = new Map<string, {
 
 export class TextSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     if (cmd === 'ocr') {
       let media = ctx.media || ctx.quotedMessage?.media;
@@ -80,8 +80,28 @@ export class TextSuiteCommand implements Command {
     if (cmd === 'ringkas' || cmd === 'summarize') {
       let text = args.join(' ').trim() || ctx.quotedMessage?.body || '';
       if (!text) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Reply teks panjang dengan `/ringkas` atau kirim `/ringkas <teks>`.', { quotedMessageId: ctx.id });
-        return;
+        if (ctx.isGroup) {
+          const { messageCache } = await import('../../services/state/message-cache.js');
+          const recentMsgs = messageCache.getForChat(ctx.chatId);
+          if (recentMsgs.length === 0) {
+            await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada riwayat obrolan terbaru di cache untuk dirangkum.', { quotedMessageId: ctx.id });
+            return;
+          }
+          text = recentMsgs.map(m => `${m.senderName}: ${m.body}`).join('\n');
+          await adapter.sendMessage(ctx.chatId, '⏳ Merangkum diskusi grup terbaru...', { quotedMessageId: ctx.id });
+          try {
+            const { aiProviderService } = await import('../../services/ai/ai-provider.service.js');
+            const prompt = `Berikut adalah percakapan terbaru di grup WhatsApp. Tolong rangkum apa yang sedang didiskusikan oleh para anggota secara singkat, padat, dan jelas dalam poin-poin:\n\nPercakapan:\n${text}`;
+            const summary = await aiProviderService.generateText(prompt, "Anda adalah asisten perangkum obrolan grup yang cerdas.");
+            await adapter.sendMessage(ctx.chatId, `📌 *RANGKUMAN DISKUSI GRUP:*\n\n${summary}`, { quotedMessageId: ctx.id });
+          } catch (err: any) {
+            await adapter.sendMessage(ctx.chatId, `❌ Gagal merangkum diskusi grup: ${err.message || err}`, { quotedMessageId: ctx.id });
+          }
+          return;
+        } else {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Reply teks panjang dengan `/ringkas` atau kirim `/ringkas <teks>`.', { quotedMessageId: ctx.id });
+          return;
+        }
       }
 
       const isPrem = await isPremium(ctx.senderId);
@@ -115,14 +135,14 @@ export class TextSuiteCommand implements Command {
       return;
     }
 
-    if (cmd === 'typo' || cmd === 'koreksi') {
+    if (cmd === 'typo' || cmd === 'koreksi' || cmd === 'perbaiki' || cmd === 'grammar') {
       const text = args.join(' ').trim() || ctx.quotedMessage?.body || '';
       if (!text) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Reply teks dengan `/typo` untuk koreksi.', { quotedMessageId: ctx.id });
+        await adapter.sendMessage(ctx.chatId, `⚠️ Reply teks dengan \`/${cmd}\` untuk koreksi.`, { quotedMessageId: ctx.id });
         return;
       }
 
-      await adapter.sendMessage(ctx.chatId, `✅ *Koreksi Typo:*\n\n${correctTypos(text)}`, { quotedMessageId: ctx.id });
+      await adapter.sendMessage(ctx.chatId, `✅ *Koreksi Tata Bahasa:*\n\n${correctTypos(text)}`, { quotedMessageId: ctx.id });
       return;
     }
 
@@ -393,6 +413,6 @@ Format response harus berupa JSON mentah saja dengan schema berikut (tanpa markd
 
 export const textSuite = new TextSuiteCommand();
 registerCommand(
-  ['ocr', 'translate', 'tr', 'ringkas', 'summarize', 'ubah', 'typo', 'koreksi', 'balas', 'jelaskan', 'rangkum', 'quiz', 'belajar', 'jawab', 'buatsoal', 'latihan', 'bahas', 'koreksiesai', 'flashcard'],
+  ['ocr', 'translate', 'tr', 'ringkas', 'summarize', 'ubah', 'typo', 'koreksi', 'perbaiki', 'grammar', 'balas', 'jelaskan', 'rangkum', 'quiz', 'belajar', 'jawab', 'buatsoal', 'latihan', 'bahas', 'koreksiesai', 'flashcard'],
   textSuite
 );

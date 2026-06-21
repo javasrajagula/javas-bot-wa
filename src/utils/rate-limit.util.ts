@@ -15,6 +15,30 @@ class RateLimiter {
   // Key format: "user:userId:feature" or "group:groupId:werewolf"
   private store: Map<string, number[]> = new Map();
 
+  constructor() {
+    const interval = setInterval(() => this.prune(), 60 * 60 * 1000);
+    if (typeof interval.unref === 'function') {
+      interval.unref();
+    }
+  }
+
+  public prune(): void {
+    const now = Date.now();
+    for (const [key, timestamps] of this.store.entries()) {
+      const parts = key.split(':');
+      const feature = parts[parts.length - 1];
+      const config = LIMITS[feature];
+      const windowMs = config ? config.windowMs : 24 * 60 * 60 * 1000;
+
+      const validTimestamps = timestamps.filter(t => now - t < windowMs);
+      if (validTimestamps.length === 0) {
+        this.store.delete(key);
+      } else {
+        this.store.set(key, validTimestamps);
+      }
+    }
+  }
+
   public isRateLimited(key: string, feature: string): { limited: boolean; retryAfterSeconds: number } {
     const config = LIMITS[feature];
     if (!config) {

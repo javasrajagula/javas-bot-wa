@@ -73,20 +73,48 @@ export async function logError(
   metadata: Record<string, any> = {}
 ): Promise<string> {
   const errorId = createErrorId();
-  const message = redactText(error?.message || String(error));
+  const rawMessage = error?.message || String(error);
   const stack = error?.stack ? redactText(error.stack) : null;
   const safeMetadata = redactSensitive(metadata);
+
+  let finalMessage = redactText(rawMessage);
+  let finalMetadata = safeMetadata;
+
+  const chatId = metadata.chatId || metadata.groupId || null;
+  const userId = metadata.userId || metadata.senderId || null;
+
+  try {
+    const { privacyPolicyService } = await import('../services/system/privacy-policy.service.js');
+    const policy = await privacyPolicyService.getPolicy(chatId, userId);
+
+    if (policy.mode === 'strict') {
+      finalMessage = '[Strict Privacy Mode] Error message sanitized.';
+      finalMetadata = {
+        sanitized: true,
+        errorScope: scope,
+        errorFeature: feature
+      };
+      if (chatId) finalMetadata.chatId = chatId;
+      if (userId) finalMetadata.userId = privacyPolicyService.maskUserId(userId);
+    } else if (policy.mode === 'balanced') {
+      finalMetadata = { ...safeMetadata };
+      delete finalMetadata.args;
+      delete finalMetadata.body;
+    }
+  } catch (err) {
+    console.error('[Logger] Failed to check privacy policy:', err);
+  }
 
   rememberError({
     id: errorId,
     scope,
     feature,
-    message,
+    message: finalMessage,
     createdAt: new Date(),
-    metadata: safeMetadata
+    metadata: finalMetadata
   });
 
-  console.error(`[Error] [${errorId}] [${scope}] [${feature}]: ${message}`, stack || '');
+  console.error(`[Error] [${errorId}] [${scope}] [${feature}]: ${finalMessage}`, stack || '');
 
   try {
     await prisma.errorLog.create({
@@ -94,9 +122,9 @@ export async function logError(
         errorId,
         scope,
         feature,
-        message,
+        message: finalMessage,
         stack,
-        metadataJson: JSON.stringify(safeMetadata)
+        metadataJson: JSON.stringify(finalMetadata)
       }
     });
   } catch (dbErr) {

@@ -10,6 +10,7 @@ import makeWASocket, {
 
 import qrcode from 'qrcode-terminal';
 import path from 'path';
+import fs from 'fs';
 import pino from 'pino';
 import { WhatsAppAdapter, SendMessageOptions } from './whatsapp.adapter.js';
 import { MessageContext, MessageMedia } from './message.types.js';
@@ -40,12 +41,87 @@ function unwrapMessage(msg: any): any {
   return msg;
 }
 
+function checkIfViewOnce(msg: any): boolean {
+  if (!msg) return false;
+  if (msg.viewOnceMessage || msg.viewOnceMessageV2) return true;
+  if (msg.ephemeralMessage?.message) return checkIfViewOnce(msg.ephemeralMessage.message);
+  if (msg.documentWithCaptionMessage?.message) return checkIfViewOnce(msg.documentWithCaptionMessage.message);
+  if (msg.editedMessage?.message?.protocolMessage?.editedMessage) {
+    return checkIfViewOnce(msg.editedMessage.message.protocolMessage.editedMessage);
+  }
+  return false;
+}
+
 export class BaileysAdapter extends WhatsAppAdapter {
   public sock: any;
   private reconnectAttempts = 0;
   private messageKeyCache = new Map<string, any>();
+  private lidToPhoneMap = new Map<string, string>();
+
+  private loadJidMap() {
+    try {
+      const mapPath = path.join(process.cwd(), 'data', 'jid_map.json');
+      if (fs.existsSync(mapPath)) {
+        const data = JSON.parse(fs.readFileSync(mapPath, 'utf-8'));
+        for (const [lid, phone] of Object.entries(data)) {
+          this.lidToPhoneMap.set(lid, phone as string);
+        }
+        console.log(`[WA] Loaded ${this.lidToPhoneMap.size} JID mapping(s) from persistent storage.`);
+      }
+    } catch (err) {
+      console.error('[WA] Failed to load JID map:', err);
+    }
+  }
+
+  private saveJidMap() {
+    try {
+      const mapPath = path.join(process.cwd(), 'data', 'jid_map.json');
+      fs.mkdirSync(path.dirname(mapPath), { recursive: true });
+      const obj = Object.fromEntries(this.lidToPhoneMap.entries());
+      fs.writeFileSync(mapPath, JSON.stringify(obj, null, 2), 'utf-8');
+    } catch (err) {
+      console.error('[WA] Failed to save JID map:', err);
+    }
+  }
+
+  public updateJidMap(contacts: any[]) {
+    if (!contacts || !Array.isArray(contacts)) return;
+    let changed = false;
+    for (const contact of contacts) {
+      if (contact.id && contact.lid) {
+        const phoneJid = contact.id.split(':')[0] + '@s.whatsapp.net';
+        const lidJid = contact.lid.split(':')[0] + '@lid';
+        if (this.lidToPhoneMap.get(lidJid) !== phoneJid) {
+          this.lidToPhoneMap.set(lidJid, phoneJid);
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      this.saveJidMap();
+    }
+  }
+
+  public updateJidMapFromParticipants(participants: any[]) {
+    if (!participants || !Array.isArray(participants)) return;
+    let changed = false;
+    for (const p of participants) {
+      if (p.id && p.lid) {
+        const phoneJid = p.id.split(':')[0] + '@s.whatsapp.net';
+        const lidJid = p.lid.split(':')[0] + '@lid';
+        if (this.lidToPhoneMap.get(lidJid) !== phoneJid) {
+          this.lidToPhoneMap.set(lidJid, phoneJid);
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      this.saveJidMap();
+    }
+  }
 
   public async start(): Promise<void> {
+    this.loadJidMap();
     if (this.sock) {
       console.log('[WA] Closing old socket and clearing event listeners...');
       try {
@@ -76,8 +152,31 @@ export class BaileysAdapter extends WhatsAppAdapter {
       syncFullHistory: false,
     });
 
+    this.sock.ev.on('contacts.upsert', (contacts: any[]) => {
+      this.updateJidMap(contacts);
+    });
+
+    this.sock.ev.on('contacts.update', (contacts: any[]) => {
+      this.updateJidMap(contacts);
+    });
+
+    const originalGroupMetadata = this.sock.groupMetadata.bind(this.sock);
+    this.sock.groupMetadata = async (jid: string) => {
+      const metadata = await originalGroupMetadata(jid);
+      if (metadata && metadata.participants) {
+        this.updateJidMapFromParticipants(metadata.participants);
+      }
+      return metadata;
+    };
+
     this.sock.ev.on('connection.update', async (update: any) => {
       const { connection, lastDisconnect, qr } = update;
+
+      if (connection === 'open') {
+        this.isConnected = true;
+      } else if (connection === 'close') {
+        this.isConnected = false;
+      }
 
       if (qr) {
         qrcode.generate(qr, { small: true });
@@ -113,6 +212,9 @@ export class BaileysAdapter extends WhatsAppAdapter {
           console.log('\n[DAFTAR GRUP BOT]');
           for (const [id, group] of Object.entries(groups)) {
             console.log(`${(group as any).subject} => ${id}`);
+            if ((group as any).participants) {
+              this.updateJidMapFromParticipants((group as any).participants);
+            }
           }
           console.log('[END DAFTAR GRUP BOT]\n');
         } catch (err) {
@@ -122,6 +224,20 @@ export class BaileysAdapter extends WhatsAppAdapter {
     });
 
     this.sock.ev.on('creds.update', saveCreds);
+
+    this.sock.ev.on('call', async (calls: any[]) => {
+      for (const call of calls) {
+        if (call.status === 'offer') {
+          try {
+            await this.sock.rejectCall(call.id, call.from);
+            const warningMsg = `⚠️ *Sistem Otomatis Bot* ⚠️\n\nMaaf, bot tidak menerima panggilan telepon/video. Silakan kirim pesan teks atau gunakan perintah bot. Menelepon bot berkali-kali dapat menyebabkan nomor Anda diblokir otomatis.`;
+            await this.sendMessage(call.from, warningMsg);
+          } catch (err) {
+            console.error('[Call Filter] Failed to reject call:', err);
+          }
+        }
+      }
+    });
 
     this.sock.ev.on('group-participants.update', async (update: any) => {
       const { id, participants, action } = update;
@@ -154,19 +270,80 @@ export class BaileysAdapter extends WhatsAppAdapter {
     });
 
     this.sock.ev.on('messages.upsert', async (m: { messages: WAMessage[]; type: string }) => {
+      if (m.type === 'append') {
+        // Sync riwayat — abaikan tanpa log agar terminal tidak spam
+        return;
+      }
+      console.log(`[WA] Received messages.upsert of type: ${m.type}, count: ${m.messages?.length}`);
       if (m.type !== 'notify') return;
 
       for (const msg of m.messages) {
-        if (!msg.message) continue;
-        if (msg.key.fromMe) continue;
+        if (!msg.message) {
+          console.log(`[WA] Ignored message: no message content`);
+          continue;
+        }
+
+        // --- DELETION / REVOKE HANDLER ---
+        const protocolMessage = msg.message?.protocolMessage;
+        if (protocolMessage && (protocolMessage.type === 3 || (protocolMessage.type as any) === 'REVOKE')) {
+          const deletedId = protocolMessage.key?.id;
+          if (deletedId) {
+            await this.handleAntiDelete(protocolMessage.key);
+          }
+          continue;
+        }
+
+        if (msg.key.fromMe) {
+          console.log(`[WA] Ignored message: fromMe is true (self message)`);
+          continue;
+        }
 
         const ctx = await this.parseMessage(msg);
+        console.log(`[WA] Parsed message: sender=${ctx?.senderId}, body="${ctx?.body}"`);
+
+        // --- CACHE THE MESSAGE FOR ANTI-DELETE ---
+        if (ctx && ctx.id) {
+          try {
+            const isGroup = ctx.isGroup;
+            let cachedMedia: any = undefined;
+
+            if (ctx.media) {
+              const { getGroupFeatures } = await import('../config/feature-flags.js');
+              const flags: any = isGroup ? await getGroupFeatures(ctx.chatId).catch(() => ({})) : {};
+              if (!isGroup || flags.antidelete) {
+                try {
+                  const buf = await ctx.media.getBuffer();
+                  cachedMedia = {
+                    type: ctx.media.type,
+                    mimeType: ctx.media.mimeType,
+                    buffer: buf,
+                    filename: ctx.media.filename
+                  };
+                } catch (err) {
+                  console.error('[Message Cache] Failed to download media buffer:', err);
+                }
+              }
+            }
+
+            const { messageCache } = await import('../services/state/message-cache.js');
+            messageCache.set(ctx.id, {
+              body: ctx.body,
+              senderId: ctx.senderId,
+              senderName: ctx.senderName,
+              chatId: ctx.chatId,
+              media: cachedMedia,
+              timestamp: Date.now()
+            });
+          } catch (err) {
+            console.error('[Message Cache] Error caching message:', err);
+          }
+        }
 
         if (ctx && this.messageHandler) {
           try {
             await this.messageHandler(ctx);
           } catch (err) {
-            console.error('Error in message handler:', err);
+            console.error('[WA] Error in message handler:', err);
           }
         }
       }
@@ -174,12 +351,16 @@ export class BaileysAdapter extends WhatsAppAdapter {
   }
 
   private async parseMessage(msg: WAMessage): Promise<MessageContext | null> {
+    const isViewOnce = checkIfViewOnce(msg.message);
     const message = unwrapMessage(msg.message);
     if (!message) return null;
 
-    const chatId = msg.key.remoteJid!;
+    let chatId = msg.key.remoteJid!;
     const isGroup = chatId.endsWith('@g.us');
-    const senderId = msg.key.participant || msg.key.remoteJid!;
+    let senderId = msg.key.participant || msg.key.remoteJid!;
+
+    chatId = this.resolveToPhoneJid(chatId);
+    senderId = this.resolveToPhoneJid(senderId);
     const senderName = msg.pushName || senderId;
     if (env.LOG_LEVEL === 'debug') {
       console.log('[DEBUG CHAT ID]', {
@@ -244,24 +425,29 @@ export class BaileysAdapter extends WhatsAppAdapter {
         filename: (mediaMessage as any).fileName || undefined,
         getBuffer: async () => {
           const downloadType = type === 'sticker' ? 'sticker' : type;
-          const stream = await downloadContentFromMessage(mediaMessage as any, downloadType as any);
+          try {
+            const stream = await downloadContentFromMessage(mediaMessage as any, downloadType as any);
 
-          const chunks: Buffer[] = [];
-          let totalBytes = 0;
-          const MAX_MEDIA_DOWNLOAD_BYTES = 50 * 1024 * 1024; // 50MB limit
+            const chunks: Buffer[] = [];
+            let totalBytes = 0;
+            const MAX_MEDIA_DOWNLOAD_BYTES = 50 * 1024 * 1024; // 50MB limit
 
-          for await (const chunk of stream) {
-            totalBytes += chunk.length;
-            if (totalBytes > MAX_MEDIA_DOWNLOAD_BYTES) {
-              if (typeof (stream as any).destroy === 'function') {
-                (stream as any).destroy();
+            for await (const chunk of stream) {
+              totalBytes += chunk.length;
+              if (totalBytes > MAX_MEDIA_DOWNLOAD_BYTES) {
+                if (typeof (stream as any).destroy === 'function') {
+                  (stream as any).destroy();
+                }
+                throw new Error('Ukuran media melebihi batas maksimal (50MB).');
               }
-              throw new Error('Ukuran media melebihi batas maksimal (50MB).');
+              chunks.push(chunk);
             }
-            chunks.push(chunk);
-          }
 
-          return Buffer.concat(chunks);
+            return Buffer.concat(chunks);
+          } catch (err: any) {
+            console.error('[WA] downloadContentFromMessage error:', err);
+            throw new Error('Gagal mengunduh media dari WhatsApp. Pastikan media/stiker masih baru dan belum kedaluwarsa.');
+          }
         },
       };
     }
@@ -315,35 +501,41 @@ export class BaileysAdapter extends WhatsAppAdapter {
           filename: (quotedMediaMessage as any).fileName || undefined,
           getBuffer: async () => {
             const downloadType = qType === 'sticker' ? 'sticker' : qType;
-            const stream = await downloadContentFromMessage(
-              quotedMediaMessage as any,
-              downloadType as any
-            );
+            try {
+              const stream = await downloadContentFromMessage(
+                quotedMediaMessage as any,
+                downloadType as any
+              );
 
-            const chunks: Buffer[] = [];
-            let totalBytes = 0;
-            const MAX_MEDIA_DOWNLOAD_BYTES = 50 * 1024 * 1024; // 50MB limit
+              const chunks: Buffer[] = [];
+              let totalBytes = 0;
+              const MAX_MEDIA_DOWNLOAD_BYTES = 50 * 1024 * 1024; // 50MB limit
 
-            for await (const chunk of stream) {
-              totalBytes += chunk.length;
-              if (totalBytes > MAX_MEDIA_DOWNLOAD_BYTES) {
-                if (typeof (stream as any).destroy === 'function') {
-                  (stream as any).destroy();
+              for await (const chunk of stream) {
+                totalBytes += chunk.length;
+                if (totalBytes > MAX_MEDIA_DOWNLOAD_BYTES) {
+                  if (typeof (stream as any).destroy === 'function') {
+                    (stream as any).destroy();
+                  }
+                  throw new Error('Ukuran media melebihi batas maksimal (50MB).');
                 }
-                throw new Error('Ukuran media melebihi batas maksimal (50MB).');
+                chunks.push(chunk);
               }
-              chunks.push(chunk);
-            }
 
-            return Buffer.concat(chunks);
+              return Buffer.concat(chunks);
+            } catch (err: any) {
+              console.error('[WA] downloadContentFromMessage error (quoted):', err);
+              throw new Error('Gagal mengunduh media dari WhatsApp. Pastikan media/stiker masih baru dan belum kedaluwarsa.');
+            }
           },
         };
       }
 
+      const quotedSenderId = this.resolveToPhoneJid(contextInfo.participant || '');
       quotedMessage = {
         id: contextInfo.stanzaId || '',
-        senderId: contextInfo.participant || '',
-        senderCanonicalId: contextInfo.participant ? normalizeJid(contextInfo.participant) : undefined,
+        senderId: quotedSenderId,
+        senderCanonicalId: quotedSenderId ? normalizeJid(quotedSenderId) : undefined,
         body: quotedBody,
         media: quotedMedia,
       };
@@ -351,7 +543,7 @@ export class BaileysAdapter extends WhatsAppAdapter {
       rawQuotedMessageKey = {
         remoteJid: isGroup ? chatId : senderId,
         id: contextInfo.stanzaId,
-        fromMe: contextInfo.participant === jidNormalizedUser(this.sock.user?.id),
+        fromMe: contextInfo.participant === jidNormalizedUser(this.sock.user?.id) || quotedSenderId === jidNormalizedUser(this.sock.user?.id),
         ...(isGroup ? { participant: contextInfo.participant } : {})
       };
     }
@@ -369,6 +561,7 @@ export class BaileysAdapter extends WhatsAppAdapter {
       quotedMessage,
       rawMessageKey: msg.key,
       rawQuotedMessageKey,
+      isViewOnce,
     };
   }
 
@@ -424,8 +617,30 @@ export class BaileysAdapter extends WhatsAppAdapter {
   ): Promise<void> {
     const mentions = options?.mentions || [];
     const quotedOpt = this.getQuotedOption(options);
+
+    let processedBuffer = imageBuffer;
+    if (chatId.endsWith('@g.us')) {
+      try {
+        const { getGroupFeatures } = await import('../config/feature-flags.js');
+        const features = await getGroupFeatures(chatId);
+        if (features.watermark) {
+          const { addWatermarkToImage } = await import('../utils/watermark.util.js');
+          let groupName = 'Group';
+          try {
+            const metadata = await this.sock.groupMetadata(chatId);
+            groupName = metadata.subject || 'Group';
+          } catch { }
+          const timestampStr = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+          const watermarkText = `${groupName} | ${timestampStr}`;
+          processedBuffer = await addWatermarkToImage(imageBuffer, watermarkText);
+        }
+      } catch (err) {
+        console.error('[Adapter Watermark Error]', err);
+      }
+    }
+
     await this.sock.sendMessage(chatId, {
-      image: imageBuffer,
+      image: processedBuffer,
       caption,
       mentions,
     }, { ...quotedOpt });
@@ -508,5 +723,76 @@ export class BaileysAdapter extends WhatsAppAdapter {
         fromMe: false,
       },
     });
+  }
+
+  public resolveToPhoneJid(jid: string): string {
+    if (!jid) return jid;
+    if (jid.endsWith('@s.whatsapp.net')) return jid;
+
+    const cleanJid = jid.split(':')[0];
+    const lidKey = cleanJid.endsWith('@lid') ? cleanJid : `${cleanJid}@lid`;
+
+    const mapped = this.lidToPhoneMap.get(lidKey);
+    if (mapped) {
+      return mapped;
+    }
+
+    if (jid.endsWith('@lid') && this.sock?.contacts) {
+      for (const key of Object.keys(this.sock.contacts)) {
+        const contact = this.sock.contacts[key];
+        if (contact && contact.lid === jid) {
+          if (key.endsWith('@s.whatsapp.net')) {
+            const phoneJid = key.split(':')[0] + '@s.whatsapp.net';
+            this.lidToPhoneMap.set(lidKey, phoneJid);
+            this.saveJidMap();
+            return phoneJid;
+          }
+        }
+      }
+    }
+    return jid;
+  }
+
+  private async handleAntiDelete(key: any) {
+    try {
+      const chatId = this.resolveToPhoneJid(key.remoteJid);
+      const isGroup = chatId.endsWith('@g.us');
+      if (!isGroup) return;
+
+      const { getGroupFeatures } = await import('../config/feature-flags.js');
+      const flags: any = await getGroupFeatures(chatId).catch(() => ({}));
+      if (!flags.antidelete) return;
+
+      const { messageCache } = await import('../services/state/message-cache.js');
+      const cached = messageCache.get(key.id);
+      if (!cached) return;
+
+      const senderNumber = cached.senderId.split('@')[0];
+      const header = `🕵️‍♂️ *Anti-Delete Detected!* 🕵️‍♂️\n\n👤 *Pengirim:* @${senderNumber}`;
+
+      if (cached.media) {
+        const caption = `${header}\n📄 *Tipe:* ${cached.media.type === 'image' ? 'Gambar' : cached.media.type === 'video' ? 'Video' : cached.media.type === 'sticker' ? 'Stiker' : cached.media.type === 'audio' ? 'Audio' : 'Dokumen'}${cached.body ? `\n📝 *Keterangan:* ${cached.body}` : ''}`;
+
+        if (cached.media.type === 'image') {
+          await this.sendImage(chatId, cached.media.buffer, caption, { mentions: [cached.senderId] });
+        } else if (cached.media.type === 'video') {
+          await this.sendVideo(chatId, cached.media.buffer, caption, { mentions: [cached.senderId] });
+        } else if (cached.media.type === 'sticker') {
+          await this.sendMessage(chatId, caption, { mentions: [cached.senderId] });
+          await this.sendSticker(chatId, cached.media.buffer, { mentions: [cached.senderId] });
+        } else if (cached.media.type === 'audio') {
+          await this.sendMessage(chatId, caption, { mentions: [cached.senderId] });
+          await this.sendAudio(chatId, cached.media.buffer, { mentions: [cached.senderId] });
+        } else {
+          await this.sendMessage(chatId, caption, { mentions: [cached.senderId] });
+          await this.sendDocument(chatId, cached.media.buffer, cached.media.filename || 'document', cached.media.mimeType, { mentions: [cached.senderId] });
+        }
+      } else {
+        const text = `${header}\n💬 *Pesan:* ${cached.body}`;
+        await this.sendMessage(chatId, text, { mentions: [cached.senderId] });
+      }
+    } catch (err) {
+      console.error('[Anti-Delete] Failed to process revoke:', err);
+    }
   }
 }

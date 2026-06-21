@@ -6,7 +6,7 @@ import { getAllQueues } from '../../queues/queue.js';
 
 export class QueueSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const commandType = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const commandType = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
     const queues = getAllQueues();
 
     // 1. /queue or /queue mine
@@ -20,9 +20,9 @@ export class QueueSuiteCommand implements Command {
 
         for (const queue of queues) {
           const waiting = await queue.list();
-          const active = queue.getActiveJobs();
-          const failed = queue.getFailedJobs();
-          const completed = queue.getCompletedJobs();
+          const active = await queue.getActiveJobs();
+          const failed = await queue.getFailedJobs();
+          const completed = await queue.getCompletedJobs();
 
           const filterUser = (jobs: any[]) => jobs.filter(j => j.data?.userId === ctx.senderId);
 
@@ -65,14 +65,19 @@ export class QueueSuiteCommand implements Command {
         return;
       }
 
-      // Owner dashboard queue list
       let msg = `📊 *MONITORING ANTRIAN SISTEM*\n\n`;
       for (const queue of queues) {
-        msg += `📦 *Antrian: ${queue.getName()}* [${queue.isQueuePaused() ? '⏸️ PAUSED' : '▶️ RUNNING'}]\n` +
-          `• Menunggu: ${queue.getLength()} pekerjaan\n` +
-          `• Aktif: ${queue.getActiveJobs().length} pekerjaan\n` +
-          `• Gagal: ${queue.getFailedJobs().length} pekerjaan\n` +
-          `• Selesai: ${queue.getCompletedJobs().length} pekerjaan\n\n`;
+        const isPaused = await queue.isQueuePaused();
+        const length = await queue.getLength();
+        const activeCount = (await queue.getActiveJobs()).length;
+        const failedCount = (await queue.getFailedJobs()).length;
+        const completedCount = (await queue.getCompletedJobs()).length;
+
+        msg += `📦 *Antrian: ${queue.getName()}* [${isPaused ? '⏸️ PAUSED' : '▶️ RUNNING'}]\n` +
+          `• Menunggu: ${length} pekerjaan\n` +
+          `• Aktif: ${activeCount} pekerjaan\n` +
+          `• Gagal: ${failedCount} pekerjaan\n` +
+          `• Selesai: ${completedCount} pekerjaan\n\n`;
       }
       await adapter.sendMessage(ctx.chatId, msg.trim(), { quotedMessageId: ctx.id });
       return;
@@ -126,9 +131,9 @@ export class QueueSuiteCommand implements Command {
         if (jobStatus !== 'not_found') {
           status = jobStatus;
           const waiting = await queue.list();
-          const active = queue.getActiveJobs();
-          const failed = queue.getFailedJobs();
-          const completed = queue.getCompletedJobs();
+          const active = await queue.getActiveJobs();
+          const failed = await queue.getFailedJobs();
+          const completed = await queue.getCompletedJobs();
           foundJob = waiting.find(j => j.id === jobId) ||
                      active.find(j => j.id === jobId) ||
                      failed.find(j => j.id === jobId) ||

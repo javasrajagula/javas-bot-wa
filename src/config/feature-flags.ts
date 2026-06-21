@@ -4,6 +4,12 @@ export const DEFAULT_FEATURES: Record<string, any> = {
   sticker: true,
   brat: true,
   hd: true,
+  media: true,
+  media_compress: true,
+  media_resize: true,
+  media_video: true,
+  document: true,
+  audio: true,
   downloader: false, // Default downloader harus nonaktif
   werewolf: true,
   welcome: false,
@@ -42,6 +48,34 @@ export const DEFAULT_FEATURES: Record<string, any> = {
   modsmart: false,
   antimentionLimit: 5,   // max mentions per message
   antivirtexLimit: 4000,  // max characters per message
+  antiviewonce: false,
+  antidelete: false,
+  badword_censor: false,
+
+  // Fase 1 Moderation Flags
+  antiraid: false,
+  antiraidLimit: 10,     // requests/joins
+  antiraidDuration: 60,  // seconds
+  lockdown: false,
+  allowed_message_types: 'all', // all, text_only, media_only, no_stickers, etc.
+  smart_automute: false,
+  smart_automute_limit: 5,
+  smart_automute_duration: 10,
+  word_cooldown: '{}',   // JSON mapping of word -> cooldown_seconds
+  anti_fake_news: false,
+  anti_nsfw: false,
+  auto_demote_inactive: false,
+  auto_demote_days: 30,
+  watermark: false,
+
+  // Fase 2 AI Flags
+  persona_name: 'Javas AI',
+  persona_prompt: 'Anda adalah Javas AI, asisten pintar.',
+  persona_style: 'formal',
+  auto_caption: false,
+  faq_mapping: '{}',
+  sentiment_analysis: false,
+  footer_text: '',
 };
 
 export interface GroupFeatures {

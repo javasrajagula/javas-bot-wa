@@ -1,3 +1,4 @@
+import { normalizeJid } from '../utils/jid.util.js';
 import { Command, registerCommand, checkIfAdmin } from './index.js';
 import { MessageContext } from '../bot/message.types.js';
 import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
@@ -267,9 +268,7 @@ export class TransferCommand implements Command {
     }
 
     // Resolve target JID
-    const targetUserId = rawUser.includes('@')
-      ? rawUser.replace('@', '').trim() + '@s.whatsapp.net'
-      : rawUser.trim();
+    const targetUserId = normalizeJid(rawUser);
 
     if (targetUserId === ctx.senderId) {
       await adapter.sendMessage(ctx.chatId, '⚠️ Kamu tidak bisa mentransfer uang ke dirimu sendiri.', { quotedMessageId: ctx.id });
@@ -1018,7 +1017,7 @@ export class PetCommand implements Command {
         return;
       }
 
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
       const enemyPet = await prisma.pet.findUnique({ where: { userId: targetJid } });
 
       if (!enemyPet) {
@@ -1658,7 +1657,7 @@ export class RobCommand implements Command {
       return;
     }
 
-    const targetUserId = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+    const targetUserId = normalizeJid(rawUser);
     if (targetUserId === ctx.senderId) {
       await adapter.sendMessage(ctx.chatId, '⚠️ Anda tidak bisa merampok diri sendiri.', { quotedMessageId: ctx.id });
       return;
@@ -2833,7 +2832,7 @@ export class ResetecoCommand implements Command {
     }
 
     // User mention
-    const targetJid = targetInput.includes('@') ? targetInput.replace('@', '').trim() + '@s.whatsapp.net' : targetInput.trim();
+    const targetJid = normalizeJid(targetInput);
 
     try {
       await prisma.userEconomy.upsert({

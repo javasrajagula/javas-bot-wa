@@ -27,7 +27,9 @@ export function normalizeJid(jid: string): string {
   
   // Remove non-digit characters from user part only for s.whatsapp.net
   if (server === 's.whatsapp.net') {
-    user = user.replace(/\D/g, '');
+    if (!/[a-zA-Z]/.test(user)) {
+      user = user.replace(/\D/g, '');
+    }
   }
   
   return `${user}@${server}`;
@@ -44,6 +46,9 @@ export function normalizePhone(phone: string): string {
   }
   if (clean.includes(':')) {
     clean = clean.split(':')[0];
+  }
+  if (/[a-zA-Z]/.test(clean)) {
+    return clean;
   }
   return clean.replace(/\D/g, '');
 }

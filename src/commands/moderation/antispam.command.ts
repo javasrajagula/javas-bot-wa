@@ -17,7 +17,7 @@ export class AntiSpamSuiteCommand implements Command {
       return;
     }
 
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
     const flags = await getGroupFeatures(ctx.chatId);
 
     // 1. /antispam

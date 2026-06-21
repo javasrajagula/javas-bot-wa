@@ -7,6 +7,8 @@ services:
       - ./data:/app/data
       - ./wa-session:/app/wa-session
       - ./temp:/app/temp
+      - ./output:/app/output
+      - ./backups:/app/backups
     restart: unless-stopped
 
   redis:

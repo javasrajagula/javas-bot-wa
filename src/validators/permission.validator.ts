@@ -76,6 +76,14 @@ export async function requireNotBlacklisted(
   });
 
   if (blacklisted) {
+    if (blacklisted.reason?.startsWith('Temp ban until:')) {
+      const parts = blacklisted.reason.split(':');
+      const expiresAt = parseInt(parts[1] || '0', 10);
+      if (Date.now() > expiresAt) {
+        await prisma.blacklist.delete({ where: { id: blacklisted.id } });
+        return;
+      }
+    }
     throw new Error(`Akses ditolak. Anda berada dalam daftar hitam (blacklist) bot.${blacklisted.reason ? ' Alasan: ' + blacklisted.reason : ''}`);
   }
 }

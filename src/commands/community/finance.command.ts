@@ -1,3 +1,4 @@
+import { normalizeJid } from '../../utils/jid.util.js';
 import { Command, registerCommand } from '../index.js';
 import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
@@ -7,7 +8,7 @@ import crypto from 'crypto';
 
 export class FinanceCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // Helper untuk mengambil/mengupdate CustomVariable global/grup
     const getGroupVariable = async (groupId: string, key: string): Promise<any | null> => {
@@ -122,7 +123,7 @@ export class FinanceCommand implements Command {
         if (ctx.quotedMessage?.senderId) {
           targetUser = ctx.quotedMessage.senderId;
         } else if (targetUser && targetUser.startsWith('@')) {
-          targetUser = targetUser.replace('@', '') + '@s.whatsapp.net';
+          targetUser = normalizeJid(targetUser);
         }
 
         if (Number.isNaN(amount) || amount <= 0 || !targetUser) {
@@ -391,7 +392,7 @@ export class FinanceCommand implements Command {
         if (ctx.quotedMessage?.senderId) {
           targetUser = ctx.quotedMessage.senderId;
         } else if (targetUser && targetUser.startsWith('@')) {
-          targetUser = targetUser.replace('@', '') + '@s.whatsapp.net';
+          targetUser = normalizeJid(targetUser);
         }
 
         if (!targetUser) {
@@ -639,7 +640,7 @@ export class FinanceCommand implements Command {
         if (ctx.quotedMessage?.senderId) {
           targetUser = ctx.quotedMessage.senderId;
         } else if (targetUser && targetUser.startsWith('@')) {
-          targetUser = targetUser.replace('@', '') + '@s.whatsapp.net';
+          targetUser = normalizeJid(targetUser);
         }
 
         const remainingContent = args.slice(ctx.quotedMessage?.senderId ? 1 : 2).join(' ');
@@ -942,10 +943,10 @@ export class FinanceCommand implements Command {
         let buyerId = '';
 
         if (targetSeller && targetSeller.startsWith('@')) {
-          sellerId = targetSeller.replace('@', '') + '@s.whatsapp.net';
+          sellerId = normalizeJid(targetSeller);
         }
         if (targetBuyer && targetBuyer.startsWith('@')) {
-          buyerId = targetBuyer.replace('@', '') + '@s.whatsapp.net';
+          buyerId = normalizeJid(targetBuyer);
         }
 
         if (!sellerId || !buyerId || Number.isNaN(amount) || amount <= 0) {
@@ -1069,7 +1070,7 @@ export class FinanceCommand implements Command {
           if (ctx.quotedMessage?.senderId) {
             targetUser = ctx.quotedMessage.senderId;
           } else if (targetUser && targetUser.startsWith('@')) {
-            targetUser = targetUser.replace('@', '') + '@s.whatsapp.net';
+            targetUser = normalizeJid(targetUser);
           }
 
           if (!targetUser) {
@@ -1104,7 +1105,7 @@ export class FinanceCommand implements Command {
           if (ctx.quotedMessage?.senderId) {
             targetUser = ctx.quotedMessage.senderId;
           } else if (targetUser && targetUser.startsWith('@')) {
-            targetUser = targetUser.replace('@', '') + '@s.whatsapp.net';
+            targetUser = normalizeJid(targetUser);
           }
 
           const remaining = args.slice(ctx.quotedMessage?.senderId ? 1 : 2).join(' ');

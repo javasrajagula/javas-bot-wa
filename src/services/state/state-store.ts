@@ -93,6 +93,9 @@ export class FileStateStore extends MemoryStateStore {
     super();
     this.load();
     this.cleanupInterval = setInterval(() => this.cleanupExpired(), 5 * 60 * 1000);
+    if (typeof this.cleanupInterval.unref === 'function') {
+      this.cleanupInterval.unref();
+    }
   }
 
   private load(): void {
@@ -191,7 +194,15 @@ export class RedisStateStore implements StateStore {
   }
 
   async keys(prefix = ''): Promise<string[]> {
-    return this.client.keys(prefix ? `${prefix}*` : '*');
+    const pattern = prefix ? `${prefix}*` : '*';
+    let cursor = '0';
+    const keys: string[] = [];
+    do {
+      const [nextCursor, scanKeys] = await this.client.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      cursor = nextCursor;
+      keys.push(...scanKeys);
+    } while (cursor !== '0');
+    return keys;
   }
 
   async incr(key: string): Promise<number> {

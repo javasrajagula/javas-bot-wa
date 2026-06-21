@@ -18,6 +18,8 @@ Javas Bot WA adalah bot WhatsApp multifungsi berbasis **Node.js, TypeScript, Bai
    - Owner mengaktifkan/menonaktifkan paket fitur global (game, ekonomi, AI, dll.) lewat sistem plugin dinamis.
 6. **Privacy by Design**
    - Mendukung Privacy Mode (strict/balanced/off), kebijakan retensi data, consent per-fitur, dan hak penghapusan data (GDPR-style).
+7. **Dynamic Unified Architecture (Skalabilitas 500+ Fitur)**
+   - Menggunakan dynamic command routers (AI, Security, Games, Utility, Integration) untuk mengelompokkan sub-command secara dinamis tanpa membebani memori dan batas token.
 
 ---
 
@@ -414,8 +416,10 @@ Test suite (Vitest) mencakup:
 - Automation Builder, Workflow, Smart Rules
 - Bisnis, Keuangan, Reseller
 - Coupon, Quota, Subscription
+- Dynamic Unified Routers (AI, Security, Games, Utility, Integration)
+- Watermark video dengan 5 pilihan posisi overlay
 
-**Total: 148 tests passing**
+**Total: 226 tests passing (31 test files)**
 
 ---
 
@@ -453,3 +457,4 @@ npm run db:studio   # Buka Prisma Studio
 ```
 
 Dashboard web: login rate limit, session TTL, cookie `HttpOnly`, CSRF token, host binding via `DASHBOARD_HOST`, health endpoint, API internal opsional dengan `DASHBOARD_API_ENABLED=true`.
+

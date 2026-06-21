@@ -1,3 +1,4 @@
+import { normalizeJid } from '../../utils/jid.util.js';
 import { Command, registerCommand } from '../index.js';
 import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
@@ -6,7 +7,7 @@ import { isOwner } from '../../bot/permission.js';
 
 export class ResellerCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // Helper untuk mengecek apakah user adalah reseller aktif
     const checkIsReseller = async (userId: string): Promise<boolean> => {
@@ -66,7 +67,7 @@ export class ResellerCommand implements Command {
       if (ctx.quotedMessage?.senderId) {
         targetUser = ctx.quotedMessage.senderId;
       } else if (targetUser && targetUser.startsWith('@')) {
-        targetUser = targetUser.replace('@', '') + '@s.whatsapp.net';
+        targetUser = normalizeJid(targetUser);
       }
 
       const initialBalanceStr = args[1]?.trim() || '0';
@@ -143,7 +144,7 @@ export class ResellerCommand implements Command {
 
           let targetUser = args[2]?.trim();
           if (targetUser && targetUser.startsWith('@')) {
-            targetUser = targetUser.replace('@', '') + '@s.whatsapp.net';
+            targetUser = normalizeJid(targetUser);
           }
 
           const amountStr = args[3]?.trim();

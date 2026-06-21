@@ -12,7 +12,7 @@ export class ErrorSuiteCommand implements Command {
       return;
     }
 
-    const commandType = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const commandType = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // 1. /error <errorId>
     if (commandType === 'error') {

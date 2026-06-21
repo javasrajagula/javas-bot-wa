@@ -132,14 +132,14 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     featureFlag: 'hd',
     description: 'Meningkatkan resolusi dan ketajaman gambar (HD).',
     usage: 'Kirim gambar dengan caption /hd atau reply gambar.',
-    examples: ['/hd', '/hd 2x', '/hd 4x']
+    examples: ['/hd', '/hd 2x']
   },
   {
     name: 'compress',
     aliases: ['kompres'],
     category: 'media',
     plugin: 'media',
-    featureFlag: 'general',
+    featureFlag: 'media_compress',
     description: 'Memperkecil ukuran file video/gambar.',
     usage: '/compress [low|medium|high]',
     examples: ['/compress medium', '/kompres high']
@@ -149,7 +149,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'media',
     plugin: 'media',
-    featureFlag: 'general',
+    featureFlag: 'media_resize',
     description: 'Mengubah resolusi/dimensi gambar.',
     usage: '/resize <dimensi/preset>',
     examples: ['/resize 1080x1080', '/resize story']
@@ -159,7 +159,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'media',
     plugin: 'media',
-    featureFlag: 'general',
+    featureFlag: 'media',
     description: 'Memotong gambar dengan rasio tertentu.',
     usage: '/crop [square|story|pp]',
     examples: ['/crop square']
@@ -169,7 +169,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'media',
     plugin: 'media',
-    featureFlag: 'general',
+    featureFlag: 'media',
     description: 'Menambahkan watermark teks kustom pada gambar.',
     usage: '/wm <teks>',
     examples: ['/wm Javas Bot']
@@ -179,7 +179,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'media',
     plugin: 'media',
-    featureFlag: 'general',
+    featureFlag: 'media',
     description: 'Mengonversi video menjadi animasi format GIF.',
     usage: 'Reply video dengan command /togif.',
     examples: ['/togif']
@@ -189,7 +189,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'media',
     plugin: 'media',
-    featureFlag: 'general',
+    featureFlag: 'media',
     description: 'Mengambil gambar thumbnail dari video pada detik tertentu.',
     usage: '/thumb [timestamp]',
     examples: ['/thumb 00:00:05']
@@ -199,7 +199,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'media',
     plugin: 'media',
-    featureFlag: 'general',
+    featureFlag: 'media_video',
     description: 'Memotong durasi file video.',
     usage: '/cut [start-end]',
     examples: ['/cut 00:05-00:15']
@@ -209,7 +209,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'media',
     plugin: 'media',
-    featureFlag: 'general',
+    featureFlag: 'media',
     description: 'Menghilangkan suara dari file video.',
     usage: 'Reply video dengan command /mute.',
     examples: ['/mute']
@@ -219,7 +219,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'media',
     plugin: 'media',
-    featureFlag: 'general',
+    featureFlag: 'media',
     description: 'Memutar balik alur video (reverse).',
     usage: 'Reply video dengan command /reverse.',
     examples: ['/reverse']
@@ -231,7 +231,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'audio',
     plugin: 'audio',
-    featureFlag: 'general',
+    featureFlag: 'audio',
     description: 'Mengonversi teks menjadi suara (Text-to-Speech).',
     usage: '/tts <teks>',
     examples: ['/tts Halo, selamat pagi']
@@ -241,7 +241,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: ['audio'],
     category: 'audio',
     plugin: 'audio',
-    featureFlag: 'general',
+    featureFlag: 'audio',
     description: 'Mengekstrak suara/audio dari video menjadi format MP3.',
     usage: 'Reply video dengan command /mp3.',
     examples: ['/mp3', '/audio']
@@ -251,7 +251,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: ['vntext'],
     category: 'audio',
     plugin: 'audio',
-    featureFlag: 'general',
+    featureFlag: 'audio',
     description: 'Mengonversi file suara (Voice Note) menjadi teks tertulis.',
     usage: 'Reply voice note dengan command /transkrip.',
     examples: ['/transkrip', '/vntext']
@@ -261,7 +261,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'audio',
     plugin: 'audio',
-    featureFlag: 'general',
+    featureFlag: 'audio',
     description: 'Mengubah karakter/efek suara audio.',
     usage: '/voice [robot|chipmunk|deep]',
     examples: ['/voice robot']
@@ -271,7 +271,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'audio',
     plugin: 'audio',
-    featureFlag: 'general',
+    featureFlag: 'audio',
     description: 'Memotong durasi file audio.',
     usage: '/cutaudio [start-end]',
     examples: ['/cutaudio 00:10-00:30']
@@ -281,7 +281,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'audio',
     plugin: 'audio',
-    featureFlag: 'general',
+    featureFlag: 'audio',
     description: 'Mempercepat tempo pemutaran audio.',
     usage: '/speed [multiplier]',
     examples: ['/speed 1.5x']
@@ -291,7 +291,7 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     aliases: [],
     category: 'audio',
     plugin: 'audio',
-    featureFlag: 'general',
+    featureFlag: 'audio',
     description: 'Memperlambat tempo pemutaran audio.',
     usage: '/slow [multiplier]',
     examples: ['/slow 0.75x']

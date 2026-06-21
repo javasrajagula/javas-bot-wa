@@ -23,3 +23,6 @@ wa-session/
 # Local states
 src/config/plugins_state.json
 data/
+scratch*
+*.log
+query-errors.cjs

@@ -8,6 +8,7 @@ export class ConsoleAdapter extends WhatsAppAdapter {
   private rl!: readline.Interface;
 
   public async start(): Promise<void> {
+    this.isConnected = true;
     console.log('\n======================================');
     console.log('      WhatsApp Bot Console Mode');
     console.log('======================================');

@@ -100,7 +100,7 @@ export class SchoolCommand implements Command {
     });
 
     const isSchoolMode = modeVar?.value === 'sekolah';
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // Warn if group mode is not school, except for the groupmode config itself
     if (!isSchoolMode && cmd !== 'groupmode') {

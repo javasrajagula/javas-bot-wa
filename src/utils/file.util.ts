@@ -258,7 +258,11 @@ export function cleanupTempFiles(maxAgeMs = 15 * 60 * 1000): void {
 
 // Start automatic periodic cleanup every 5 minutes
 export function startCleanupInterval(intervalMs = 5 * 60 * 1000): NodeJS.Timeout {
-  return setInterval(() => {
+  const interval = setInterval(() => {
     cleanupTempFiles();
   }, intervalMs);
+  if (typeof interval.unref === 'function') {
+    interval.unref();
+  }
+  return interval;
 }

@@ -54,7 +54,7 @@ export class OwnerSuiteCommand implements Command {
       return;
     }
 
-    const commandType = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const commandType = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // 1. /maintenance <on/off>
     if (commandType === 'maintenance') {
@@ -78,22 +78,44 @@ export class OwnerSuiteCommand implements Command {
       const days = parseInt(args[2] || '30', 10);
 
       if (!action || !rawUser || (action !== 'add' && action !== 'remove')) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/premium <add|remove> @user [hari]`', { quotedMessageId: ctx.id });
+        await adapter.sendMessage(ctx.chatId,
+          '⚠️ Format salah.\n\n' +
+          '📋 *Cara penggunaan:*\n' +
+          '• `/premium add 628xxxxxxxxx [hari]` — Tambah premium via nomor HP\n' +
+          '• `/premium remove 628xxxxxxxxx` — Hapus premium\n\n' +
+          '⚠️ *PENTING:* Gunakan nomor HP langsung (628xxx), bukan @mention.',
+          { quotedMessageId: ctx.id });
         return;
+      }
+
+      // Warn if user passed a mention (@tag) which might be LID
+      if (rawUser.startsWith('@') && rawUser.includes('@') === false) {
+        // This is just @number style, should be fine
       }
 
       try {
         const { addPremiumUser, removePremiumUser } = await import('../../services/premium/premium.service.js');
         if (action === 'add') {
           const res = await addPremiumUser(rawUser, days, ctx.senderId);
-          await adapter.sendMessage(ctx.chatId, `✅ Berhasil menambahkan/memperpanjang Premium untuk @${res.userId.split('@')[0]} selama ${days} hari (Hingga ${res.expiresAt.toLocaleDateString('id-ID')}).`, { quotedMessageId: ctx.id });
+          await adapter.sendMessage(ctx.chatId,
+            `✅ *Premium berhasil ditambahkan!*\n\n` +
+            `• *User ID tersimpan:* ${res.userId}\n` +
+            `• *Nomor:* ${res.userId.split('@')[0]}\n` +
+            `• *Durasi:* ${days} hari\n` +
+            `• *Expired:* ${res.expiresAt.toLocaleDateString('id-ID')}\n\n` +
+            `💡 Pastikan nomor di atas sesuai dengan nomor HP user.`,
+            { quotedMessageId: ctx.id });
         } else {
           await removePremiumUser(rawUser, ctx.senderId);
-          await adapter.sendMessage(ctx.chatId, `✅ Berhasil menghapus status Premium untuk @${rawUser.replace(/^@/, '').split('@')[0]}.`, { quotedMessageId: ctx.id });
+          await adapter.sendMessage(ctx.chatId, `✅ Berhasil menghapus status Premium untuk ${rawUser.replace(/^@/, '').split('@')[0]}.`, { quotedMessageId: ctx.id });
         }
       } catch (err: any) {
         await logError('OwnerCommand', 'premium', err, { rawUser, action });
-        await adapter.sendMessage(ctx.chatId, `❌ Gagal mengatur premium: ${err.message}`, { quotedMessageId: ctx.id });
+        await adapter.sendMessage(ctx.chatId,
+          `❌ Gagal mengatur premium: ${err.message}\n\n` +
+          `💡 *Tips:* Gunakan nomor HP langsung (tanpa @), misal:\n` +
+          `\`/premium add 628123456789 30\``,
+          { quotedMessageId: ctx.id });
       }
       return;
     }
@@ -102,15 +124,18 @@ export class OwnerSuiteCommand implements Command {
     if (commandType === 'cekpremium') {
       const targetUser = args[0];
       if (!targetUser) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Harap masukkan user. Contoh: `/cekpremium @user`', { quotedMessageId: ctx.id });
+        await adapter.sendMessage(ctx.chatId, '⚠️ Harap masukkan user. Contoh: `/cekpremium 628xxxxxxxxx`', { quotedMessageId: ctx.id });
         return;
       }
       try {
-        const { getPremiumStatus } = await import('../../services/premium/premium.service.js');
+        const { getPremiumStatus, normalizePremiumUserId } = await import('../../services/premium/premium.service.js');
         const status = await getPremiumStatus(targetUser);
+        let normalizedId = 'N/A';
+        try { normalizedId = normalizePremiumUserId(targetUser); } catch {}
         let msg = `💎 *STATUS PREMIUM USER* 💎\n\n`;
-        msg += `• *User:* ${targetUser}\n`;
-        msg += `• *Status:* ${status.isPremium ? '🟢 PREMIUM' : '🔴 FREE'}\n`;
+        msg += `• *Input:* ${targetUser}\n`;
+        msg += `• *ID di DB:* ${normalizedId}\n`;
+        msg += `• *Status:* ${status.isPremium ? '🟢 PREMIUM AKTIF' : '🔴 FREE'}\n`;
         if (status.isPremium) {
           msg += `• *Expired:* ${status.expiresAt ? status.expiresAt.toLocaleDateString('id-ID') : 'Lifetime (Owner)'}\n`;
           msg += `• *Sisa Hari:* ${status.daysLeft} hari\n`;
@@ -156,10 +181,215 @@ export class OwnerSuiteCommand implements Command {
       return;
     }
 
-    // 2e. /dbinfo
+    // 2d2. /fixpremiumlid <nomor_hp> — Migrate @lid record to phone number
+    if (commandType === 'fixpremiumlid') {
+      const newPhone = args[0];
+      try {
+        // Find all @lid records
+        const allRecords = await prisma.premiumUser.findMany();
+        const lidRecords = allRecords.filter(r => r.userId.endsWith('@lid'));
+
+        if (lidRecords.length === 0) {
+          await adapter.sendMessage(ctx.chatId,
+            `ℹ️ *Tidak ada record @lid* yang perlu diperbaiki.\n\nSemua data premium sudah dalam format yang benar.`,
+            { quotedMessageId: ctx.id });
+          return;
+        }
+
+        if (!newPhone) {
+          // Show what's in the database
+          let msg = `⚠️ *Ditemukan ${lidRecords.length} record premium dengan format @lid (SALAH):*\n\n`;
+          lidRecords.forEach((r, i) => {
+            const expired = r.expiresAt.getTime() < Date.now();
+            msg += `${i + 1}. \`${r.userId}\`\n`;
+            msg += `   • Expired: ${r.expiresAt.toLocaleDateString('id-ID')}\n`;
+            msg += `   • Status: ${expired ? '❌ Sudah expired' : '✅ Masih aktif'}\n\n`;
+          });
+          msg += `💡 *Cara perbaiki:*\n`;
+          msg += `\`/fixpremiumlid 628xxxxxxxxx\`\n\n`;
+          msg += `Ganti \`628xxxxxxxxx\` dengan nomor HP yang sebenarnya dari user premium.`;
+          await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        // Migrate LID record to phone number
+        const { normalizePremiumUserId, addPremiumUser } = await import('../../services/premium/premium.service.js');
+        const newUserId = normalizePremiumUserId(newPhone);
+
+        // Find the best (longest expiry) active LID record
+        const bestRecord = lidRecords.reduce((best, curr) =>
+          curr.expiresAt.getTime() > best.expiresAt.getTime() ? curr : best
+        , lidRecords[0]);
+
+        const daysLeft = Math.ceil((bestRecord.expiresAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+
+        // Delete all LID records
+        await prisma.premiumUser.deleteMany({ where: { userId: { endsWith: '@lid' } } });
+
+        // Create new record with phone number
+        await prisma.premiumUser.upsert({
+          where: { userId: newUserId },
+          create: { userId: newUserId, expiresAt: bestRecord.expiresAt },
+          update: { expiresAt: bestRecord.expiresAt }
+        });
+
+        await prisma.userProfile.upsert({
+          where: { userId: newUserId },
+          create: { userId: newUserId, isPremium: true, premiumUntil: bestRecord.expiresAt },
+          update: { isPremium: true, premiumUntil: bestRecord.expiresAt }
+        });
+
+        await prisma.auditLog.create({
+          data: {
+            actorId: ctx.senderId,
+            action: 'fix_premium_lid',
+            target: newUserId,
+            metadataJson: JSON.stringify({ oldLid: bestRecord.userId, newUserId, daysLeft })
+          }
+        });
+
+        await adapter.sendMessage(ctx.chatId,
+          `✅ *Migrasi premium berhasil!*\n\n` +
+          `• *Dari:* \`${bestRecord.userId}\` (format LID)\n` +
+          `• *Ke:* \`${newUserId}\` (format HP)\n` +
+          `• *Nomor:* ${newUserId.split('@')[0]}\n` +
+          `• *Expired:* ${bestRecord.expiresAt.toLocaleDateString('id-ID')} (${daysLeft > 0 ? daysLeft + ' hari lagi' : 'sudah expired'})`,
+          { quotedMessageId: ctx.id });
+
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal memperbaiki LID premium: ${err.message}`, { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    // 2e1. /aktifgrup [groupId] [basic|premium] [bulan]
+    if (commandType === 'aktifgrup') {
+      const targetGroupId = args[0]?.trim();
+      const plan = args[1]?.toLowerCase() || 'premium';
+      const months = parseInt(args[2] || '1', 10);
+
+      if (!targetGroupId || !['basic', 'premium'].includes(plan) || isNaN(months) || months < 1) {
+        // Show current group info if no args
+        if (!targetGroupId && ctx.isGroup) {
+          const sub = await prisma.groupSubscription.findUnique({ where: { groupId: ctx.chatId } });
+          const now = new Date();
+          const isExpired = sub?.expiresAt && sub.expiresAt <= now;
+          const activePlan = (!sub?.expiresAt || !isExpired) ? (sub?.plan || 'free') : 'free';
+          let msg = `📊 *INFO SEWA GRUP INI*\n\n`;
+          msg += `• *Grup ID:* \`${ctx.chatId}\`\n`;
+          msg += `• *Paket:* ${activePlan.toUpperCase()}\n`;
+          msg += `• *Expired:* ${sub?.expiresAt ? sub.expiresAt.toLocaleDateString('id-ID') : '-'}\n`;
+          msg += `• *Status:* ${activePlan === 'free' ? '🔴 FREE' : '🟢 AKTIF'}\n\n`;
+          msg += `💡 *Untuk aktifkan/perpanjang:*\n\`/aktifgrup ${ctx.chatId} premium 1\``;
+          await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+          return;
+        }
+        await adapter.sendMessage(ctx.chatId,
+          `⚠️ Format salah.\n\n📋 *Cara penggunaan:*\n` +
+          `• \`/aktifgrup <groupId> [basic|premium] [bulan]\`\n\n` +
+          `*Contoh:*\n` +
+          `\`/aktifgrup 120363429514459735@g.us premium 1\`\n\n` +
+          `💡 Jika digunakan di dalam grup target, cukup ketik:\n` +
+          `\`/aktifgrup\` untuk melihat info atau dapatkan Group ID dari \`/ceksewa\``,
+          { quotedMessageId: ctx.id });
+        return;
+      }
+
+      try {
+        const currentSub = await prisma.groupSubscription.findUnique({ where: { groupId: targetGroupId } });
+        const now = new Date();
+
+        let newExpiresAt = new Date(now);
+        if (currentSub?.expiresAt && currentSub.expiresAt > now) {
+          // Perpanjang dari tanggal expired yang ada
+          newExpiresAt = new Date(currentSub.expiresAt);
+        }
+        newExpiresAt.setMonth(newExpiresAt.getMonth() + months);
+
+        await prisma.groupSubscription.upsert({
+          where: { groupId: targetGroupId },
+          create: { groupId: targetGroupId, plan, expiresAt: newExpiresAt },
+          update: { plan, expiresAt: newExpiresAt }
+        });
+
+        await prisma.auditLog.create({
+          data: {
+            actorId: ctx.senderId,
+            action: currentSub ? 'extend_group_sub' : 'add_group_sub',
+            target: targetGroupId,
+            groupId: targetGroupId,
+            metadataJson: JSON.stringify({ plan, months, expiresAt: newExpiresAt })
+          }
+        });
+
+        const isExtended = !!(currentSub?.expiresAt && currentSub.expiresAt > now);
+        await adapter.sendMessage(ctx.chatId,
+          `✅ *Sewa grup ${isExtended ? 'diperpanjang' : 'diaktifkan'}!*\n\n` +
+          `• *Grup ID:* \`${targetGroupId}\`\n` +
+          `• *Paket:* ${plan.toUpperCase()}\n` +
+          `• *Durasi:* +${months} Bulan\n` +
+          `• *Expired Baru:* ${newExpiresAt.toLocaleDateString('id-ID')}`,
+          { quotedMessageId: ctx.id });
+
+        // Notify the group if different from current chat
+        if (ctx.chatId !== targetGroupId) {
+          adapter.sendMessage(targetGroupId,
+            `🎉 *SEWA GRUP BERHASIL ${isExtended ? 'DIPERPANJANG' : 'DIAKTIFKAN'}!*\n\n` +
+            `• Paket: *${plan.toUpperCase()}*\n` +
+            `• Masa aktif sampai: *${newExpiresAt.toLocaleDateString('id-ID')}*`
+          ).catch(() => {});
+        }
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal mengaktifkan sewa grup: ${err.message}`, { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    // 2e2. /listgrup — List all active group subscriptions
+    if (commandType === 'listgrup') {
+      try {
+        const now = new Date();
+        const allSubs = await prisma.groupSubscription.findMany({
+          orderBy: { expiresAt: 'desc' }
+        });
+
+        if (allSubs.length === 0) {
+          await adapter.sendMessage(ctx.chatId, 'ℹ️ Belum ada grup yang berlangganan.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const activeSubs = allSubs.filter(s => !s.expiresAt || s.expiresAt > now);
+        const expiredSubs = allSubs.filter(s => s.expiresAt && s.expiresAt <= now);
+
+        let msg = `📋 *DAFTAR SEWA GRUP*\n\n`;
+        msg += `🟢 *Aktif (${activeSubs.length} grup):*\n`;
+        activeSubs.forEach((s, i) => {
+          const daysLeft = s.expiresAt ? Math.ceil((s.expiresAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)) : 9999;
+          msg += `${i + 1}. \`${s.groupId.split('@')[0]}\`\n`;
+          msg += `   Paket: ${s.plan.toUpperCase()} | Sisa: ${daysLeft > 9000 ? '∞' : daysLeft + ' hari'}\n`;
+        });
+
+        if (expiredSubs.length > 0) {
+          msg += `\n🔴 *Expired (${expiredSubs.length} grup):*\n`;
+          expiredSubs.slice(0, 5).forEach((s, i) => {
+            msg += `${i + 1}. \`${s.groupId.split('@')[0]}\` — expired ${s.expiresAt?.toLocaleDateString('id-ID')}\n`;
+          });
+          if (expiredSubs.length > 5) msg += `  ...dan ${expiredSubs.length - 5} lagi\n`;
+        }
+
+        msg += `\n💡 Untuk aktifkan grup: \`/aktifgrup <groupId> premium 1\``;
+        await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal memuat daftar grup: ${err.message}`, { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    // 2f. /dbinfo
     if (commandType === 'dbinfo') {
       try {
         const url = env.DATABASE_URL;
+
         const provider = url.startsWith('file:') ? 'SQLite' : 'Postgres/MySQL';
         let dbPath = url;
         let sizeText = 'N/A';
@@ -467,7 +697,7 @@ export class OwnerSuiteCommand implements Command {
           where: { expiresAt: { gt: new Date() } }
         });
 
-        const queueLength = hdQueue.getLength() + downloaderQueue.getLength() + generalQueue.getLength();
+        const queueLength = (await hdQueue.getLength()) + (await downloaderQueue.getLength()) + (await generalQueue.getLength());
 
         const lastErrors = await prisma.errorLog.findMany({
           orderBy: { createdAt: 'desc' },
@@ -739,6 +969,6 @@ Brat: Max 10 requests / 1 minute
 
 const ownerSuite = new OwnerSuiteCommand();
 registerCommand(
-  ['maintenance', 'premium', 'broadcast', 'bcaddtemplate', 'bcdeltemplate', 'bclisttemplate', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan', 'backup', 'backupdb', 'backupconfig', 'listbackup', 'restorebackup', 'exportconfig', 'importconfig', 'cekpremium', 'listpremium', 'fixpremiumids', 'dbinfo'],
+  ['maintenance', 'premium', 'broadcast', 'bcaddtemplate', 'bcdeltemplate', 'bclisttemplate', 'stats', 'limit', 'apikey', 'revokeapikey', 'plugin', 'addsewa', 'delsewa', 'listsewa', 'extendsewa', 'setplan', 'backup', 'backupdb', 'backupconfig', 'listbackup', 'restorebackup', 'exportconfig', 'importconfig', 'cekpremium', 'listpremium', 'fixpremiumids', 'fixpremiumlid', 'aktifgrup', 'listgrup', 'dbinfo'],
   ownerSuite
 );

@@ -224,10 +224,18 @@ export class BackupService {
       if (!pu.userId) continue;
       try {
         const normalizedUserId = normalizePremiumUserId(pu.userId);
+        const expiresAt = pu.expiresAt ? new Date(pu.expiresAt) : new Date(0);
+        
         await prisma.premiumUser.upsert({
           where: { userId: normalizedUserId },
-          create: { userId: normalizedUserId, expiresAt: pu.expiresAt ? new Date(pu.expiresAt) : new Date(0) },
-          update: { expiresAt: pu.expiresAt ? new Date(pu.expiresAt) : new Date(0) }
+          create: { userId: normalizedUserId, expiresAt },
+          update: { expiresAt }
+        });
+
+        await prisma.userProfile.upsert({
+          where: { userId: normalizedUserId },
+          create: { userId: normalizedUserId, isPremium: expiresAt.getTime() > Date.now(), premiumUntil: expiresAt },
+          update: { isPremium: expiresAt.getTime() > Date.now(), premiumUntil: expiresAt }
         });
       } catch (err) {
         console.warn(`[Backup Service] Skipping invalid premium user import for: ${pu.userId}`);
@@ -319,7 +327,11 @@ export class BackupService {
     };
 
     setTimeout(run, 30_000);
-    return setInterval(run, intervalMs);
+    const interval = setInterval(run, intervalMs);
+    if (typeof interval.unref === 'function') {
+      interval.unref();
+    }
+    return interval;
   }
 
   private infoFromFile(fileName: string): BackupInfo {

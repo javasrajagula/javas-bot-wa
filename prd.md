@@ -1,1598 +1,876 @@
-# PRD Final — Stabilization, Reliability, Premium, Media, Game, Menu UX, and Payment Update
-
-## Javas Bot WA
+# PRD: Hardening & Stabilization Javas Bot WA
 
 ## 1. Ringkasan
 
-Javas Bot WA membutuhkan stabilisasi menyeluruh karena beberapa fitur inti dan fitur tambahan belum berjalan konsisten. Masalah utama mencakup private chat tidak merespons, status premium kadang hilang setelah bot restart, dependency seperti Poppler/OCR/STT belum terdeteksi dengan jelas, fitur media/stiker rusak atau output kosong, beberapa command game belum tersedia, downloader tidak stabil, dan tampilan menu terlalu padat.
+Javas Bot WA saat ini memiliki cakupan fitur yang luas, tetapi beberapa fondasi teknis masih perlu diperkuat sebelum bot layak digunakan secara stabil di banyak grup WhatsApp. PRD ini mendefinisikan pekerjaan untuk memperbaiki bug parsing command, konsistensi feature flag, sistem queue, state management, Docker dependency, privacy enforcement, database configuration, observability, dan testing.
 
-PRD ini menggabungkan seluruh kebutuhan perbaikan menjadi satu rencana final untuk membuat bot lebih stabil, mudah digunakan, aman, dan siap dipakai oleh user umum, admin grup, dan owner.
+Tujuan utama proyek ini adalah membuat bot lebih stabil, aman, mudah dikelola, dan sesuai dengan klaim fitur yang ada di dokumentasi.
+
+## 2. Latar Belakang Masalah
+
+Bot sudah memiliki banyak modul seperti sticker, media, downloader, moderation, economy, school/community, dashboard, privacy, dan queue. Namun hasil audit menemukan beberapa kelemahan utama:
+
+1. Beberapa command masih menganggap prefix hanya satu karakter.
+2. Feature flag tidak konsisten karena beberapa command berat memakai `featureFlag: general`.
+3. Queue masih berbasis memory sehingga job tidak recoverable setelah restart.
+4. State default disimpan ke file JSON lokal dan Redis URL bisa bocor ke log.
+5. Prisma hardcode SQLite, sementara env memberi kesan support PostgreSQL/MySQL.
+6. Docker image belum memasang dependency sistem seperti FFmpeg, Tesseract, dan Poppler.
+7. Privacy mode dan retention policy belum ditegakkan secara global.
+8. Dashboard owner masih menyimpan session di memory dan broadcast belum punya throttle.
+9. CI/testing belum cukup kuat untuk menjamin stabilitas production.
+10. Dokumentasi terlalu menjanjikan dibanding implementasi nyata.
+
+## 3. Tujuan Produk
+
+### 3.1 Tujuan Utama
+
+Meningkatkan Javas Bot WA dari prototype besar menjadi bot yang lebih production-ready untuk penggunaan nyata di grup WhatsApp.
+
+### 3.2 Tujuan Spesifik
+
+* Semua command harus bekerja dengan prefix custom sepanjang 1–4 karakter.
+* Admin grup harus bisa mengaktifkan atau menonaktifkan fitur secara akurat.
+* Queue untuk task berat harus tahan restart dan dapat dipantau.
+* State sementara seperti captcha, mute, cooldown, dan chat mode harus aman dan scalable.
+* Docker deployment harus langsung mendukung fitur media, audio, OCR, dan PDF.
+* Privacy mode harus benar-benar mempengaruhi logging, AI, analytics, dan retensi data.
+* Dashboard owner harus lebih aman, memiliki audit trail, dan tidak rawan broadcast spam.
+* CI harus mendeteksi bug parsing, permission, feature flag, queue, dan build sejak awal.
+
+## 4. Non-Goals
+
+Hal berikut tidak termasuk dalam scope fase awal:
+
+* Menambah fitur baru seperti game baru, downloader baru, atau AI provider baru.
+* Mengubah UI dashboard menjadi SPA modern.
+* Membuat mobile app.
+* Membuat sistem pembayaran otomatis penuh.
+* Migrasi penuh ke microservices.
+* Menjamin kompatibilitas semua platform downloader pihak ketiga jika upstream berubah.
+
+## 5. Stakeholder
+
+* Owner bot
+* Admin grup
+* User biasa
+* Premium user
+* Maintainer/developer bot
+* Operator server/deployment
+
+## 6. Persona dan Kebutuhan
+
+### 6.1 Owner Bot
+
+Owner membutuhkan bot yang stabil, tidak mudah crash, aman, mudah dipantau, dan bisa dikelola dari dashboard.
+
+### 6.2 Admin Grup
+
+Admin membutuhkan kontrol fitur yang jelas. Jika fitur dimatikan, command terkait harus benar-benar tidak bisa dipakai.
+
+### 6.3 User Biasa
+
+User membutuhkan command yang konsisten, error message yang jelas, dan bot yang tidak lambat.
+
+### 6.4 Operator Server
+
+Operator membutuhkan deployment Docker yang lengkap, log yang jelas, health check yang benar, dan backup yang aman.
+
+## 7. Scope Fitur
+
+## 7.1 P0 — Critical Fixes
+
+### 7.1.1 Command Parsing Refactor
+
+#### Masalah
+
+Beberapa command mengambil command name dari `ctx.body` dengan `slice(1)`, sehingga prefix custom lebih dari satu karakter akan merusak parsing.
+
+#### Requirement
+
+* Router harus menjadi satu-satunya tempat parsing command.
+* `MessageContext` atau parameter executor harus membawa:
+
+  * `prefix`
+  * `commandName`
+  * `rawCommandName`
+  * `args`
+* Semua command handler tidak boleh parsing ulang command dari `ctx.body`.
+* Prefix 1–4 karakter harus didukung konsisten.
+
+#### Acceptance Criteria
+
+* Prefix `/`, `!`, `!!`, `.`, dan `#` berhasil untuk semua command.
+* Test unit command parser mencakup prefix custom.
+* Tidak ada command handler utama yang memakai pola `slice(1)` untuk menentukan command name.
 
 ---
 
-# 2. Tujuan Utama
+### 7.1.2 Feature Flag Normalization
 
-1. Bot berjalan normal di grup dan chat pribadi.
-2. Semua command yang muncul di menu benar-benar tersedia dan bisa digunakan.
-3. Status premium tidak hilang setelah bot di-stop atau restart.
-4. Fitur media seperti `/stiker`, `/vstiker`, `/hd`, `/togif`, `/wm`, `/removebg`, `/meme`, dan TTS berjalan stabil.
-5. Stiker tidak kosong, tidak corrupt, dan memiliki metadata `Javas Bot WA`.
-6. Game seperti Werewolf dan Tebak Kata berjalan dengan command/session handler yang benar.
-7. Dependency seperti FFmpeg, Poppler, Tesseract, OCR, STT, dan RemoveBG dapat dicek melalui `/checkdeps`.
-8. Error teknis tidak ditampilkan mentah ke user.
-9. Menu bot dibuat lebih rapi, interaktif, tidak sesak, dan mudah dibaca.
-10. Payment premium diperbarui ke GoPay `085338123425`.
+#### Masalah
 
----
+Beberapa command berat memakai `featureFlag: general`, sehingga tidak bisa dikontrol secara akurat oleh admin.
 
-# 3. Non-Goals
+#### Requirement
 
-1. Tidak membuat payment gateway otomatis.
-2. Tidak mengganti Baileys dengan library lain.
-3. Tidak membuat dashboard SaaS penuh.
-4. Tidak mengganti database engine utama.
-5. Tidak membuat seluruh fitur AI baru dari nol.
-6. Tidak rewrite total semua command; fokus pada stabilisasi, UX, dan reliability.
+* Setiap command harus memiliki metadata:
 
----
+  * `category`
+  * `plugin`
+  * `featureFlag`
+  * `rateLimitKey`
+  * `minRole`
+  * `premiumOnly`
+* Command media harus memakai feature flag spesifik seperti:
 
-# 4. Prioritas Masalah
+  * `media`
+  * `media_compress`
+  * `media_resize`
+  * `media_video`
+  * `document`
+  * `audio`
+  * `downloader`
+* `general` hanya boleh dipakai untuk command ringan seperti `menu`, `help`, `status`, dan command informasi dasar.
+* `/feature` harus menampilkan command apa saja yang terdampak oleh setiap flag.
 
-## P0 — Critical
+#### Acceptance Criteria
 
-1. Bot tidak jalan di chat pribadi.
-2. Crash `jidDecode(...) is undefined`.
-3. Prisma `P2002` pada `GroupConfig` dan stats.
-4. Premium kadang hilang setelah bot restart.
-5. Command yang ada di menu belum tentu terdaftar.
-6. Game Tebak Kata tidak merespons jawaban non-command.
-7. Error `internal-server-error` muncul mentah.
-
-## P1 — High
-
-1. `/pdf2img` gagal karena Poppler missing.
-2. `/hd` tidak berfungsi.
-3. `/stiker` membalas tetapi stiker kosong/corrupt.
-4. `/vstiker` memiliki area hitam.
-5. `/removebg` tidak berfungsi.
-6. `/wm` gagal.
-7. `/togif` bermasalah.
-8. STT/OCR belum dikonfigurasi dengan jelas.
-9. Instagram downloader tidak stabil.
-10. TTS tidak stabil.
-
-## P2 — Medium
-
-1. Meme text tidak jelas.
-2. Ringkasan `/ringkas` belum rapi.
-3. Translate error handling buruk.
-4. Menu terlalu padat.
-5. Payment premium perlu diperbarui.
-
-## P3 — Documentation
-
-1. README belum lengkap.
-2. `.env.example` belum mencakup semua dependency.
-3. Belum ada `/checkdeps`.
-4. Belum ada `/dbinfo`.
-5. Belum ada command diagnostik premium.
+* Menonaktifkan fitur `media` membuat command media tidak bisa dipakai.
+* Menonaktifkan fitur `downloader` membuat semua downloader tidak bisa dipakai.
+* Test memastikan setiap command non-general memiliki feature flag valid.
+* Dokumentasi command otomatis sesuai metadata terbaru.
 
 ---
 
-# 5. Functional Requirements
+### 7.1.3 Production Queue dengan Redis/BullMQ
+
+#### Masalah
+
+Queue masih berbasis memory. Job hilang saat restart dan tidak recoverable.
+
+#### Requirement
+
+* Implementasikan adapter queue:
+
+  * `MemoryQueue` untuk development/test.
+  * `RedisQueue` berbasis BullMQ untuk production.
+* Queue dipilih lewat env:
+
+  * `QUEUE_DRIVER=memory|redis`
+* Job harus serializable, tidak boleh menyimpan closure sebagai proses utama.
+* Setiap job harus memiliki:
+
+  * `jobId`
+  * `type`
+  * `payload`
+  * `status`
+  * `attempts`
+  * `createdAt`
+  * `updatedAt`
+  * `error`
+* Worker harus bisa resume job setelah restart.
+* Dashboard queue harus menampilkan waiting, active, completed, failed, dan retryable jobs.
+
+#### Acceptance Criteria
+
+* Downloader job tetap tercatat setelah restart.
+* Failed job bisa diretry dari command owner/dashboard.
+* Queue tidak kehilangan job saat process crash.
+* Test integration Redis queue tersedia.
 
 ---
 
-## FR-001 — Refactor Router agar Private Chat Berjalan
+### 7.1.4 Docker Runtime Dependencies
 
-### Masalah
+#### Masalah
 
-Bot tidak merespons command di chat pribadi karena eksekusi command kemungkinan masih berada di dalam blok khusus grup.
+Docker image belum memasang FFmpeg, FFprobe, Tesseract, dan Poppler, padahal fitur media/OCR/PDF membutuhkannya.
 
-### Requirement
+#### Requirement
 
-Router harus memisahkan:
+Dockerfile production harus memasang dependency berikut:
 
-1. common checks,
-2. group-only checks,
-3. private-only checks,
-4. command execution.
+* `ffmpeg`
+* `ffprobe`
+* `tesseract-ocr`
+* `poppler-utils`
+* `ca-certificates`
+* font dasar untuk rendering teks/media
 
-### Flow Baru
+`docker-compose.yml` harus mount:
 
-```txt
-1. Terima pesan.
-2. Tentukan apakah pesan dari grup atau private.
-3. Jika grup, load/upsert groupConfig.
-4. Tentukan prefix.
-5. Jika pesan non-command, proses game answer/autoreply/moderation.
-6. Resolve command.
-7. Jalankan common checks.
-8. Jika grup, jalankan group checks.
-9. Jika private, jalankan private quota checks.
-10. Execute command untuk grup dan private.
-11. Log usage.
-12. Tangani error dengan pesan user-friendly.
+* `./data:/app/data`
+* `./wa-session:/app/wa-session`
+* `./temp:/app/temp`
+* `./output:/app/output`
+* `./backups:/app/backups`
+
+#### Acceptance Criteria
+
+* `/checkdeps` menunjukkan FFmpeg, FFprobe, Tesseract, dan Poppler tersedia di container.
+* Fitur sticker video, audio, OCR, dan PDF berjalan di Docker tanpa instalasi manual.
+* Backup tidak hilang setelah container recreate.
+
+---
+
+## 7.2 P1 — Security & Privacy Hardening
+
+### 7.2.1 Privacy Mode Enforcement
+
+#### Masalah
+
+Privacy mode saat ini lebih banyak berupa konfigurasi, belum menjadi policy global.
+
+#### Requirement
+
+Buat `PrivacyPolicyService` yang dipakai oleh:
+
+* Logger
+* Usage analytics
+* AI commands
+* Auto summary
+* Dashboard
+* Export data
+* Retention worker
+
+Mode privacy:
+
+#### Strict
+
+* Tidak menyimpan isi pesan user.
+* Metadata user dimasking.
+* AI analytics dan auto-summary default off.
+* Error log tidak boleh menyimpan argumen mentah.
+* Usage log hanya menyimpan command category, bukan full command atau args.
+
+#### Balanced
+
+* Menyimpan metadata minimum.
+* Tidak menyimpan isi pesan kecuali dibutuhkan fitur aktif.
+* Error log menyimpan error teknis tanpa data sensitif.
+
+#### Off
+
+* Mode normal, tetap dengan masking credential dan token.
+
+#### Acceptance Criteria
+
+* Saat strict mode aktif, error log tidak berisi pesan asli user.
+* Saat strict mode aktif, AI chat mode tidak berjalan kecuali user consent aktif.
+* `/mydata` dan `/deletemydata` membaca policy yang sama.
+* Test privacy mode mencakup strict, balanced, off.
+
+---
+
+### 7.2.2 Retention Worker
+
+#### Masalah
+
+Retention policy bisa disimpan, tetapi perlu worker yang benar-benar membersihkan data.
+
+#### Requirement
+
+Buat worker `retention.worker.ts` yang berjalan periodik dan membersihkan:
+
+* `UsageLog`
+* `AuditLog`
+* `GroupLog`
+* `ErrorLog`
+* temporary state
+* temp/output files
+* data lain sesuai `DataRetentionPolicy`
+
+Worker harus mendukung durasi:
+
+* `1h`
+* `6h`
+* `24h`
+* `7d`
+* `30d`
+* `90d`
+* `off`
+
+#### Acceptance Criteria
+
+* Data lebih lama dari policy terhapus otomatis.
+* Worker mencatat audit log ringkas setelah cleanup.
+* `/retention` menampilkan waktu cleanup terakhir.
+* Test memastikan data lama terhapus dan data baru tetap ada.
+
+---
+
+### 7.2.3 Dashboard Security Improvements
+
+#### Masalah
+
+Dashboard menyimpan session di memory dan login rate limit bergantung pada IP request.
+
+#### Requirement
+
+* Session dashboard bisa disimpan di Redis jika tersedia.
+* Tambahkan `TRUST_PROXY` handling yang benar.
+* Jangan percaya `x-forwarded-for` kecuali `TRUST_PROXY=true`.
+* Tambahkan security headers:
+
+  * `Content-Security-Policy`
+  * `X-Frame-Options`
+  * `X-Content-Type-Options`
+  * `Referrer-Policy`
+* Broadcast harus memiliki:
+
+  * preview
+  * confirm
+  * throttle per pesan
+  * batas panjang pesan
+  * audit log
+  * dry run mode
+
+#### Acceptance Criteria
+
+* Login rate limit tidak bisa dibypass dengan spoof header saat `TRUST_PROXY=false`.
+* Broadcast mengirim pesan dengan delay aman.
+* Session tetap valid setelah restart jika Redis session enabled.
+* Semua POST dashboard wajib CSRF.
+
+---
+
+### 7.2.4 Secret & Credential Safety
+
+#### Masalah
+
+Credential seperti Redis URL berpotensi tercetak ke log.
+
+#### Requirement
+
+* Semua log env/URL harus dimasking.
+* Buat helper `maskSecret()` untuk:
+
+  * API key
+  * Redis URL
+  * dashboard token
+  * WA JID
+  * phone number
+* Preflight check tidak boleh mencetak secret mentah.
+* Tambahkan secret scanning di CI.
+
+#### Acceptance Criteria
+
+* Tidak ada log yang menampilkan password Redis/API key.
+* CI gagal jika ada `.env`, session WA, token, atau API key ter-commit.
+* `.gitignore` mencakup semua direktori sensitif dan output.
+
+---
+
+## 7.3 P1 — Stability & Scalability
+
+### 7.3.1 State Store Improvements
+
+#### Masalah
+
+Default `FileStateStore` menulis seluruh state ke JSON file dan tidak cocok untuk banyak state.
+
+#### Requirement
+
+* Tambahkan `STATE_DRIVER=file|redis|memory`.
+* Production default harus Redis jika `NODE_ENV=production`.
+* File state hanya untuk development.
+* Redis state tidak boleh menggunakan `KEYS` untuk operasi umum; gunakan prefix index atau `SCAN`.
+* Tambahkan TTL untuk semua state sementara:
+
+  * captcha
+  * mute
+  * cooldown
+  * chatmode temporary
+  * wizard session
+  * game session temporary
+
+#### Acceptance Criteria
+
+* Tidak ada state sementara tanpa TTL kecuali memang permanen.
+* Redis tidak memakai `KEYS` di path production.
+* State captcha/mute/chatmode tetap konsisten setelah restart jika Redis aktif.
+
+---
+
+### 7.3.2 Database Provider Clarity
+
+#### Masalah
+
+Env memberi opsi `DATABASE_PROVIDER`, tetapi Prisma schema hardcode SQLite.
+
+#### Requirement
+
+Pilih salah satu pendekatan:
+
+#### Opsi A — SQLite Only
+
+* Hapus `DATABASE_PROVIDER`.
+* Dokumentasikan SQLite sebagai database resmi.
+* Tambahkan rekomendasi backup dan limitation.
+
+#### Opsi B — Multi Database
+
+* Buat schema/migration untuk PostgreSQL sebagai production default.
+* SQLite hanya untuk development.
+* Dokumentasikan migrasi dari SQLite ke PostgreSQL.
+
+Rekomendasi: gunakan Opsi B jika targetnya production banyak grup.
+
+#### Acceptance Criteria
+
+* Konfigurasi database tidak misleading.
+* CI menjalankan test minimal untuk provider yang didukung.
+* Dokumentasi setup database sesuai realita.
+
+---
+
+### 7.3.3 Media Processing Guardrails
+
+#### Masalah
+
+File kecil bisa tetap membuat CPU/RAM berat jika resolusi/durasi/frame terlalu besar.
+
+#### Requirement
+
+Sebelum proses media berat, lakukan preflight:
+
+* Ukuran file
+* MIME type
+* Resolusi gambar
+* Durasi video/audio
+* Frame count atau estimasi durasi
+* Batas output size
+* Timeout per command
+
+Batas awal:
+
+* Image free: max 10MB, max 4096x4096
+* Image premium: max 50MB, max 8192x8192
+* Video free: max 10MB, max 60 detik
+* Video premium: max 50MB, max 10 menit
+* FFmpeg timeout default: 120 detik
+* Sharp timeout/concurrency dibatasi
+
+#### Acceptance Criteria
+
+* Media oversized ditolak sebelum diproses.
+* FFmpeg timeout menghasilkan error user-friendly.
+* Bot tidak crash saat diberi media besar/aneh.
+* Test fixture mencakup image besar, video panjang, dan file invalid.
+
+---
+
+## 7.4 P2 — Observability & Developer Experience
+
+### 7.4.1 Health Check yang Lebih Akurat
+
+#### Masalah
+
+`/health` hanya mengembalikan `ok: true`, belum mengecek dependency.
+
+#### Requirement
+
+Tambahkan endpoint:
+
+* `/health/live`
+* `/health/ready`
+* `/api/status`
+
+Readiness harus mengecek:
+
+* Database connection
+* Redis connection jika dipakai
+* WhatsApp socket status
+* Queue worker status
+* Disk free space
+* Dependency system status cache
+
+#### Acceptance Criteria
+
+* `/health/live` tetap ok selama process hidup.
+* `/health/ready` gagal jika DB/Redis/WA belum siap.
+* Docker healthcheck memakai `/health/ready`.
+
+---
+
+### 7.4.2 Structured Logging
+
+#### Requirement
+
+* Gunakan logger terpusat berbasis Pino.
+* Semua log harus memiliki:
+
+  * level
+  * scope
+  * requestId atau messageId
+  * groupId masked
+  * userId masked
+  * command
+  * errorId jika ada
+* Console log langsung dikurangi.
+
+#### Acceptance Criteria
+
+* Error command punya `errorId`.
+* Log tidak berisi credential.
+* Dashboard error page bisa membuka detail error berdasarkan `errorId`.
+
+---
+
+### 7.4.3 Testing & CI Upgrade
+
+#### Requirement
+
+Tambahkan test untuk:
+
+* Command parser
+* Prefix custom
+* Feature flag enforcement
+* Permission owner/admin/premium/user
+* Privacy mode
+* Retention worker
+* Queue retry/recovery
+* URL validator
+* Media validator
+* Dashboard auth/CSRF
+* Docker build
+
+CI harus menjalankan:
+
+* `npm ci`
+* `prisma generate`
+* `npm run typecheck`
+* `npm run lint`
+* `npm run test`
+* `npm run build`
+* Docker build
+* Dependency audit
+* Secret scan
+
+#### Acceptance Criteria
+
+* Coverage minimal 70% untuk core modules.
+* Pull request gagal jika parser/feature flag/permission test gagal.
+* Docker image berhasil build di CI.
+
+---
+
+## 8. UX dan Behavior Requirements
+
+### 8.1 Error Message
+
+Bot harus memberi error message yang:
+
+* Singkat
+* Tidak membocorkan stack trace
+* Memberi solusi jika user bisa memperbaiki input
+* Menyertakan Error ID untuk masalah sistem
+
+Contoh:
+
+```text
+❌ Media terlalu besar untuk paket FREE.
+Batas: 10MB. Coba kompres file atau gunakan paket Premium.
 ```
 
-### Acceptance Criteria
+### 8.2 Admin Feedback
 
-1. `/menu` berjalan di private chat.
-2. `/help` berjalan di private chat.
-3. `/tts halo` berjalan di private chat.
-4. `/translate en halo` berjalan di private chat.
-5. Group command tetap berjalan.
-6. GroupConfig tidak dibuat untuk private chat.
-7. Private quota branch reachable.
-8. Tidak ada silent failure di private chat.
+Saat admin menonaktifkan fitur:
+
+```text
+✅ Fitur media dinonaktifkan.
+Command terdampak: /compress, /resize, /crop, /wm, /togif, /thumb, /cut, /mute, /reverse
+```
+
+### 8.3 Dashboard Feedback
+
+Broadcast harus menampilkan:
+
+* Jumlah grup target
+* Estimasi durasi pengiriman
+* Preview isi pesan
+* Tombol confirm
+* Log hasil pengiriman
 
 ---
 
-## FR-002 — Atomic GroupConfig Initialization
+## 9. Technical Design Overview
 
-### Masalah
+### 9.1 Command Routing Baru
 
-`GroupConfig.create()` bisa terkena `P2002` saat beberapa pesan dari grup baru masuk bersamaan.
-
-### Requirement
-
-Gunakan `upsert`, bukan `findUnique lalu create`.
+Buat tipe baru:
 
 ```ts
-const groupConfig = await prisma.groupConfig.upsert({
-  where: { groupId: ctx.chatId },
-  update: {},
-  create: {
-    groupId: ctx.chatId,
-    prefix: '/',
-    botEnabled: true,
-    featuresJson: JSON.stringify(DEFAULT_FEATURES)
-  }
+interface ParsedCommand {
+  prefix: string;
+  rawCommandName: string;
+  commandName: string;
+  args: string[];
+  isCommand: boolean;
+}
+```
+
+Router menghasilkan `ParsedCommand`, lalu menyimpannya di context:
+
+```ts
+ctx.command = parsedCommand;
+```
+
+Command handler menggunakan:
+
+```ts
+ctx.command.commandName
+ctx.command.args
+ctx.command.prefix
+```
+
+Bukan parsing ulang `ctx.body`.
+
+---
+
+### 9.2 Queue Driver
+
+Interface:
+
+```ts
+interface QueueDriver {
+  add(type: string, payload: unknown, options?: QueueOptions): Promise<string>;
+  retry(jobId: string): Promise<void>;
+  cancel(jobId: string): Promise<void>;
+  getStatus(jobId: string): Promise<JobStatus>;
+  list(filter?: QueueFilter): Promise<QueueJobInfo[]>;
+}
+```
+
+Driver:
+
+* `MemoryQueueDriver`
+* `RedisQueueDriver`
+
+Worker memproses berdasarkan `type`, bukan closure:
+
+```ts
+switch (job.type) {
+  case 'downloader':
+    return processDownloaderJob(job.payload);
+  case 'media:hd':
+    return processHdJob(job.payload);
+}
+```
+
+---
+
+### 9.3 Privacy Policy Service
+
+Interface:
+
+```ts
+interface PrivacyPolicy {
+  mode: 'strict' | 'balanced' | 'off';
+  canStoreMessageContent: boolean;
+  canStoreMetadata: boolean;
+  canUseAi: boolean;
+  shouldMaskUserId: boolean;
+}
+```
+
+Semua logger dan command sensitif wajib memanggil:
+
+```ts
+const policy = await privacyPolicyService.getPolicy(groupId, userId);
+```
+
+---
+
+### 9.4 Retention Worker
+
+Worker berjalan setiap 1 jam:
+
+```ts
+startRetentionWorker({
+  intervalMs: 60 * 60 * 1000
 });
 ```
 
-### Acceptance Criteria
-
-1. Tidak ada `P2002` pada `GroupConfig`.
-2. Existing config tidak overwrite.
-3. Group config hanya dibuat untuk grup.
-4. Prefix existing tetap dipakai.
+Worker membaca `DataRetentionPolicy`, menghitung cutoff, lalu membersihkan data sesuai scope.
 
 ---
 
-## FR-003 — Fix Stats Race Condition
+## 10. Metrics Keberhasilan
 
-### Masalah
+### Stability
 
-Stats user/grup terkena unique constraint pada `groupId`, `userId`, dan `key`.
+* Crash rate turun minimal 80%.
+* Tidak ada lost job setelah restart.
+* Command error rate turun minimal 50%.
 
-### Requirement
+### Security
 
-Buat model khusus:
+* Tidak ada secret di log.
+* Semua POST dashboard lolos CSRF check.
+* Privacy strict mode tidak menyimpan isi pesan.
 
-```prisma
-model GroupUserStats {
-  id           String   @id @default(uuid())
-  groupId      String
-  userId       String
-  messageCount Int      @default(0)
-  commandCount Int      @default(0)
-  lastActiveAt DateTime @default(now())
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+### Product
 
-  @@unique([groupId, userId])
-  @@index([groupId, messageCount])
-  @@index([groupId, lastActiveAt])
-}
-```
+* 100% command memakai metadata valid.
+* 100% command berjalan dengan prefix custom.
+* Admin bisa melihat daftar command terdampak per feature flag.
 
-### Acceptance Criteria
+### Deployment
 
-1. Tidak ada `P2002` pada stats.
-2. Message count tetap naik.
-3. Stats update aman saat pesan masuk paralel.
-4. Stats tidak mengganggu command utama.
+* Docker image bisa menjalankan `/checkdeps` sukses.
+* Backup dan data tetap ada setelah container recreate.
 
----
+## 11. Milestone
 
-## FR-004 — Safe JID Decode
+### Milestone 1 — Core Routing & Feature Flags
 
-### Masalah
+Estimasi scope:
 
-Bot crash dengan error:
+* Refactor command parsing.
+* Tambahkan `ctx.command`.
+* Update semua command handler.
+* Normalisasi metadata command.
+* Tambahkan test parser dan feature flag.
 
-```txt
-Cannot destructure property 'user' of jidDecode(...) as it is undefined.
-```
+Deliverable:
 
-### Requirement
+* Prefix custom stabil.
+* Feature flag akurat.
 
-Tambahkan helper:
+### Milestone 2 — Queue & State Production
 
-```ts
-export function safeJidDecode(jid?: string | null) {
-  if (!jid || typeof jid !== 'string') return null;
+Estimasi scope:
 
-  try {
-    const decoded = jidDecode(jid);
-    if (!decoded || !decoded.user) return null;
-    return decoded;
-  } catch {
-    return null;
-  }
-}
-```
+* Tambahkan queue driver.
+* Implementasi Redis/BullMQ queue.
+* Refactor downloader/media jobs.
+* Tambahkan state driver.
+* Hilangkan Redis `KEYS` dari path production.
 
-### Larangan
+Deliverable:
 
-```ts
-const { user } = jidDecode(jid);
-```
+* Job recoverable.
+* State scalable.
 
-### Wajib
+### Milestone 3 — Docker & Dependency Hardening
 
-```ts
-const decoded = safeJidDecode(jid);
-if (!decoded) {
-  return fallback;
-}
-```
+Estimasi scope:
 
-### Acceptance Criteria
+* Update Dockerfile.
+* Update docker-compose volumes.
+* Tambahkan Docker healthcheck.
+* Perbaiki `.gitignore`.
+* Tambahkan check dependency di CI.
 
-1. Invalid JID tidak crash.
-2. `/togif` tidak membuat routeMessage fatal.
-3. Semua penggunaan `jidDecode` aman.
-4. JID mentah tidak bocor ke log publik.
+Deliverable:
 
----
+* Docker siap menjalankan fitur media/OCR/PDF.
 
-## FR-005 — Premium Persistence
+### Milestone 4 — Privacy, Retention, Dashboard Security
 
-### Masalah
+Estimasi scope:
 
-Premium kadang hilang saat bot di-stop atau restart.
+* Implementasi `PrivacyPolicyService`.
+* Implementasi retention worker.
+* Dashboard Redis session.
+* Broadcast throttle.
+* Security headers.
+* Audit log tambahan.
 
-### Penyebab Potensial
+Deliverable:
 
-1. Database path berubah.
-2. SQLite berada di storage sementara.
-3. Import config tidak memulihkan `premiumUsers`.
-4. JID premium tersimpan dalam format berbeda.
-5. Ada duplicate premium user.
-6. Bot memakai database baru setelah restart.
+* Privacy mode enforceable.
+* Dashboard lebih aman.
 
-### Requirement
+### Milestone 5 — Observability & Testing
 
-Buat service:
+Estimasi scope:
 
-```txt
-src/services/premium/premium.service.ts
-```
+* Structured logging.
+* Health readiness.
+* Test coverage core.
+* Secret scan.
+* Docker build CI.
+* Documentation cleanup.
 
-### Interface
+Deliverable:
 
-```ts
-addPremiumUser(inputUserId, days, actorId)
-removePremiumUser(inputUserId, actorId)
-isPremiumUser(inputUserId)
-getPremiumStatus(inputUserId)
-normalizePremiumRecords()
-```
+* Bot lebih mudah dipantau dan lebih aman untuk kontribusi jangka panjang.
 
-### Canonical Premium User ID
+## 12. Risiko
 
-```ts
-export function normalizePremiumUserId(input: string): string {
-  const raw = String(input || '').trim().replace(/^@/, '');
-  const noDomain = raw.split('@')[0];
-  const noDevice = noDomain.split(':')[0];
-  const phone = noDevice.replace(/\D/g, '');
+### Risiko 1: Refactor command parser merusak banyak command
 
-  if (!phone) throw new Error('User ID premium tidak valid.');
+Mitigasi:
 
-  return `${phone}@s.whatsapp.net`;
-}
-```
+* Tambahkan compatibility layer sementara.
+* Update command per kategori.
+* Jalankan test parser sebelum merge.
 
-### New Owner Commands
+### Risiko 2: Redis/BullMQ menambah kompleksitas deployment
 
-```txt
-/cekpremium @user
-/listpremium
-/fixpremiumids
-/dbinfo
-```
+Mitigasi:
 
-### Acceptance Criteria
+* Tetap dukung memory driver untuk development.
+* Dokumentasi docker-compose Redis.
+* Default production memakai Redis.
 
-1. Premium tetap aktif setelah restart.
-2. `/cekpremium` menampilkan status benar.
-3. `/listpremium` menampilkan user premium aktif.
-4. `/dbinfo` menampilkan database path.
-5. Import config memulihkan premium.
-6. Duplicate premium digabung dengan expiry terpanjang.
-7. `/premium add` memperpanjang dari expiry lama jika masih aktif.
+### Risiko 3: Privacy enforcement mempengaruhi fitur analytics
 
----
+Mitigasi:
 
-## FR-006 — Payment Premium Update
+* Definisikan policy per mode secara jelas.
+* Tambahkan fallback jika data tidak tersedia.
+* Tampilkan status privacy di `/statusfitur`.
 
-### Requirement
+### Risiko 4: Docker image membesar
 
-Semua pesan, invoice, guide, dan menu premium harus menggunakan payment method baru:
+Mitigasi:
 
-```txt
-GoPay: 085338123425
-```
+* Gunakan slim image.
+* Bersihkan apt cache.
+* Dokumentasikan optional image variant jika perlu.
 
-### Target Commands
+## 13. Dokumentasi yang Harus Diupdate
 
-```txt
-/premium
-/premiumguide
-/invoice
-/menu premium
-/help premium
-```
+* `README.md`
+* `.env.example`
+* `docs/commands.md`
+* `docs/deployment-docker.md`
+* `docs/privacy.md`
+* `docs/feature-flags.md`
+* `docs/queue.md`
+* `docs/troubleshooting.md`
 
-### Format Pesan Premium
+## 14. Definition of Done
 
-```txt
-💎 Javas Bot WA Premium
+PRD ini dianggap selesai jika:
 
-Benefit:
-• Limit lebih besar
-• Akses fitur berat
-• Prioritas proses
-• Fitur premium tertentu
+* Semua P0 selesai dan lolos CI.
+* Semua command berjalan dengan prefix custom.
+* Feature flag sesuai metadata command.
+* Queue production memakai Redis/BullMQ dan bisa recovery.
+* Docker image memiliki dependency media/OCR/PDF.
+* Privacy strict mode tidak menyimpan isi pesan user.
+* Retention worker berjalan otomatis.
+* Dashboard memiliki CSRF, security headers, throttle broadcast, dan session yang bisa persistent.
+* Test core minimal mencakup parser, permission, feature flag, privacy, queue, URL validator, dan media validator.
+* README diperbarui agar klaim fitur sesuai implementasi nyata.
 
-Pembayaran:
-GoPay: 085338123425
+## 15. Prioritas Implementasi Teknis
 
-Setelah transfer, kirim bukti pembayaran ke owner/admin.
-```
+Urutan kerja yang disarankan:
 
-### Acceptance Criteria
-
-1. Semua info premium memakai GoPay `085338123425`.
-2. Tidak ada nomor/payment lama tersisa.
-3. `/premiumguide` menampilkan instruksi jelas.
-4. `/invoice` memakai payment method baru.
-5. Menu premium mudah dibaca.
-
----
-
-## FR-007 — Backup/Import Config Lengkap
-
-### Requirement
-
-Import config harus memulihkan:
-
-1. groups,
-2. subscriptions,
-3. premiumUsers,
-4. warningRules,
-5. shopItems,
-6. achievements.
-
-### Acceptance Criteria
-
-1. Export lalu import memulihkan premium users.
-2. Output `/importconfig` menampilkan count semua entity.
-3. Duplicate digabung aman.
-4. Unsupported backup version ditolak.
-
----
-
-## FR-008 — Plugin Registry Valid
-
-### Requirement
-
-Tambahkan plugin:
-
-```ts
-{
-  name: 'general',
-  commands: ['menu', 'help', 'start', 'cmd', 'cari', 'ping', 'status'],
-  enabled: true,
-  permission: 'USER',
-  category: 'General'
-}
-```
-
-Tambahkan plugin `downloader` untuk:
-
-```txt
-tt, tiktok, ig, instagram, ytmp3, ytmp4, fb, twitter, x, threads, pinterest, capcut
-```
-
-### Unknown Plugin Behavior
-
-```ts
-if (!plugin) {
-  console.warn(`[Plugins] Unknown plugin requested: ${pluginName}`);
-  return env.NODE_ENV === 'production' ? false : true;
-}
-```
-
-### Acceptance Criteria
-
-1. Tidak ada warning `help`.
-2. `/menu` dan `/help` tetap berjalan.
-3. Downloader bisa dimatikan lewat plugin.
-4. Unknown plugin fail-closed di production.
-
----
-
-## FR-009 — Poppler Dependency Handling
-
-### Masalah
-
-`/pdf2img` gagal karena Poppler missing.
-
-### Requirement
-
-Cek binary:
-
-```txt
-pdftoppm
-pdftotext
-```
-
-Jika missing, tampilkan:
-
-```txt
-⚠️ Poppler belum terinstall, jadi /pdf2img belum bisa dipakai.
-
-Install:
-• Windows: choco install poppler
-• Ubuntu/Debian: sudo apt install poppler-utils
-
-Setelah install, restart bot dan cek dengan /checkdeps.
-```
-
-### Acceptance Criteria
-
-1. `/pdf2img` tidak mengeluarkan stack panjang.
-2. `/pdftext` juga menangani Poppler missing.
-3. `/checkdeps` menunjukkan status Poppler.
-4. Error tidak menjadi fatal routeMessage.
-
----
-
-## FR-010 — Add `/checkdeps`
-
-### Requirement
-
-Owner command:
-
-```txt
-/checkdeps
-```
-
-Harus mengecek:
-
-```txt
-ffmpeg
-ffprobe
-pdftoppm
-pdftotext
-tesseract
-OCR_COMMAND
-STT_COMMAND
-REMOVEBG_COMMAND
-FONT_FILE_PATH
-TTS_PROVIDER
-REMOVEBG_PROVIDER
-```
-
-### Output Example
-
-```txt
-🧩 Dependency Check
-
-Media:
-• ffmpeg: OK
-• ffprobe: OK
-• font file: Missing
-
-PDF:
-• pdftoppm: Missing
-• pdftotext: Missing
-
-OCR/STT:
-• tesseract: Missing
-• OCR_COMMAND: Missing
-• STT_COMMAND: Missing
-
-External:
-• REMOVEBG_PROVIDER: none
-• TTS_PROVIDER: google
-```
-
-### Acceptance Criteria
-
-1. `/checkdeps` hanya owner.
-2. Missing dependency tidak membuat bot crash.
-3. README sesuai hasil checkdeps.
-
----
-
-## FR-011 — Fix `/hd`
-
-### Requirement
-
-1. Validasi input image/sticker.
-2. Validasi ukuran.
-3. Tambahkan fallback Sharp jika enhancer utama gagal.
-4. Kirim error jelas jika semua gagal.
-
-### Acceptance Criteria
-
-1. `/hd` pada gambar valid mengirim output.
-2. `/hd 4x` hanya premium.
-3. Fallback Sharp berjalan.
-4. Error user-friendly.
-
----
-
-## FR-012 — Fix `/stiker` Empty / Invalid Sticker Info
-
-### Masalah
-
-Command stiker berhasil membalas, tetapi stiker kosong. Saat ditekan, WhatsApp menampilkan:
-
-```txt
-Tidak dapat melihat informasi stiker
-```
-
-### Kemungkinan Penyebab
-
-1. Buffer hasil konversi kosong.
-2. Output WebP corrupt.
-3. Mimetype salah.
-4. Metadata EXIF sticker corrupt.
-5. File temp terhapus terlalu cepat.
-6. Sticker dikirim bukan sebagai sticker message.
-7. Ukuran output melebihi limit WhatsApp.
-
-### Requirement
-
-Tambahkan validasi buffer sebelum send sticker.
-
-```ts
-export async function validateStickerBuffer(buffer: Buffer): Promise<void> {
-  if (!buffer || buffer.length === 0) {
-    throw new Error('Sticker output kosong.');
-  }
-
-  if (buffer.length < 100) {
-    throw new Error('Sticker output terlalu kecil atau corrupt.');
-  }
-
-  const riff = buffer.subarray(0, 4).toString('ascii');
-  const webp = buffer.subarray(8, 12).toString('ascii');
-
-  if (riff !== 'RIFF' || webp !== 'WEBP') {
-    throw new Error('Output bukan file WebP sticker yang valid.');
-  }
-}
-```
-
-### Pipeline Image Sticker
-
-```txt
-Input image
-→ resize max 512x512
-→ convert to webp
-→ inject metadata
-→ validate WebP
-→ send as sticker
-```
-
-### Pipeline Video Sticker
-
-```txt
-Input video
-→ trim duration
-→ scale/crop 512x512
-→ convert animated WebP
-→ inject metadata jika supported
-→ validate WebP
-→ send as sticker
-```
-
-### Acceptance Criteria
-
-1. Bot tidak lagi mengirim stiker kosong.
-2. Stiker bisa dibuka informasinya.
-3. Stiker memiliki pack name `Javas Bot WA`.
-4. Buffer kosong tidak pernah dikirim.
-5. File non-WebP tidak dikirim sebagai stiker.
-6. Jika metadata gagal, fallback kirim WebP valid tanpa metadata.
-7. Tidak ada pesan “Tidak dapat melihat informasi stiker”.
-
----
-
-## FR-013 — Fix `/vstiker` Black Area
-
-### Requirement
-
-Gunakan FFmpeg filter:
-
-```txt
-fps=15,scale=512:512:force_original_aspect_ratio=increase,crop=512:512,format=yuva420p
-```
-
-Durasi:
-
-```txt
-Free: 5 detik
-Premium: 10 detik
-```
-
-### Acceptance Criteria
-
-1. Output 512x512.
-2. Tidak ada area hitam.
-3. Video terlalu panjang dipotong.
-4. Output bisa dikirim sebagai sticker.
-
----
-
-## FR-014 — Sticker Metadata “Javas Bot WA”
-
-### Requirement
-
-Tambahkan env:
-
-```env
-STICKER_PACK_NAME="Javas Bot WA"
-STICKER_AUTHOR_NAME="Javas"
-```
-
-### Acceptance Criteria
-
-1. Stiker punya pack name `Javas Bot WA`.
-2. Author default `Javas`.
-3. Berlaku untuk image dan video sticker.
-4. Jika metadata gagal, sticker tetap dikirim jika WebP valid.
-
----
-
-## FR-015 — Fix `/removebg`
-
-### Requirement
-
-Tambahkan provider config:
-
-```env
-REMOVEBG_PROVIDER="none"
-REMOVEBG_API_KEY=""
-REMOVEBG_COMMAND=""
-```
-
-Mode:
-
-```txt
-none
-api
-local
-```
-
-Jika belum configured:
-
-```txt
-⚠️ Remove background belum dikonfigurasi. Set REMOVEBG_PROVIDER dan REMOVEBG_API_KEY atau REMOVEBG_COMMAND.
-```
-
-### Acceptance Criteria
-
-1. `/removebg` berhasil jika provider tersedia.
-2. Jika provider missing, bot tidak crash.
-3. Output PNG transparan valid.
-
----
-
-## FR-016 — Fix Meme Text Readability
-
-### Requirement
-
-Meme renderer harus menggunakan:
-
-1. font bold,
-2. white fill,
-3. black stroke,
-4. auto-wrap,
-5. dynamic font size,
-6. safe margin,
-7. top/bottom text.
-
-### Acceptance Criteria
-
-1. Teks terbaca pada gambar gelap/terang.
-2. Teks panjang tidak keluar frame.
-3. Output meme jelas.
-
----
-
-## FR-017 — Fix `/wm`
-
-### Requirement
-
-Pisahkan:
-
-```ts
-watermarkImage(buffer, text)
-watermarkVideo(buffer, text)
-```
-
-Untuk video:
-
-1. escape karakter FFmpeg,
-2. support `FONT_FILE_PATH`,
-3. fallback overlay image jika drawtext gagal.
-
-### Acceptance Criteria
-
-1. `/wm teks` berhasil di gambar.
-2. `/wm teks` berhasil di video.
-3. Teks dengan tanda baca aman.
-4. Error font tidak membuat crash.
-
----
-
-## FR-018 — Fix `/togif`
-
-### Requirement
-
-1. Gunakan safe JID decode.
-2. Validasi video input.
-3. Gunakan FFmpeg pipeline stabil.
-4. Batasi durasi:
-
-   * free: 10 detik
-   * premium: 30 detik.
-5. Output GIF playable.
-
-### Acceptance Criteria
-
-1. `/togif` tidak crash.
-2. Output GIF bisa dikirim.
-3. File temp dibersihkan.
-4. Error user-friendly.
-
----
-
-## FR-019 — Fix TTS
-
-### Requirement
-
-Buat service:
-
-```txt
-src/services/tts/tts.service.ts
-```
-
-Command tidak boleh langsung axios ke provider.
-
-Provider chain:
-
-1. local command,
-2. Google Translate TTS fallback,
-3. custom API jika tersedia.
-
-Hotfix:
-
-1. gunakan HTTPS,
-2. validasi content-type audio,
-3. kirim sebagai audio biasa dengan `audio/mpeg`,
-4. jangan kirim MP3 sebagai voice note `audio/mp4`.
-
-### Acceptance Criteria
-
-1. `/tts halo` menghasilkan audio playable.
-2. Response non-audio ditolak.
-3. Error provider tidak bocor ke user.
-4. Tidak ada temp file tersisa.
-
----
-
-## FR-020 — Instagram Downloader Reliability
-
-### Requirement
-
-1. Normalize Instagram URL.
-2. Hapus query tracking seperti `?igsh=...`.
-3. Tambahkan fallback chain.
-4. Support cookies jika `INSTAGRAM_COOKIES` tersedia.
-5. Log error provider dengan ringkas.
-6. User error jelas.
-
-### Acceptance Criteria
-
-1. URL `/reel/<id>/?igsh=...` dinormalisasi.
-2. Fallback berjalan jika extractor pertama gagal.
-3. User mendapat pesan jelas jika media privat/terbatas.
-4. Bot tidak crash.
-
----
-
-## FR-021 — STT Offline Handling
-
-### Env
-
-```env
-STT_COMMAND=""
-STT_TIMEOUT_SECONDS="120"
-```
-
-### Contract
-
-```txt
-Input: path audio sebagai argumen pertama
-Output: teks ke stdout
-Exit code 0: sukses
-```
-
-### Acceptance Criteria
-
-1. `/transkrip` tidak crash.
-2. Jika missing, pesan konfigurasi jelas.
-3. Jika configured, STT berjalan.
-4. Timeout bekerja.
-
----
-
-## FR-022 — OCR Handling
-
-### Env
-
-```env
-OCR_COMMAND=""
-OCR_TIMEOUT_SECONDS="60"
-TESSERACT_CMD="tesseract"
-```
-
-### Behavior
-
-1. Gunakan `OCR_COMMAND` jika tersedia.
-2. Jika tidak, coba Tesseract.
-3. Jika missing, pesan setup jelas.
-
-### Acceptance Criteria
-
-1. OCR berjalan jika Tesseract tersedia.
-2. OCR missing tidak crash.
-3. Auto OCR tidak membuat hasil ngaco jika output kosong.
-
----
-
-## FR-023 — Translate Internal Server Error
-
-### Requirement
-
-Buat provider abstraction:
-
-```ts
-translateText(input, targetLang, sourceLang?)
-summarizeText(input)
-rewriteText(input, style)
-```
-
-Map `internal-server-error` ke:
-
-```txt
-❌ Layanan sedang bermasalah. Coba lagi nanti atau gunakan teks yang lebih pendek.
-```
-
-### Acceptance Criteria
-
-1. `/tr en halo` berjalan atau error jelas.
-2. `/translate id Good morning` berjalan.
-3. Raw `internal-server-error` tidak dikirim ke user.
-4. Error tercatat dengan error ID.
-
----
-
-## FR-024 — Improve `/ringkas`
-
-### Requirement
-
-Output wajib terstruktur:
-
-```txt
-📝 Ringkasan:
-1. ...
-2. ...
-3. ...
-
-🔑 Poin penting:
-• ...
-• ...
-
-📌 Kesimpulan:
-...
-```
-
-Rules:
-
-1. minimal input 80 karakter,
-2. jangan menambah fakta di luar teks,
-3. fallback extractive summarizer jika AI provider gagal,
-4. quoted message bisa diringkas.
-
-### Acceptance Criteria
-
-1. Ringkasan jelas.
-2. Teks pendek ditolak.
-3. Tidak halusinatif.
-4. Provider error punya fallback.
-
----
-
-## FR-025 — Werewolf Commands
-
-### Requirement
-
-Register command:
-
-```txt
-/ww start
-/ww join
-/ww leave
-/ww begin
-/ww vote
-/ww status
-/ww stop
-/ww help
-```
-
-Alias:
-
-```txt
-/ww
-/werewolf
-```
-
-### Acceptance Criteria
-
-1. `/ww help` berjalan.
-2. `/ww start` membuat lobby.
-3. `/ww join` menambah pemain.
-4. `/ww begin` memulai game.
-5. Menu tidak menampilkan command yang belum tersedia.
-
----
-
-## FR-026 — Game Answer Router for Tebak Kata
-
-### Requirement
-
-Tambahkan non-command game answer routing:
-
-```txt
-Jika pesan bukan command dan ada active game session:
-  kirim ke game answer handler.
-Jika handled=true:
-  stop router.
-Jika handled=false:
-  lanjut normal.
-```
-
-### Interface
-
-```ts
-export interface GameAnswerHandler {
-  canHandle(ctx: MessageContext): Promise<boolean>;
-  handleAnswer(ctx: MessageContext, adapter: WhatsAppAdapter): Promise<boolean>;
-}
-```
-
-### Acceptance Criteria
-
-1. Jawaban tebak kata tanpa prefix direspons.
-2. Jawaban benar mengakhiri/memperbarui session.
-3. Jawaban salah diberi feedback atau diabaikan sesuai desain.
-4. Chat biasa tidak terganggu saat tidak ada game aktif.
-
----
-
-# 6. Menu Baru yang Lebih Interaktif dan Enak Dibaca
-
-## FR-027 — Redesign Menu UX
-
-### Masalah
-
-Menu lama terlalu sesak, panjang, dan sulit dibaca. User sulit menemukan command yang dibutuhkan.
-
-### Requirement
-
-Menu harus dibuat modular, ringkas, dan interaktif.
-
-Command utama:
-
-```txt
-/menu
-/menu all
-/menu media
-/menu stiker
-/menu ai
-/menu game
-/menu admin
-/menu owner
-/menu premium
-/menu downloader
-/menu dokumen
-/menu audio
-/menu text
-```
-
-### Prinsip UI Menu
-
-1. Tidak menampilkan semua command sekaligus di `/menu`.
-2. `/menu` hanya menampilkan kategori utama.
-3. User memilih kategori dengan command lanjutan.
-4. Gunakan emoji secukupnya.
-5. Gunakan spacing yang rapi.
-6. Tampilkan contoh penggunaan singkat.
-7. Tampilkan status user:
-
-   * free/premium,
-   * limit harian,
-   * prefix,
-   * mode chat: private/grup.
-8. Tampilkan payment premium di menu premium.
-
----
-
-## FR-028 — Main Menu Layout
-
-### Output `/menu`
-
-```txt
-╭───「 JAVAS BOT WA 」───╮
-│ Halo, @user
-│ Mode : Grup / Private
-│ Status : Free / Premium
-│ Prefix : /
-╰────────────────────╯
-
-Pilih kategori menu:
-
-1. 🖼️ Media & Editing
-   /menu media
-
-2. 🎨 Stiker & Meme
-   /menu stiker
-
-3. 📄 Dokumen & PDF
-   /menu dokumen
-
-4. 🎵 Audio & Voice
-   /menu audio
-
-5. 🤖 AI & Teks
-   /menu text
-
-6. 📥 Downloader
-   /menu downloader
-
-7. 🎮 Game
-   /menu game
-
-8. 🛡️ Admin Grup
-   /menu admin
-
-9. 💎 Premium
-   /menu premium
-
-10. 👑 Owner
-   /menu owner
-
-Ketik /menu all untuk melihat semua command.
-```
-
-### Acceptance Criteria
-
-1. `/menu` tidak terlalu panjang.
-2. Semua kategori mudah dibaca.
-3. User tahu command lanjutan.
-4. Tidak menampilkan fitur owner ke non-owner, kecuali sebagai hidden/locked sesuai desain.
-
----
-
-## FR-029 — Category Menu Layout
-
-### Example `/menu stiker`
-
-```txt
-╭──「 🎨 STIKER & MEME 」──╮
-│ Prefix: /
-│ Tips: reply gambar/video
-╰────────────────────╯
-
-🧩 Stiker:
-• /stiker — buat stiker dari gambar
-• /s — alias stiker
-• /vstiker — buat stiker dari video
-• /brat <teks> — stiker teks
-
-🖼️ Editing:
-• /removebg — hapus background
-• /meme atas | bawah — buat meme
-
-ℹ️ Catatan:
-Stiker memakai pack:
-Javas Bot WA
-```
-
-### Example `/menu premium`
-
-```txt
-╭──「 💎 PREMIUM 」──╮
-│ Upgrade Javas Bot WA
-╰────────────────╯
-
-Benefit:
-• Limit lebih besar
-• Akses fitur berat
-• Proses prioritas
-• Fitur premium tertentu
-
-Harga:
-• 7 hari  : Rp ...
-• 30 hari : Rp ...
-• Custom  : hubungi owner
-
-Pembayaran:
-GoPay: 085338123425
-
-Setelah transfer:
-Kirim bukti pembayaran ke owner/admin.
-```
-
-### Acceptance Criteria
-
-1. Menu kategori pendek dan fokus.
-2. Setiap command punya deskripsi 1 baris.
-3. Payment premium tampil jelas.
-4. Menu premium memakai GoPay baru.
-
----
-
-## FR-030 — Dynamic Menu Visibility
-
-### Requirement
-
-Menu harus menyesuaikan konteks:
-
-1. Private chat:
-
-   * tampilkan fitur private-safe,
-   * admin grup disembunyikan atau diberi label “khusus grup”.
-2. Group chat:
-
-   * tampilkan fitur grup,
-   * fitur owner hanya untuk owner.
-3. User free:
-
-   * fitur premium diberi label `Premium`.
-4. User premium:
-
-   * tampilkan status premium dan expired date.
-5. Owner:
-
-   * tampilkan menu owner.
-
-### Acceptance Criteria
-
-1. Non-owner tidak melihat menu owner penuh.
-2. Private chat tidak dipenuhi command admin grup.
-3. Premium status tampil benar.
-4. Expired premium tampil jika tersedia.
-
----
-
-## FR-031 — Menu Registry-Driven
-
-### Requirement
-
-Menu tidak boleh hard-coded penuh. Menu harus mengambil data dari command metadata/registry.
-
-Command metadata wajib punya:
-
-```ts
-{
-  name: string;
-  aliases: string[];
-  category: string;
-  plugin: string;
-  permission: 'USER' | 'ADMIN' | 'OWNER' | 'PREMIUM';
-  description: string;
-  usage: string;
-  examples: string[];
-  enabled: boolean;
-}
-```
-
-### Acceptance Criteria
-
-1. Command yang belum terdaftar tidak muncul di menu.
-2. Command disabled tidak muncul atau diberi label off.
-3. Command owner hanya muncul ke owner.
-4. Menu otomatis update saat metadata berubah.
-
----
-
-# 7. Database Index Requirements
-
-Tambahkan index:
-
-```prisma
-model UsageLog {
-  @@index([groupId, createdAt])
-  @@index([userId, groupId, createdAt])
-  @@index([feature, createdAt])
-}
-
-model GroupLog {
-  @@index([groupId, createdAt])
-  @@index([type, createdAt])
-}
-
-model Warning {
-  @@index([groupId, userId])
-}
-
-model InfractionLog {
-  @@index([groupId, userId, createdAt])
-}
-
-model Blacklist {
-  @@index([scope, groupId, userId])
-}
-
-model AutoReply {
-  @@index([groupId, trigger])
-}
-```
-
----
-
-# 8. Documentation Requirements
-
-Update:
-
-```txt
-README.md
-.env.example
-```
-
-## README Must Include
-
-1. Install FFmpeg.
-2. Install Poppler.
-3. Install Tesseract.
-4. STT_COMMAND wrapper.
-5. OCR_COMMAND wrapper.
-6. RemoveBG config.
-7. TTS provider.
-8. Private chat behavior.
-9. Premium persistence.
-10. `/checkdeps`.
-11. `/dbinfo`.
-12. Payment premium GoPay `085338123425`.
-13. Menu category usage.
-
-## `.env.example` Must Include
-
-```env
-PRIVATE_DAILY_CMD_LIMIT="20"
-PREMIUM_PRIVATE_DAILY_CMD_LIMIT="200"
-
-STT_COMMAND=""
-STT_TIMEOUT_SECONDS="120"
-
-OCR_COMMAND=""
-OCR_TIMEOUT_SECONDS="60"
-TESSERACT_CMD="tesseract"
-
-REMOVEBG_PROVIDER="none"
-REMOVEBG_API_KEY=""
-REMOVEBG_COMMAND=""
-
-TTS_PROVIDER="google"
-TTS_COMMAND=""
-TTS_API_BASE_URL=""
-TTS_API_KEY=""
-
-STICKER_PACK_NAME="Javas Bot WA"
-STICKER_AUTHOR_NAME="Javas"
-
-FONT_FILE_PATH=""
-
-PREMIUM_PAYMENT_METHOD="GoPay"
-PREMIUM_PAYMENT_NUMBER="085338123425"
-
-DATABASE_URL="file:./dev.db"
-```
-
----
-
-# 9. Implementation Plan
-
-## Phase 1 — P0 Crash & Routing
-
-1. Refactor private chat router.
-2. Add `safeJidDecode`.
-3. Patch all unsafe `jidDecode`.
-4. Replace GroupConfig create with upsert.
-5. Fix CustomVariable stats race or add GroupUserStats.
-6. Register general/help plugin.
-7. Register downloader plugin.
-8. Add error mapper for `internal-server-error`.
-
-## Phase 2 — Premium Persistence & Payment
-
-1. Add premium service.
-2. Normalize premium IDs.
-3. Add `/cekpremium`.
-4. Add `/listpremium`.
-5. Add `/dbinfo`.
-6. Fix import config for premiumUsers.
-7. Add `/fixpremiumids`.
-8. Add premium audit log.
-9. Update premium payment to GoPay `085338123425`.
-10. Update `/premiumguide`, `/invoice`, and `/menu premium`.
-
-## Phase 3 — Dependency System
-
-1. Add dependency-check service.
-2. Add `/checkdeps`.
-3. Precheck Poppler before `/pdf2img` and `/pdftext`.
-4. Precheck OCR/STT.
-5. Update README and `.env.example`.
-
-## Phase 4 — Media & Sticker
-
-1. Fix `/hd`.
-2. Fix `/stiker` empty/corrupt.
-3. Fix `/vstiker`.
-4. Fix `/togif`.
-5. Fix `/wm`.
-6. Fix `/removebg`.
-7. Add sticker metadata.
-8. Improve meme text.
-
-## Phase 5 — Text, TTS, Downloader
-
-1. Add TTS service.
-2. Fix Instagram downloader normalization/fallback.
-3. Fix translate error mapping.
-4. Improve `/ringkas`.
-5. Improve OCR fallback.
-
-## Phase 6 — Games
-
-1. Register Werewolf.
-2. Add Werewolf session flow.
-3. Add Tebak Kata answer router.
-4. Add game session tests.
-
-## Phase 7 — Menu UX Redesign
-
-1. Build registry-driven menu service.
-2. Add `/menu <category>`.
-3. Add `/menu all`.
-4. Add dynamic visibility by role/context.
-5. Add premium/payment section.
-6. Remove overcrowded old menu.
-
-## Phase 8 — Tests & Release
-
-1. Unit tests.
-2. Integration tests.
-3. Manual smoke tests.
-4. Documentation review.
-5. Release tag.
-
----
-
-# 10. Test Plan
-
-## Core Router
-
-```txt
-/private /menu
-/private /help
-/private /tts halo
-/group /menu
-/group /help
-```
-
-Expected:
-
-1. private responds,
-2. group responds,
-3. groupConfig not created for private,
-4. usage logged correctly.
-
-## Premium
-
-```txt
-/premium add @user 30
-/cekpremium @user
-/listpremium
-/dbinfo
-/menu premium
-/invoice premium 30
-```
-
-Restart bot.
-
-Expected:
-
-1. premium remains active,
-2. DB path unchanged,
-3. expiry unchanged,
-4. payment shows GoPay `085338123425`.
-
-## Dependency
-
-```txt
-/checkdeps
-/pdf2img
-/pdftext
-/ocr
-/transkrip
-```
-
-Expected:
-
-1. missing dependency produces setup message,
-2. no routeMessage fatal error.
-
-## Media
-
-```txt
-/hd
-/stiker
-/s
-/vstiker
-/togif
-/wm Javas Bot
-/removebg
-/meme atas | bawah
-/tts halo
-```
-
-Expected:
-
-1. output playable/valid,
-2. sticker tidak kosong,
-3. sticker info bisa dibuka,
-4. temp files cleaned,
-5. no crash,
-6. error user-friendly.
-
-## Game
-
-```txt
-/ww help
-/ww start
-/ww join
-/ww begin
-/tebakkata
-jawaban tanpa prefix
-```
-
-Expected:
-
-1. Werewolf command exists,
-2. tebak kata answer handled.
-
-## Text
-
-```txt
-/tr en halo
-/translate id Good morning
-/ringkas <teks panjang>
-```
-
-Expected:
-
-1. no raw internal-server-error,
-2. ringkas structured,
-3. no hallucination.
-
-## Menu
-
-```txt
-/menu
-/menu stiker
-/menu media
-/menu dokumen
-/menu game
-/menu premium
-/menu owner
-/menu all
-```
-
-Expected:
-
-1. menu tidak sesak,
-2. kategori jelas,
-3. command sesuai role,
-4. premium payment benar,
-5. owner menu hanya terlihat untuk owner.
-
----
-
-# 11. Verification Commands
-
-```bash
-npm run typecheck
-npm run build
-npm test
-npx prisma validate
-npx prisma generate
-```
-
-If migration added:
-
-```bash
-npx prisma migrate dev --name stabilization-hardening
-```
-
-Manual smoke test:
-
-```txt
-/menu
-/menu stiker
-/menu premium
-/help
-/checkdeps
-/dbinfo
-/cekpremium @user
-/hd
-/stiker
-/vstiker
-/togif
-/tts halo
-/tr en halo
-/ringkas <teks panjang>
-/ww help
-```
-
----
-
-# 12. Definition of Done
-
-PRD selesai jika:
-
-1. Private chat command berjalan.
-2. Group command tetap berjalan.
-3. Tidak ada crash `jidDecode undefined`.
-4. Tidak ada `P2002` pada GroupConfig/stats.
-5. Premium tetap ada setelah restart.
-6. `/dbinfo` menunjukkan DB yang benar.
-7. `/cekpremium` dan `/listpremium` berjalan.
-8. Payment premium memakai GoPay `085338123425`.
-9. `/checkdeps` tersedia.
-10. `/pdf2img` dan `/pdftext` punya Poppler handling.
-11. `/hd` stabil.
-12. `/stiker` tidak kosong/corrupt.
-13. Sticker info bisa dibuka.
-14. Sticker metadata `Javas Bot WA` muncul.
-15. `/vstiker`, `/togif`, `/wm`, `/removebg`, meme, dan TTS stabil.
-16. OCR/STT missing ditangani jelas.
-17. `/translate` tidak menampilkan raw `internal-server-error`.
-18. `/ringkas` menghasilkan output terstruktur.
-19. Werewolf command tersedia.
-20. Tebak kata merespons jawaban non-command.
-21. Menu baru lebih interaktif, tidak sesak, dan enak dibaca.
-22. README dan `.env.example` lengkap.
-23. Semua verification command lulus.
+1. Command parser refactor.
+2. Metadata dan feature flag normalization.
+3. Rate limit normalization.
+4. Redis/BullMQ queue.
+5. State driver dan Redis hardening.
+6. Docker dependency update.
+7. Privacy policy service.
+8. Retention worker.
+9. Dashboard security dan broadcast throttle.
+10. Observability dan CI hardening.
+11. Dokumentasi ulang.

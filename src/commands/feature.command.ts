@@ -1,8 +1,9 @@
 import { Command, registerCommand, checkIfAdmin } from './index.js';
 import { MessageContext } from '../bot/message.types.js';
 import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
-import { setGroupFeature, DEFAULT_FEATURES, parseFeatureFlags } from '../config/feature-flags.js';
+import { setGroupFeature, DEFAULT_FEATURES, parseFeatureFlags, getGroupFeatures } from '../config/feature-flags.js';
 import { isGroupAdmin } from '../bot/permission.js';
+import { COMMAND_METADATA_LIST } from './registry/command-metadata.js';
 import prisma from '../db/client.js';
 
 export class FeatureCommand implements Command {
@@ -21,12 +22,35 @@ export class FeatureCommand implements Command {
     const feature = args[0]?.trim().toLowerCase();
     const action = args[1]?.trim().toLowerCase();
 
-    const featureList = Object.keys(DEFAULT_FEATURES).join(', ');
+    // Map feature flag to commands
+    const commandListByFeature: Record<string, string[]> = {};
+    for (const meta of COMMAND_METADATA_LIST) {
+      if (meta.featureFlag) {
+        if (!commandListByFeature[meta.featureFlag]) {
+          commandListByFeature[meta.featureFlag] = [];
+        }
+        commandListByFeature[meta.featureFlag].push(meta.name);
+      }
+    }
+
+    const prefix = ctx.command?.prefix || '/';
 
     if (!feature || (action !== 'on' && action !== 'off')) {
+      const features = await getGroupFeatures(ctx.chatId);
+      const featureLines = Object.keys(DEFAULT_FEATURES)
+        .filter((key) => typeof DEFAULT_FEATURES[key] === 'boolean')
+        .map((key) => {
+          const status = features[key] ? '🟢 ON' : '🔴 OFF';
+          const affected = commandListByFeature[key]
+            ? commandListByFeature[key].map((c) => prefix + c).join(', ')
+            : 'Tidak ada';
+          return `• *${key}* (${status})\n  Command: ${affected}`;
+        })
+        .join('\n\n');
+
       await adapter.sendMessage(
         ctx.chatId,
-        `⚠️ Format salah.\nGunakan: \`/feature <nama_fitur> <on|off>\`\n\nFitur tersedia:\n${featureList}`,
+        `⚙️ *PENGATURAN FITUR GRUP*\n\nGunakan: \`${prefix}feature <nama_fitur> <on|off>\` untuk mengubah.\n\n*Daftar Fitur & Command Terdampak:*\n\n${featureLines}`,
         { quotedMessageId: ctx.id }
       );
       return;
@@ -36,9 +60,17 @@ export class FeatureCommand implements Command {
 
     try {
       await setGroupFeature(ctx.chatId, feature, value);
+      const affectedCmds = commandListByFeature[feature]
+        ? commandListByFeature[feature].map((c) => prefix + c).join(', ')
+        : '';
+      
+      const feedback = `✅ Fitur grup *${feature}* berhasil diubah menjadi: *${action.toUpperCase()}*.${
+        affectedCmds ? `\nCommand terdampak: ${affectedCmds}` : ''
+      }`;
+
       await adapter.sendMessage(
         ctx.chatId,
-        `✅ Fitur grup *${feature}* berhasil diubah menjadi: *${action.toUpperCase()}*.`,
+        feedback,
         { quotedMessageId: ctx.id }
       );
     } catch (err: any) {

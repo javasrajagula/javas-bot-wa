@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
+import path from 'path';
 import { env } from '../../config/env.js';
 
 const execAsync = promisify(exec);
@@ -19,6 +20,28 @@ export async function checkCommandAvailable(cmd: string): Promise<boolean> {
       await execAsync(`"${cleanCmd}" --version`);
       return true;
     } catch {
+      // Local poppler check for Windows Winget installation path
+      if (process.platform === 'win32' && (cmd === 'pdftoppm' || cmd === 'pdftotext')) {
+        try {
+          const homeDir = process.env.USERPROFILE || process.env.HOMEPATH || '';
+          const wingetDir = path.join(homeDir, 'AppData', 'Local', 'Microsoft', 'WinGet', 'Packages');
+          if (fs.existsSync(wingetDir)) {
+            const packages = fs.readdirSync(wingetDir);
+            const popplerPkg = packages.find(p => p.startsWith('oschwartz10612.Poppler'));
+            if (popplerPkg) {
+              const pkgPath = path.join(wingetDir, popplerPkg);
+              const subdirs = fs.readdirSync(pkgPath);
+              const popplerDir = subdirs.find(d => d.startsWith('poppler-'));
+              if (popplerDir) {
+                const fullPath = path.join(pkgPath, popplerDir, 'Library', 'bin', `${cmd}.exe`);
+                if (fs.existsSync(fullPath)) {
+                  return true;
+                }
+              }
+            }
+          }
+        } catch {}
+      }
       return false;
     }
   }

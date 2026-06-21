@@ -6,6 +6,11 @@ export function createExif(packname: string, author: string): Buffer {
     'sticker-pack-id': 'com.javas.bot',
     'sticker-pack-name': packname,
     'sticker-pack-publisher': author,
+    'sticker-pack-publisher-name': author,
+    'sticker-author-name': author,
+    'sticker-pack-author': author,
+    'publisher': author,
+    'author': author,
     'emojis': ['🌸']
   };
   const jsonStr = JSON.stringify(json);

@@ -182,7 +182,8 @@ export async function downloadMedia(url: string, commandName: string = 'tt', max
           return { type: 'video', title: extracted.title, files: tempFiles };
         } else {
           // slideshow images
-          for (const imgUrl of extracted.urls) {
+          const uniqueUrls = Array.from(new Set(extracted.urls.filter((u: any) => typeof u === 'string' && u.trim() !== '')));
+          for (const imgUrl of uniqueUrls) {
             const path = await downloadUrlToTemp(imgUrl, 'png', maxBytes);
             tempFiles.push({ path, mimeType: 'image/png' });
           }
@@ -215,7 +216,21 @@ export async function downloadMedia(url: string, commandName: string = 'tt', max
       } catch (err: any) {
         console.warn(`[Instagram Legacy Failed] falling back to btch-downloader igdl: ${err.message}`);
         const data = await withTimeout(igdl(url), 30000, 'Batas waktu ekstraksi Instagram (fallback) habis.');
-        const resultList = data.result || [];
+        const rawResultList = data.result || [];
+        
+        // Deduplicate and filter out empty urls
+        const uniqueUrls = new Set<string>();
+        const resultList = rawResultList.filter(item => {
+          if (!item || typeof item.url !== 'string' || item.url.trim() === '') {
+            return false;
+          }
+          if (uniqueUrls.has(item.url)) {
+            return false;
+          }
+          uniqueUrls.add(item.url);
+          return true;
+        });
+
         if (resultList.length === 0) {
           throw new Error('Gagal mengekstrak media Instagram.');
         }

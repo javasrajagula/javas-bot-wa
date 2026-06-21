@@ -5,6 +5,14 @@ export interface MessageMedia {
   filename?: string;
 }
 
+export interface ParsedCommand {
+  prefix: string;
+  rawCommandName: string;
+  commandName: string;
+  args: string[];
+  isCommand: boolean;
+}
+
 export interface MessageContext {
   id: string;
   senderId: string;
@@ -18,6 +26,8 @@ export interface MessageContext {
   quotedMessage?: MessageContextQuoted;
   rawMessageKey?: any;
   rawQuotedMessageKey?: any;
+  command?: ParsedCommand;
+  isViewOnce?: boolean;
 }
 
 export interface MessageContextQuoted {

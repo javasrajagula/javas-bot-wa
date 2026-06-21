@@ -36,6 +36,8 @@ export const envSchema = z.object({
   LIBRETRANSLATE_URL: optionalString.default(''),
   OCR_COMMAND: z.string().default('tesseract'),
   STT_COMMAND: optionalString.default(''),
+  STT_LANGUAGE: optionalString.default(''),    // e.g. 'id' for Indonesian, '' = auto-detect
+  GROQ_API_KEY: optionalString.default(''),    // Groq API key for cloud Whisper (free tier)
   AI_PROVIDER: z.enum(['none', 'openai', 'local', 'custom']).default('none'),
   AI_API_BASE_URL: optionalString.default(''),
   AI_API_KEY: optionalString.default(''),

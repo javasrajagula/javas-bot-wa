@@ -78,7 +78,7 @@ function checkBackupFolder(): boolean {
 
 export class StatusHealthCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const commandType = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const commandType = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // /ping — simple latency check
     if (commandType === 'ping') {
@@ -105,9 +105,9 @@ export class StatusHealthCommand implements Command {
       const uptime = Date.now() - BOT_START_TIME;
       const db = await checkDatabase();
 
-      const hdActive = hdQueue.getActiveJobs().length;
-      const dlActive = downloaderQueue.getActiveJobs().length;
-      const genActive = generalQueue.getActiveJobs().length;
+      const hdActive = (await hdQueue.getActiveJobs()).length;
+      const dlActive = (await downloaderQueue.getActiveJobs()).length;
+      const genActive = (await generalQueue.getActiveJobs()).length;
 
       // Get today's stats
       const todayStart = new Date();
@@ -170,12 +170,12 @@ export class StatusHealthCommand implements Command {
 
     // /workers & /workerstatus — queue worker status
     if (commandType === 'workers' || commandType === 'workerstatus') {
-      const hdActive = hdQueue.getActiveJobs().length;
-      const hdPending = hdQueue.getLength();
-      const dlActive = downloaderQueue.getActiveJobs().length;
-      const dlPending = downloaderQueue.getLength();
-      const genActive = generalQueue.getActiveJobs().length;
-      const genPending = generalQueue.getLength();
+      const hdActive = (await hdQueue.getActiveJobs()).length;
+      const hdPending = await hdQueue.getLength();
+      const dlActive = (await downloaderQueue.getActiveJobs()).length;
+      const dlPending = await downloaderQueue.getLength();
+      const genActive = (await generalQueue.getActiveJobs()).length;
+      const genPending = await generalQueue.getLength();
 
       const report = [
         `⚙️ *Status Worker & Queue*`,
@@ -379,8 +379,8 @@ export class StatusHealthCommand implements Command {
       return;
     }
 
-    // /dbstatus
-    if (commandType === 'dbstatus') {
+    // /dbstatus or /dbinfo
+    if (commandType === 'dbstatus' || commandType === 'dbinfo') {
       if (!isOwner(ctx.senderId)) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya untuk Owner.', { quotedMessageId: ctx.id });
         return;
@@ -399,11 +399,18 @@ export class StatusHealthCommand implements Command {
         prisma.reminder.count({ where: { status: 'pending' } })
       ]);
 
+      let dbPathInfo = '';
+      if (env.DATABASE_URL?.startsWith('file:')) {
+        const dbPath = env.DATABASE_URL.replace(/^file:/, '');
+        const absolutePath = path.resolve(process.cwd(), 'prisma', dbPath);
+        dbPathInfo = `\nPath: \`${absolutePath}\``;
+      }
+
       const lines = [
         `🗄️ *Status Database*`,
         ``,
         `Status: ${db.ok ? `✅ Online (${db.latency}ms)` : '❌ Offline'}`,
-        `Provider: ${env.DATABASE_URL?.startsWith('postgresql') ? 'PostgreSQL' : 'SQLite'}`,
+        `Provider: ${env.DATABASE_URL?.startsWith('postgresql') ? 'PostgreSQL' : 'SQLite'}${dbPathInfo}`,
         ``,
         `📊 *Record Count*`,
         `├ Grup terdaftar: ${groupCount}`,
@@ -431,4 +438,4 @@ registerCommand(['diagnose'], cmd);
 registerCommand(['checkdeps'], cmd);
 registerCommand(['securitycheck', 'setupcheck'], cmd);
 registerCommand(['providerstatus'], cmd);
-registerCommand(['dbstatus'], cmd);
+registerCommand(['dbstatus', 'dbinfo'], cmd);

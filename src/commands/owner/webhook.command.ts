@@ -48,7 +48,7 @@ export class WebhookCommand implements Command {
     args: string[],
     adapter: WhatsAppAdapter
   ): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // ─────────────────────────────────────────────────────────────────────────
     // /webhook <set|off|test|list>

@@ -1,4 +1,6 @@
 import { isPremium } from '../bot/permission.js';
+import sharp from 'sharp';
+import { getMediaDuration } from '../services/ffmpeg/ffmpeg.service.js';
 
 /**
  * Validates if the timestamp string matches standard formats (HH:MM:SS, MM:SS, or raw seconds)
@@ -38,6 +40,39 @@ export async function validateMediaSize(bufferLength: number, userId: string): P
   if (bufferLength > maxSize) {
     throw new Error(`Ukuran file media terlalu besar (${(bufferLength / 1024 / 1024).toFixed(1)} MB). Batas maksimum adalah ${maxSize / 1024 / 1024} MB.`);
   }
+}
+
+/**
+ * Validates image resolution using sharp metadata
+ */
+export async function validateImageResolution(buffer: Buffer, userId: string): Promise<void> {
+  const isPrem = await isPremium(userId);
+  const maxDim = isPrem ? 8192 : 4096; // 8192x8192 premium, 4096x4096 free
+  const metadata = await sharp(buffer).metadata();
+  const width = metadata.width || 0;
+  const height = metadata.height || 0;
+  if (width > maxDim || height > maxDim) {
+    throw new Error(`Resolusi gambar terlalu besar (${width}x${height}). Batas maksimum untuk user ${isPrem ? 'Premium' : 'Free'} adalah ${maxDim}x${maxDim}.`);
+  }
+}
+
+/**
+ * Validates video duration using ffprobe duration in seconds
+ */
+export async function validateVideoDuration(duration: number, userId: string): Promise<void> {
+  const isPrem = await isPremium(userId);
+  const maxDur = isPrem ? 600 : 60; // 10 minutes (600s) premium, 1 minute (60s) free
+  if (duration > maxDur) {
+    throw new Error(`Durasi video terlalu panjang (${duration.toFixed(1)} detik). Batas maksimum untuk user ${isPrem ? 'Premium' : 'Free'} adalah ${maxDur} detik.`);
+  }
+}
+
+/**
+ * Validates video duration by file path using ffprobe
+ */
+export async function validateVideoDurationByPath(filePath: string, userId: string): Promise<void> {
+  const duration = await getMediaDuration(filePath);
+  await validateVideoDuration(duration, userId);
 }
 
 /**

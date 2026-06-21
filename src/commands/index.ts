@@ -13,9 +13,64 @@ export const cooldownOverrides: Record<string, number> = {};
 
 // In-memory trackers for spam & auto mute (keys are scoped as "groupId:userId" or "private:userId")
 const messageTimestamps = new Map<string, number[]>();
-const lastMessages = new Map<string, { body: string; count: number }>();
+const lastMessages = new Map<string, { body: string; count: number; timestamp: number }>();
 const stickerTimestamps = new Map<string, number[]>();
 const lastSuggestionTime = new Map<string, number>();
+const mediaSpamTimestamps = new Map<string, number[]>();
+
+function pruneCommandRouterMaps() {
+  const now = Date.now();
+  
+  // Prune messageTimestamps
+  for (const [key, timestamps] of messageTimestamps.entries()) {
+    const valid = timestamps.filter(t => now - t < 10 * 60 * 1000); // 10 minutes
+    if (valid.length === 0) {
+      messageTimestamps.delete(key);
+    } else {
+      messageTimestamps.set(key, valid);
+    }
+  }
+
+  // Prune lastMessages
+  for (const [key, entry] of lastMessages.entries()) {
+    if (now - entry.timestamp > 10 * 60 * 1000) { // 10 minutes
+      lastMessages.delete(key);
+    }
+  }
+
+  // Prune stickerTimestamps
+  for (const [key, timestamps] of stickerTimestamps.entries()) {
+    const valid = timestamps.filter(t => now - t < 60 * 60 * 1000); // 1 hour
+    if (valid.length === 0) {
+      stickerTimestamps.delete(key);
+    } else {
+      stickerTimestamps.set(key, valid);
+    }
+  }
+
+  // Prune lastSuggestionTime
+  for (const [key, timestamp] of lastSuggestionTime.entries()) {
+    if (now - timestamp > 60 * 60 * 1000) { // 1 hour
+      lastSuggestionTime.delete(key);
+    }
+  }
+
+  // Prune mediaSpamTimestamps
+  for (const [key, timestamps] of mediaSpamTimestamps.entries()) {
+    const valid = timestamps.filter(t => now - t < 10 * 60 * 1000); // 10 minutes
+    if (valid.length === 0) {
+      mediaSpamTimestamps.delete(key);
+    } else {
+      mediaSpamTimestamps.set(key, valid);
+    }
+  }
+}
+
+// Start hourly prune job
+const pruneInterval = setInterval(pruneCommandRouterMaps, 60 * 60 * 1000);
+if (typeof pruneInterval.unref === 'function') {
+  pruneInterval.unref();
+}
 
 function getLevenshteinDistance(a: string, b: string): number {
   const tmp = [];
@@ -72,11 +127,13 @@ function getFeatureKey(commandName: string): string {
 }
 
 export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter) {
+  console.log(`[Router] Routing message: id=${ctx.id} sender=${ctx.senderId} body="${ctx.body}" isGroup=${ctx.isGroup}`);
   // Blacklist check
   const { requireNotBlacklisted } = await import('../validators/permission.validator.js');
   try {
     await requireNotBlacklisted(ctx.isGroup ? ctx.chatId : null, ctx.senderId);
   } catch (err: any) {
+    console.log(`[Router] Message ignored: sender is blacklisted`);
     // Ignore blacklisted user
     return;
   }
@@ -86,13 +143,17 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   const scopeKey = `${ctx.chatId}:${ctx.senderId}`;
   const isMuted = await stateStore.get(`mute:${scopeKey}`);
   if (isMuted) {
+    console.log(`[Router] Message ignored: sender is muted`);
     return; // Ignore muted user
   }
 
   // Intercept game session answers (e.g. Tebak Kata) before processing commands
   const { gameSessionService } = await import('../services/games/game-session.service.js');
   const handledByGame = await gameSessionService.handleMessage(ctx, adapter);
-  if (handledByGame) return;
+  if (handledByGame) {
+    console.log(`[Router] Message handled by game session`);
+    return;
+  }
 
   const isGroup = ctx.isGroup;
 
@@ -125,6 +186,16 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   let commandName = parts[0]?.toLowerCase() || '';
   const args = parts.slice(1);
 
+  console.log(`[Router] Command check: prefix="${prefix}" botEnabled=${botEnabled} isCommand=${isCommand} commandName="${commandName}"`);
+
+  ctx.command = {
+    prefix: isCommand ? prefix : '',
+    rawCommandName: isCommand ? (parts[0] || '') : '',
+    commandName: isCommand ? commandName : '',
+    args: isCommand ? args : [],
+    isCommand
+  };
+
   // Resolve group-specific command alias
   if (isCommand && isGroup && commandName) {
     try {
@@ -138,6 +209,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
       });
       if (aliasRecord) {
         commandName = aliasRecord.command.toLowerCase();
+        ctx.command.commandName = commandName;
       }
     } catch (err) {
       console.error('[Alias] Failed to resolve command alias:', err);
@@ -151,7 +223,25 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
 
   // 2. Perform Group Moderation & Features checks (if group)
   if (isGroup && groupConfig) {
-    const flags = JSON.parse(groupConfig.featuresJson || '{}');
+    const flags = parseFeatureFlags(groupConfig.featuresJson);
+
+    // --- ANTI VIEW-ONCE CHECK ---
+    if (flags.antiviewonce && ctx.isViewOnce && ctx.media) {
+      try {
+        const buffer = await ctx.media.getBuffer();
+        const senderNumber = ctx.senderId.split('@')[0];
+        const captionText = ctx.body ? `\n📝 *Keterangan:* ${ctx.body}` : '';
+        const caption = `🔓 *Anti View-Once* 🔓\n\n👤 *Pengirim:* @${senderNumber}\n📄 *Tipe:* ${ctx.media.type === 'image' ? 'Gambar' : 'Video'}${captionText}`;
+
+        if (ctx.media.type === 'image') {
+          await adapter.sendImage(ctx.chatId, buffer, caption, { mentions: [ctx.senderId] });
+        } else if (ctx.media.type === 'video') {
+          await adapter.sendVideo(ctx.chatId, buffer, caption, { mentions: [ctx.senderId] });
+        }
+      } catch (err) {
+        console.error('[Anti-ViewOnce] Failed to process view once message:', err);
+      }
+    }
 
     // --- AUTO REPLY CHECK ---
     if (flags.autoreply) {
@@ -170,9 +260,139 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
       }
     }
 
+    // --- FAQ AUTO RESPONDER CHECK ---
+    if (!isCommand && flags.faq_mapping && ctx.body) {
+      try {
+        const faqMap = JSON.parse(flags.faq_mapping);
+        const bodyLower = ctx.body.trim().toLowerCase();
+        let matchedAnswer = null;
+        
+        for (const [question, answer] of Object.entries(faqMap)) {
+          const questionLower = question.toLowerCase().trim();
+          if (bodyLower === questionLower || bodyLower.includes(questionLower)) {
+            matchedAnswer = answer;
+            break;
+          }
+        }
+
+        if (matchedAnswer) {
+          await adapter.sendMessage(ctx.chatId, String(matchedAnswer), { quotedMessageId: ctx.id });
+          return;
+        }
+      } catch (err) {
+        console.error('[FAQ Auto Responder] Error parsing or matching faq_mapping:', err);
+      }
+    }
+
+    // --- AUTO CAPTION CHECK ---
+    if (flags.auto_caption && ctx.media?.type === 'image' && (!ctx.body || ctx.body.trim() === '')) {
+      try {
+        const imageBuffer = await ctx.media.getBuffer();
+        const { runOcr } = await import('../services/ocr/ocr.service.js');
+        const ocrText = await runOcr(imageBuffer).catch(() => '');
+        
+        let descPrompt = "Gambar ini dikirim tanpa caption.";
+        if (ocrText && ocrText.trim()) {
+          descPrompt += ` Hasil ekstraksi teks OCR dari gambar adalah: "${ocrText.trim()}".`;
+        }
+        descPrompt += " Hasilkan deskripsi singkat atau caption yang menarik dan relevan untuk gambar ini dalam Bahasa Indonesia.";
+
+        const { aiProviderService } = await import('../services/ai/ai-provider.service.js');
+        const desc = await aiProviderService.generateText(descPrompt, "Anda adalah asisten pemberi deskripsi gambar otomatis.");
+        if (desc && !desc.includes('Gagal menghubungi AI Provider')) {
+          await adapter.sendMessage(ctx.chatId, `✨ *AI Auto-Caption:* ✨\n\n${desc}`, { quotedMessageId: ctx.id });
+        }
+      } catch (err) {
+        console.error('[Auto-Caption] Failed to process auto caption:', err);
+      }
+    }
+
     // --- ADVANCED MODERATION CHECKS (EPIC 5 & 7) ---
     const isSenderAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
     if (!isSenderAdmin) {
+      // 0. Lockdown check
+      if (flags.lockdown) {
+        await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
+        return;
+      }
+
+      // 0.1 Allowed message types check
+      if (flags.allowed_message_types && flags.allowed_message_types !== 'all') {
+        const type = flags.allowed_message_types;
+        let violate = false;
+        if (type === 'text_only' && ctx.media) violate = true;
+        if (type === 'media_only' && !ctx.media) violate = true;
+        if (type === 'no_stickers' && ctx.media?.type === 'sticker') violate = true;
+        if (type === 'no_audio' && ctx.media?.type === 'audio') violate = true;
+
+        if (violate) {
+          await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
+          return;
+        }
+      }
+
+      // 0.2 Smart Auto-Mute check
+      if (flags.smart_automute && ctx.media) {
+        const now = Date.now();
+        const limit = flags.smart_automute_limit || 5;
+        const duration = (flags.smart_automute_duration || 10) * 1000;
+        const timestamps = mediaSpamTimestamps.get(scopeKey) || [];
+        const valid = timestamps.filter(t => now - t < duration);
+        valid.push(now);
+        mediaSpamTimestamps.set(scopeKey, valid);
+
+        if (valid.length > limit) {
+          const { stateStore } = await import('../services/state/state-store.js');
+          await stateStore.set(`mute:${scopeKey}`, true, 600); // 10 minutes
+          await adapter.sendMessage(ctx.chatId, `⚠️ @${ctx.senderId.split('@')[0]} di-mute otomatis selama 10 menit karena melakukan spam media.`, { mentions: [ctx.senderId] });
+          await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
+          return;
+        }
+      }
+
+      // 0.3 Word Cooldown check
+      if (flags.word_cooldown && ctx.body) {
+        try {
+          const cooldownMap = JSON.parse(flags.word_cooldown);
+          const bodyLower = ctx.body.toLowerCase();
+          for (const [word, cooldownSeconds] of Object.entries(cooldownMap)) {
+            if (bodyLower.includes(word.toLowerCase())) {
+              const { stateStore } = await import('../services/state/state-store.js');
+              const cdKey = `wordcd:${ctx.chatId}:${ctx.senderId}:${word}`;
+              const exists = await stateStore.get(cdKey);
+              if (exists) {
+                await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
+                return;
+              } else {
+                const secs = Number(cooldownSeconds) || 60;
+                await stateStore.set(cdKey, true, secs);
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[Word Cooldown Check Error]', err);
+        }
+      }
+
+      // 0.4 Anti-Fake News Filter check
+      if (flags.anti_fake_news && ctx.body) {
+        const suspiciousWords = ['hoax', 'hoaks', 'konspirasi', 'bagikan ini', 'sebarkan ini', 'viral!', 'bocoran dari'];
+        const bodyLower = ctx.body.toLowerCase();
+        const isSuspicious = suspiciousWords.some(w => bodyLower.includes(w));
+        if (isSuspicious) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ *Peringatan Hoaks/Disinformasi* ⚠️\n\nPesan dari @${ctx.senderId.split('@')[0]} dideteksi mengandung kata-kata yang sering ditemukan dalam berita bohong/hoaks. Harap verifikasi kebenaran informasi ini di cekfakta.com atau TurnBackHoax.`, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+        }
+      }
+
+      // 0.5 Anti-NSFW Media AI check
+      if (flags.anti_nsfw && ctx.media?.type === 'image') {
+        const isNsfw = ctx.body?.toLowerCase().includes('nsfw') || ctx.media.filename?.toLowerCase().includes('nsfw');
+        if (isNsfw) {
+          await executePunishment(ctx.chatId, ctx.senderId, flags.antispamMode || 'delete', 'Konten Media NSFW terdeteksi', ctx, adapter);
+          return;
+        }
+      }
+
       // 1. Anti-Virtex & Unicode Abuse
       if (flags.antivirtex) {
         const textLimit = flags.antivirtexLimit || 4000;
@@ -223,12 +443,13 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
           const lastMsg = lastMessages.get(scopeKey);
           if (lastMsg && lastMsg.body === ctx.body) {
             lastMsg.count++;
+            lastMsg.timestamp = now;
             if (lastMsg.count >= 3) {
               await executePunishment(ctx.chatId, ctx.senderId, flags.antispamMode || 'delete', 'Spam pesan berulang', ctx, adapter);
               return;
             }
           } else {
-            lastMessages.set(scopeKey, { body: ctx.body, count: 1 });
+            lastMessages.set(scopeKey, { body: ctx.body, count: 1, timestamp: now });
           }
         }
 
@@ -278,10 +499,29 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
         });
         if (ctx.body) {
           const bodyLower = ctx.body.toLowerCase();
-          const containsBadword = badwords.some(b => bodyLower.includes(b.word));
-          if (containsBadword) {
-            await executePunishment(ctx.chatId, ctx.senderId, 'delete', 'Menggunakan kata kasar/toxic', ctx, adapter);
-            return;
+          const wordsToCensor = badwords.filter(b => bodyLower.includes(b.word.toLowerCase())).map(b => b.word);
+          if (wordsToCensor.length > 0) {
+            if (flags.badword_censor) {
+              await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId).catch(() => {});
+              
+              let censored = ctx.body;
+              for (const word of wordsToCensor) {
+                let index = censored.toLowerCase().indexOf(word.toLowerCase());
+                while (index !== -1) {
+                  const asterisks = '*'.repeat(word.length);
+                  censored = censored.substring(0, index) + asterisks + censored.substring(index + word.length);
+                  index = censored.toLowerCase().indexOf(word.toLowerCase(), index + asterisks.length);
+                }
+              }
+
+              const senderNumber = ctx.senderId.split('@')[0];
+              const censorMsg = `⚠️ *Pesan disensor karena mengandung kata kasar/toxic:* (Grup: Censor Mode ON)\n\n👤 *Pengirim:* @${senderNumber}\n💬 *Pesan:* ${censored}`;
+              await adapter.sendMessage(ctx.chatId, censorMsg, { mentions: [ctx.senderId] });
+              return;
+            } else {
+              await executePunishment(ctx.chatId, ctx.senderId, 'delete', 'Menggunakan kata kasar/toxic', ctx, adapter);
+              return;
+            }
           }
         }
       }
@@ -321,8 +561,30 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
     const isChatmode = await stateStore.get(scopeKey);
     if (isChatmode && ctx.body.trim()) {
       try {
+        let systemPrompt = "Anda adalah asisten pintar. Deteksi bahasa dari input pengguna dan balas dalam bahasa yang sama.";
+        if (isGroup) {
+          const { getGroupFeatures } = await import('../config/feature-flags.js');
+          const flags = await getGroupFeatures(ctx.chatId);
+          const pName = flags.persona_name || 'Javas AI';
+          const pPrompt = flags.persona_prompt || 'Anda adalah Javas AI, asisten pintar.';
+          const pStyle = flags.persona_style || 'formal';
+
+          let styleDesc = '';
+          if (pStyle === 'santai') {
+            styleDesc = 'Gunakan gaya bahasa santai, kasual, gaul, dan bersahabat seperti mengobrol dengan teman dekat.';
+          } else if (pStyle === 'sopan') {
+            styleDesc = 'Gunakan gaya bahasa sangat sopan, hormat, dan santun.';
+          } else if (pStyle === 'singkat') {
+            styleDesc = 'Berikan jawaban yang sangat singkat, padat, langsung pada intinya, tanpa basa-basi.';
+          } else {
+            styleDesc = 'Gunakan gaya bahasa formal, sopan, dan terstruktur.';
+          }
+
+          systemPrompt = `Nama Anda adalah ${pName}.\nKarakter/Kepribadian Anda: ${pPrompt}\n${styleDesc}\nDeteksi bahasa dari input pengguna dan balas dalam bahasa yang sama.`;
+        }
+
         const { aiProviderService } = await import('../services/ai/ai-provider.service.js');
-        const response = await aiProviderService.generateText(ctx.body.trim());
+        const response = await aiProviderService.generateText(ctx.body.trim(), systemPrompt);
         await adapter.sendMessage(ctx.chatId, response, { quotedMessageId: ctx.id });
       } catch (err) {
         console.error('[ChatMode] Failed to reply:', err);
@@ -547,12 +809,24 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
 
   // 5b. Pessimistic Quota Reservation check
   const startTime = Date.now();
+
+  const { privacyPolicyService } = await import('../services/system/privacy-policy.service.js');
+  const policy = await privacyPolicyService.getPolicy(isGroup ? ctx.chatId : null, ctx.senderId);
+
+  let loggedUserId = ctx.senderId;
+  let loggedCommandName = commandName;
+
+  if (policy.mode === 'strict') {
+    loggedUserId = privacyPolicyService.maskUserId(ctx.senderId);
+    loggedCommandName = featureKey; // Only log category
+  }
+
   const tempLog = await prisma.usageLog.create({
     data: {
-      userId: ctx.senderId,
+      userId: loggedUserId,
       groupId: isGroup ? ctx.chatId : null,
       feature: featureKey,
-      command: commandName,
+      command: loggedCommandName,
       success: false,
       status: 'failed'
     }
@@ -702,7 +976,18 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
 
     try {
       const errMsg = err.message || '';
-      if (errMsg.includes('internal-server-error') || errMsg.toLowerCase().includes('translate')) {
+      if (
+        errMsg.includes('Gagal mengunduh') ||
+        errMsg.includes('tidak terdeteksi') ||
+        errMsg.includes('melebihi batas') ||
+        errMsg.includes('Ukuran media melebihi')
+      ) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `❌ ${errMsg}`,
+          { quotedMessageId: ctx.id }
+        );
+      } else if (errMsg.includes('internal-server-error') || errMsg.toLowerCase().includes('translate')) {
         await adapter.sendMessage(
           ctx.chatId,
           `❌ Layanan sedang bermasalah. Coba lagi nanti atau gunakan teks yang lebih pendek. (Error ID: ${errorId})`,

@@ -141,7 +141,7 @@ async function txtToPdf(text: string): Promise<Buffer> {
 
 export class DocumentSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // --- 1. /ssweb ---
     if (cmd === 'ssweb') {
@@ -280,6 +280,117 @@ export class DocumentSuiteCommand implements Command {
       const buffer = await media.getBuffer();
       const merged = await mergePdfBuffers([await quoted.getBuffer(), buffer]);
       await adapter.sendDocument(ctx.chatId, merged, 'merged.pdf', 'application/pdf', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    // --- 7. /topdf ---
+    if (cmd === 'topdf') {
+      const encGroupId = Buffer.from(ctx.chatId).toString('base64url');
+      const encSenderId = Buffer.from(ctx.senderId).toString('base64url');
+      const sessionKey = `topdf:session:${encGroupId}:${encSenderId}`;
+      const session = await stateStore.get<{ files: string[] }>(sessionKey);
+
+      const subCommand = args[0]?.toLowerCase();
+
+      if (subCommand === 'start') {
+        if (session) {
+          for (const file of session.files) {
+            safeDelete(file);
+          }
+        }
+        await stateStore.set(sessionKey, { files: [] }, 900); // 15 mins expiry
+        await adapter.sendMessage(ctx.chatId, '🎬 *Sesi Penggabungan Gambar ke PDF Dimulai* 🎬\n\nSilakan kirim atau reply gambar satu per satu dengan mengetik `/topdf` untuk menambahkannya.\n\nKetik `/topdf done` jika sudah selesai, atau `/topdf cancel` untuk membatalkan.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      if (subCommand === 'cancel') {
+        if (session) {
+          for (const file of session.files) {
+            safeDelete(file);
+          }
+          await stateStore.delete(sessionKey);
+          await adapter.sendMessage(ctx.chatId, '❌ Sesi pembuatan PDF dibatalkan dan file sementara dihapus.', { quotedMessageId: ctx.id });
+        } else {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Anda tidak memiliki sesi pembuatan PDF aktif.', { quotedMessageId: ctx.id });
+        }
+        return;
+      }
+
+      if (subCommand === 'status') {
+        if (!session) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Anda tidak memiliki sesi pembuatan PDF aktif. Ketik `/topdf start` untuk memulai.', { quotedMessageId: ctx.id });
+          return;
+        }
+        await adapter.sendMessage(ctx.chatId, `📊 *Status Sesi PDF*\n\nJumlah gambar dalam antrean: *${session.files.length}*\n\nKirim gambar lain lalu ketik \`/topdf\` untuk menambahkan, atau ketik \`/topdf done\` jika selesai.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      if (subCommand === 'done') {
+        if (!session || session.files.length === 0) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada gambar yang ditambahkan. Silakan tambahkan gambar terlebih dahulu atau batalkan dengan `/topdf cancel`.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        await adapter.sendMessage(ctx.chatId, `⏳ Mengonversi dan menggabungkan *${session.files.length}* gambar menjadi PDF...`, { quotedMessageId: ctx.id });
+
+        try {
+          const pdfBuffers: Buffer[] = [];
+          for (const filePath of session.files) {
+            if (fs.existsSync(filePath)) {
+              const imageBuf = fs.readFileSync(filePath);
+              const pdfPage = await imageToPdf(imageBuf);
+              pdfBuffers.push(pdfPage);
+            }
+          }
+
+          if (pdfBuffers.length === 0) {
+            throw new Error('Semua file gambar sementara hilang.');
+          }
+
+          const mergedPdf = await mergePdfBuffers(pdfBuffers);
+          const outputFileName = `compiled_${Date.now()}.pdf`;
+
+          await adapter.sendDocument(ctx.chatId, mergedPdf, outputFileName, 'application/pdf', { quotedMessageId: ctx.id });
+
+          // Cleanup
+          for (const file of session.files) {
+            safeDelete(file);
+          }
+          await stateStore.delete(sessionKey);
+        } catch (err: any) {
+          await adapter.sendMessage(ctx.chatId, `❌ Gagal memproses gambar ke PDF: ${err.message}`, { quotedMessageId: ctx.id });
+        }
+        return;
+      }
+
+      // Default: add current image to PDF session
+      if (!session) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Anda tidak memiliki sesi pembuatan PDF aktif. Silakan ketik `/topdf start` untuk memulai.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      let targetMedia = ctx.media;
+      if (!targetMedia && ctx.quotedMessage && ctx.quotedMessage.media) {
+        targetMedia = ctx.quotedMessage.media;
+      }
+
+      if (!targetMedia || targetMedia.type !== 'image') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Kirim gambar atau reply gambar dengan mengetik `/topdf` untuk menambahkannya ke sesi PDF Anda.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      try {
+        const buffer = await targetMedia.getBuffer();
+        const tempPath = getTempPath('jpg');
+        fs.writeFileSync(tempPath, buffer);
+
+        session.files.push(tempPath);
+        await stateStore.set(sessionKey, session, 900); // refresh TTL to 15 mins
+
+        await adapter.sendMessage(ctx.chatId, `✅ Gambar berhasil ditambahkan! (*${session.files.length}* gambar dalam antrean)\n\nKirim gambar lain, atau ketik \`/topdf done\` untuk menyelesaikan dan mengunduh PDF.`, { quotedMessageId: ctx.id });
+      } catch (err: any) {
+        await adapter.sendMessage(ctx.chatId, `❌ Gagal menyimpan gambar: ${err.message}`, { quotedMessageId: ctx.id });
+      }
       return;
     }
 
@@ -550,6 +661,6 @@ export class DocumentSuiteCommand implements Command {
 
 const docSuite = new DocumentSuiteCommand();
 registerCommand(
-  ['ssweb', 'qr', 'img2pdf', 'pdf2img', 'mergepdf', 'compresspdf', 'scan', 'unzip', 'pdftext', 'pdfsplit', 'pdfwatermark', 'txt2pdf', 'ziplist', 'fileinfo', 'scanfile'],
+  ['ssweb', 'qr', 'img2pdf', 'pdf2img', 'mergepdf', 'compresspdf', 'scan', 'unzip', 'pdftext', 'pdfsplit', 'pdfwatermark', 'txt2pdf', 'ziplist', 'fileinfo', 'scanfile', 'topdf'],
   docSuite
 );

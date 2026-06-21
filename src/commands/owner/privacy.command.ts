@@ -28,7 +28,7 @@ async function getVar(groupId: string, userId: string, key: string): Promise<str
 // ---------------------------------------------------------------------------
 export class PrivacyCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // -----------------------------------------------------------------------
     // 1. /privacymode <strict|balanced|off>
@@ -67,6 +67,7 @@ export class PrivacyCommand implements Command {
         return;
       }
 
+      const previousMode = await getVar(ctx.chatId, 'system', 'privacy:mode') ?? 'off';
       await upsertVar(ctx.chatId, 'system', 'privacy:mode', mode);
 
       const modeEmoji: Record<string, string> = { strict: '🔴', balanced: '🟡', off: '🟢' };
@@ -91,7 +92,7 @@ export class PrivacyCommand implements Command {
           groupId: ctx.chatId,
           action: 'privacy_mode_changed',
           target: mode,
-          metadataJson: JSON.stringify({ previousMode: await getVar(ctx.chatId, 'system', 'privacy:mode') ?? 'off' })
+          metadataJson: JSON.stringify({ previousMode })
         }
       });
       return;
@@ -125,20 +126,24 @@ export class PrivacyCommand implements Command {
           where: { groupId: ctx.chatId }
         });
 
+        const { stateStore } = await import('../../services/state/state-store.js');
+        const lastCleanup = await stateStore.get<number>('retention:last_cleanup');
+        const cleanupStr = lastCleanup
+          ? new Date(lastCleanup).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })
+          : 'Belum pernah';
+
+        let text = `📂 *DATA RETENTION POLICY*\n\n`;
+        text += `⏱️ *Cleanup Terakhir:* ${cleanupStr}\n\n`;
+
         if (policies.length === 0) {
-          await adapter.sendMessage(
-            ctx.chatId,
-            `📂 *DATA RETENTION POLICY*\n\nBelum ada kebijakan retensi diatur.\n\nGunakan:\n• \`/retention logs 30d\`\n• \`/retention messages 7d\`\n• \`/retention media 1h\``,
-            { quotedMessageId: ctx.id }
-          );
+          text += `Belum ada kebijakan retensi diatur.\n\nGunakan:\n• \`/retention logs 30d\`\n• \`/retention messages 7d\`\n• \`/retention media 1h\``;
         } else {
-          let text = `📂 *DATA RETENTION POLICY*\n\n`;
           for (const p of policies) {
             const status = p.enabled ? '✅' : '⛔';
             text += `${status} *${p.scope.toUpperCase()}*: ${p.duration}\n`;
           }
-          await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
         }
+        await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
         return;
       }
 
@@ -583,7 +588,6 @@ export class PrivacyCommand implements Command {
 
       const rules = JSON.parse(rawRules);
 
-      // Log acceptance
       const acceptanceRaw = await getVar(ctx.chatId, 'system', 'group:rules:acceptances');
       const acceptances: any[] = acceptanceRaw ? JSON.parse(acceptanceRaw) : [];
       acceptances.push({
@@ -591,7 +595,9 @@ export class PrivacyCommand implements Command {
         version: rules.version,
         timestamp: Date.now()
       });
-      await upsertVar(ctx.chatId, 'system', 'group:rules:acceptances', JSON.stringify(acceptances));
+      // Cap at last 500 entries to prevent DB bloat
+      const capped = acceptances.slice(-500);
+      await upsertVar(ctx.chatId, 'system', 'group:rules:acceptances', JSON.stringify(capped));
 
       await adapter.sendMessage(
         ctx.chatId,

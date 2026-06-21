@@ -20,7 +20,7 @@ export class ReputationCommand implements Command {
       return;
     }
 
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // --- 1. /rep @user or /rep (show own) ---
     if (cmd === 'rep') {

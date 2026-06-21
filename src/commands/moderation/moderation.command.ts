@@ -1,8 +1,11 @@
+import { normalizeJid } from '../../utils/jid.util.js';
 import { Command, registerCommand, checkIfAdmin } from '../index.js';
 import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
 import prisma from '../../db/client.js';
 import { isOwner } from '../../bot/permission.js';
+import { stateStore } from '../../services/state/state-store.js';
+import { getGroupFeatures, setGroupFeature } from '../../config/feature-flags.js';
 
 function parseDuration(str: string): number {
   const match = str.match(/^(\d+)([smhd])$/);
@@ -20,7 +23,7 @@ function parseDuration(str: string): number {
 
 export class ModerationSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // --- GLOBAL BLACKLIST COMMANDS (NO GROUP RESTRICTION) ---
     if (cmd === 'globalblacklist') {
@@ -33,7 +36,7 @@ export class ModerationSuiteCommand implements Command {
         return;
       }
 
-      const targetJid = rawUser?.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser?.trim();
+      const targetJid = normalizeJid(rawUser);
       if (!targetJid) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Silakan tag target user.', { quotedMessageId: ctx.id });
         return;
@@ -94,7 +97,7 @@ export class ModerationSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/warn @user <alasan>`', { quotedMessageId: ctx.id });
         return;
       }
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
       try {
         const { executePunishment } = await import('../index.js');
         await executePunishment(ctx.chatId, targetJid, 'warn_no_delete', reason, null, adapter, ctx.senderId);
@@ -106,7 +109,7 @@ export class ModerationSuiteCommand implements Command {
 
     if (cmd === 'warnings') {
       const rawUser = args[0] || ctx.senderId;
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
       const count = await prisma.warning.count({
         where: { groupId: ctx.chatId, userId: targetJid }
       });
@@ -121,7 +124,7 @@ export class ModerationSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/unwarn @user`', { quotedMessageId: ctx.id });
         return;
       }
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
       const lastWarning = await prisma.warning.findFirst({
         where: { groupId: ctx.chatId, userId: targetJid },
         orderBy: { createdAt: 'desc' }
@@ -142,7 +145,7 @@ export class ModerationSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/clearwarn @user`', { quotedMessageId: ctx.id });
         return;
       }
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
       await prisma.warning.deleteMany({
         where: { groupId: ctx.chatId, userId: targetJid }
       });
@@ -200,7 +203,7 @@ export class ModerationSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/blacklist @user <alasan>`', { quotedMessageId: ctx.id });
         return;
       }
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
       const scope = isOwner(ctx.senderId) ? 'global' : 'group';
       try {
         await prisma.blacklist.create({
@@ -219,7 +222,7 @@ export class ModerationSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/unblacklist @user`', { quotedMessageId: ctx.id });
         return;
       }
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
       const scope = isOwner(ctx.senderId) ? 'global' : 'group';
       await prisma.blacklist.deleteMany({
         where: { userId: targetJid, scope, groupId: scope === 'group' ? ctx.chatId : null }
@@ -324,7 +327,7 @@ export class ModerationSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, `⚠️ Format salah. Contoh: \`/${cmd} @user\``, { quotedMessageId: ctx.id });
         return;
       }
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
 
       if (!socket || typeof socket.groupParticipantsUpdate !== 'function') {
         await adapter.sendMessage(ctx.chatId, '⚠️ Fitur ini tidak didukung pada adapter saat ini.', { quotedMessageId: ctx.id });
@@ -447,7 +450,7 @@ export class ModerationSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/tempmute @user 10m`', { quotedMessageId: ctx.id });
         return;
       }
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
       const seconds = parseDuration(durationStr);
 
       const { stateStore } = await import('../../services/state/state-store.js');
@@ -464,7 +467,7 @@ export class ModerationSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/tempadmin @user 1h`', { quotedMessageId: ctx.id });
         return;
       }
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
       const seconds = parseDuration(durationStr);
 
       if (!socket || typeof socket.groupParticipantsUpdate !== 'function') {
@@ -565,7 +568,7 @@ export class ModerationSuiteCommand implements Command {
         await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/kickvote @user`', { quotedMessageId: ctx.id });
         return;
       }
-      const targetJid = rawUser.includes('@') ? rawUser.replace('@', '').trim() + '@s.whatsapp.net' : rawUser.trim();
+      const targetJid = normalizeJid(rawUser);
 
       const isTargetAdmin = await checkIfAdmin(ctx.chatId, targetJid, adapter);
       if (isTargetAdmin) {
@@ -607,6 +610,340 @@ export class ModerationSuiteCommand implements Command {
       }
       return;
     }
+
+    // closetime & opentime
+    if (cmd === 'closetime' || cmd === 'opentime') {
+      if (!ctx.isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya dapat digunakan di dalam grup.', { quotedMessageId: ctx.id });
+        return;
+      }
+      const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+      if (!isAdmin) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Otoritas ditolak. Hanya admin grup yang dapat mengatur waktu buka/tutup otomatis.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const timeVal = args[0]?.trim();
+      const variableKey = `group:${cmd}:${ctx.chatId}`;
+
+      if (!timeVal) {
+        const current = await stateStore.get<string>(variableKey) || 'off';
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⏰ *Auto ${cmd === 'closetime' ? 'Close' : 'Open'} Group*\n\n` +
+          `Status saat ini: *${current === 'off' ? 'NONAKTIF' : current}*\n\n` +
+          `Gunakan:\n` +
+          `👉 \`/${cmd} HH:MM\` — Atur jam buka/tutup otomatis (misal: \`/${cmd} ${cmd === 'closetime' ? '22:00' : '06:00'}\`)\n` +
+          `👉 \`/${cmd} off\` — Nonaktifkan auto ${cmd === 'closetime' ? 'close' : 'open'}.`,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+
+      if (timeVal.toLowerCase() === 'off') {
+        await stateStore.delete(variableKey);
+        await adapter.sendMessage(ctx.chatId, `✅ Berhasil menonaktifkan fitur auto ${cmd === 'closetime' ? 'close' : 'open'} untuk grup ini.`);
+        return;
+      }
+
+      const timeRegex = /^\d{2}[:.]\d{2}$/;
+      if (!timeRegex.test(timeVal)) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format jam salah. Gunakan format HH:MM (contoh: 22:00).', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const normalizedTime = timeVal.replace('.', ':');
+      await stateStore.set(variableKey, normalizedTime);
+      await adapter.sendMessage(
+        ctx.chatId,
+        `✅ *Auto ${cmd === 'closetime' ? 'Close' : 'Open'} Ditetapkan!*\n\n` +
+        `Grup ini akan otomatis di*${cmd === 'closetime' ? 'TUTUP' : 'BUKA'}* setiap hari pada jam *${normalizedTime}* (WIB/Jakarta).`
+      );
+      return;
+    }
+
+    // antiviewonce
+    if (cmd === 'antiviewonce') {
+      if (!ctx.isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya dapat digunakan di dalam grup.', { quotedMessageId: ctx.id });
+        return;
+      }
+      const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+      if (!isAdmin) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Otoritas ditolak. Hanya admin grup yang dapat mengakses command ini.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const action = args[0]?.trim().toLowerCase();
+      if (!action || (action !== 'on' && action !== 'off')) {
+        const features = await getGroupFeatures(ctx.chatId);
+        const currentStatus = features.antiviewonce ? '🟢 AKTIF' : '🔴 NONAKTIF';
+        await adapter.sendMessage(
+          ctx.chatId,
+          `👁️ *Anti View-Once Group*\n\n` +
+          `Status saat ini: *${currentStatus}*\n\n` +
+          `Gunakan:\n` +
+          `👉 \`/antiviewonce on\` — Aktifkan anti view-once\n` +
+          `👉 \`/antiviewonce off\` — Nonaktifkan anti view-once`,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+
+      const value = action === 'on';
+      await setGroupFeature(ctx.chatId, 'antiviewonce', value);
+      await adapter.sendMessage(
+        ctx.chatId,
+        `✅ Fitur *Anti View-Once* berhasil diubah menjadi: *${action.toUpperCase()}*.`,
+        { quotedMessageId: ctx.id }
+      );
+      return;
+    }
+
+    // antidelete
+    if (cmd === 'antidelete') {
+      if (!ctx.isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya dapat digunakan di dalam grup.', { quotedMessageId: ctx.id });
+        return;
+      }
+      const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+      if (!isAdmin) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Otoritas ditolak. Hanya admin grup yang dapat mengakses command ini.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const action = args[0]?.trim().toLowerCase();
+      if (!action || (action !== 'on' && action !== 'off')) {
+        const features = await getGroupFeatures(ctx.chatId);
+        const currentStatus = features.antidelete ? '🟢 AKTIF' : '🔴 NONAKTIF';
+        await adapter.sendMessage(
+          ctx.chatId,
+          `🕵️‍♂️ *Anti-Delete Group*\n\n` +
+          `Status saat ini: *${currentStatus}*\n\n` +
+          `Gunakan:\n` +
+          `👉 \`/antidelete on\` — Aktifkan anti-delete\n` +
+          `👉 \`/antidelete off\` — Nonaktifkan anti-delete`,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+
+      const value = action === 'on';
+      await setGroupFeature(ctx.chatId, 'antidelete', value);
+      await adapter.sendMessage(
+        ctx.chatId,
+        `✅ Fitur *Anti-Delete* berhasil diubah menjadi: *${action.toUpperCase()}*.`,
+        { quotedMessageId: ctx.id }
+      );
+      return;
+    }
+
+    // badwordcensor
+    if (cmd === 'badwordcensor') {
+      if (!ctx.isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya dapat digunakan di dalam grup.', { quotedMessageId: ctx.id });
+        return;
+      }
+      const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+      if (!isAdmin) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Otoritas ditolak. Hanya admin grup yang dapat mengakses command ini.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const action = args[0]?.trim().toLowerCase();
+      if (!action || (action !== 'on' && action !== 'off')) {
+        const features = await getGroupFeatures(ctx.chatId);
+        const currentStatus = features.badword_censor ? '🟢 AKTIF' : '🔴 NONAKTIF';
+        await adapter.sendMessage(
+          ctx.chatId,
+          `🤬 *Badword Censor Group*\n\n` +
+          `Status saat ini: *${currentStatus}*\n\n` +
+          `Gunakan:\n` +
+          `👉 \`/badwordcensor on\` — Aktifkan sensor kata kasar\n` +
+          `👉 \`/badwordcensor off\` — Nonaktifkan sensor kata kasar (akan langsung hapus/hukum)`,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+
+      const value = action === 'on';
+      await setGroupFeature(ctx.chatId, 'badword_censor', value);
+      await adapter.sendMessage(
+        ctx.chatId,
+        `✅ Fitur *Badword Censor* berhasil diubah menjadi: *${action.toUpperCase()}*.`,
+        { quotedMessageId: ctx.id }
+      );
+      return;
+    }
+
+    // tempban
+    if (cmd === 'tempban') {
+      if (!ctx.isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya dapat digunakan di dalam grup.', { quotedMessageId: ctx.id });
+        return;
+      }
+      const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+      if (!isAdmin) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Otoritas ditolak. Hanya admin grup yang dapat menggunakan command ini.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const rawUser = args[0];
+      if (!rawUser) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/tempban @user 1h Melanggar aturan` (Satuan: m = menit, h = jam, d = hari)', { quotedMessageId: ctx.id });
+        return;
+      }
+      const targetJid = normalizeJid(rawUser);
+
+      if (!socket || typeof socket.groupParticipantsUpdate !== 'function') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Fitur tidak didukung oleh adapter saat ini.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const durationStr = args[1]?.toLowerCase() || '1h';
+      let durationMs = 60 * 60 * 1000; // default 1 hour
+      const num = parseInt(durationStr, 10);
+      if (!isNaN(num)) {
+        const unit = durationStr.replace(/\d+/g, '').trim();
+        if (unit === 'ms') durationMs = num;
+        else if (unit === 's') durationMs = num * 1000;
+        else if (unit === 'm') durationMs = num * 60 * 1000;
+        else if (unit === 'h') durationMs = num * 60 * 60 * 1000;
+        else if (unit === 'd') durationMs = num * 24 * 60 * 60 * 1000;
+      }
+
+      const expiresAt = Date.now() + durationMs;
+      const reason = args.slice(2).join(' ') || 'Temp banned by admin';
+
+      await prisma.blacklist.create({
+        data: {
+          scope: 'group',
+          groupId: ctx.chatId,
+          userId: targetJid,
+          reason: `Temp ban until:${expiresAt}`,
+          createdBy: ctx.senderId
+        }
+      });
+
+      try {
+        await socket.groupParticipantsUpdate(ctx.chatId, [targetJid], 'remove');
+      } catch (err) {
+        console.error('[TempBan Kick Failed]', err);
+      }
+
+      await adapter.sendMessage(
+        ctx.chatId,
+        `🚫 *Banned Sementara* 🚫\n\n👤 Pengguna: @${targetJid.split('@')[0]}\n⏱️ Durasi: *${durationStr}*\n📝 Alasan: *${reason}*\n\nPengguna telah dikeluarkan dan tidak dapat masuk kembali sampai masa ban habis.`,
+        { mentions: [targetJid] }
+      );
+      return;
+    }
+
+    // risk
+    if (cmd === 'risk') {
+      const rawUser = args[0] || ctx.quotedMessage?.senderId || ctx.senderId;
+      const targetJid = normalizeJid(rawUser);
+
+      const [warnCount, groupBlacklisted, globalBlacklisted] = await Promise.all([
+        prisma.warning.count({ where: { groupId: ctx.isGroup ? ctx.chatId : '', userId: targetJid } }),
+        ctx.isGroup ? prisma.blacklist.findFirst({ where: { scope: 'group', groupId: ctx.chatId, userId: targetJid } }) : null,
+        prisma.blacklist.findFirst({ where: { scope: 'global', userId: targetJid } })
+      ]);
+
+      let score = 0;
+      score += warnCount * 15;
+      if (groupBlacklisted) score += 40;
+      if (globalBlacklisted) score += 80;
+      score = Math.min(100, score);
+
+      let status = '🟢 AMAN (Risiko Rendah)';
+      if (score >= 30 && score < 60) status = '🟡 WASPADA (Risiko Sedang)';
+      else if (score >= 60) status = '🔴 BAHAYA (Risiko Tinggi)';
+
+      await adapter.sendMessage(
+        ctx.chatId,
+        `📊 *PROFIL RISIKO ANGGOTA* 📊\n\n` +
+        `👤 Pengguna: @${targetJid.split('@')[0]}\n` +
+        `🔥 Skor Risiko: *${score}/100*\n` +
+        `🛡️ Status: *${status}*\n\n` +
+        `Rincian Pelanggaran:\n` +
+        `• Jumlah Peringatan: *${warnCount}* kali\n` +
+        `• Blacklist Grup: *${groupBlacklisted ? 'YA' : 'TIDAK'}*\n` +
+        `• Blacklist Global: *${globalBlacklisted ? 'YA' : 'TIDAK'}*`,
+        { mentions: [targetJid], quotedMessageId: ctx.id }
+      );
+      return;
+    }
+
+    // autodemote / pruneadmins
+    if (cmd === 'autodemote' || cmd === 'pruneadmins') {
+      if (!ctx.isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya dapat digunakan di dalam grup.', { quotedMessageId: ctx.id });
+        return;
+      }
+      const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+      if (!isAdmin) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Otoritas ditolak. Hanya admin grup yang dapat menggunakan command ini.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      if (!socket || typeof socket.groupParticipantsUpdate !== 'function') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Fitur tidak didukung oleh adapter saat ini.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const features = await getGroupFeatures(ctx.chatId);
+      const limitDays = features.auto_demote_days || 30;
+      const limitMs = limitDays * 24 * 60 * 60 * 1000;
+      const cutoffDate = new Date(Date.now() - limitMs);
+
+      const metadata = await socket.groupMetadata(ctx.chatId);
+      const participants = metadata.participants || [];
+      const admins = participants.filter((p: any) => p.admin === 'admin'); // ignore superadmin/owner
+
+      if (admins.length === 0) {
+        await adapter.sendMessage(ctx.chatId, '✅ Tidak ada admin (biasa) yang terdaftar di grup ini.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const demotedAdmins: string[] = [];
+
+      for (const admin of admins) {
+        const stats = await prisma.groupUserStats.findUnique({
+          where: {
+            groupId_userId: {
+              groupId: ctx.chatId,
+              userId: admin.id
+            }
+          }
+        });
+
+        const isInactive = !stats || stats.lastActiveAt < cutoffDate;
+        if (isInactive) {
+          try {
+            await socket.groupParticipantsUpdate(ctx.chatId, [admin.id], 'demote');
+            demotedAdmins.push(admin.id);
+          } catch (err) {
+            console.error(`[AutoDemote] Failed to demote ${admin.id}:`, err);
+          }
+        }
+      }
+
+      if (demotedAdmins.length > 0) {
+        const mentions = demotedAdmins;
+        const names = demotedAdmins.map(id => `@${id.split('@')[0]}`).join(', ');
+        await adapter.sendMessage(
+          ctx.chatId,
+          `📉 *ADMIN PRUNE (AUTO DEMOTE)* 📉\n\n` +
+          `Berhasil men-demote *${demotedAdmins.length}* admin karena tidak aktif mengirimkan pesan chat selama lebih dari *${limitDays}* hari:\n\n` +
+          `${names}`,
+          { mentions, quotedMessageId: ctx.id }
+        );
+      } else {
+        await adapter.sendMessage(ctx.chatId, `✅ Semua admin terpantau aktif mengirimkan pesan dalam *${limitDays}* hari terakhir. Tidak ada tindakan demote yang diambil.`, { quotedMessageId: ctx.id });
+      }
+      return;
+    }
   }
 }
 
@@ -624,7 +961,10 @@ registerCommand(
     'linkgc', 'resetlink',
     'tempmute', 'tempadmin',
     'approval', 'approve', 'reject',
-    'kickvote', 'globalblacklist'
+    'kickvote', 'globalblacklist',
+    'closetime', 'opentime', 'antiviewonce',
+    'antidelete', 'badwordcensor',
+    'tempban', 'risk', 'autodemote', 'pruneadmins'
   ],
   modSuite
 );

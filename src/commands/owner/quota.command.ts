@@ -6,7 +6,7 @@ import { isPremium } from '../../bot/permission.js';
 
 export class QuotaCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
-    const cmd = ctx.body.trim().split(/\s+/)[0].slice(1).toLowerCase();
+    const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
     // 1. /credit (Melihat saldo kredit)
     if (cmd === 'credit') {
