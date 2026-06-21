@@ -82,11 +82,6 @@ export class MediaAdvancedCommand implements Command {
       return;
     }
 
-    // 5. /sgif
-    if (cmd === 'sgif') {
-      await adapter.sendMessage(ctx.chatId, '⚠️ Silakan kirim video pendek (max 5 detik) atau balas video dengan `/sgif` untuk dikonversi menjadi stiker animasi.', { quotedMessageId: ctx.id });
-      return;
-    }
 
     // 6. /collage
     if (cmd === 'collage') {
@@ -104,6 +99,6 @@ export class MediaAdvancedCommand implements Command {
 
 const mediaAdvancedCmd = new MediaAdvancedCommand();
 registerCommand(
-  ['tts', 'ssweb', 'steks', 'audioeffect', 'sgif', 'collage', 'convert'],
+  ['tts', 'ssweb', 'steks', 'audioeffect', 'collage', 'convert'],
   mediaAdvancedCmd
 );

@@ -139,9 +139,14 @@ export class StickerSuiteCommand implements Command {
     }
 
     if (!media) {
-      await adapter.sendMessage(ctx.chatId, '⚠️ Kirim atau reply gambar/video terlebih dahulu.', { quotedMessageId: ctx.id });
+      const isVideoCmd = (cmd === 'vstiker' || cmd === 'gifstiker' || cmd === 'sgif');
+      const errMsg = isVideoCmd
+        ? `⚠️ *Balas video* atau kirim video bersama \`${ctx.command?.prefix || '/'}${cmd}\` untuk dikonversi ke stiker animasi.\n\nContoh: kirim/balas video → ketik \`/${cmd}\``
+        : '⚠️ Kirim atau reply gambar/video terlebih dahulu.';
+      await adapter.sendMessage(ctx.chatId, errMsg, { quotedMessageId: ctx.id });
       return;
     }
+
 
     const buffer = await media.getBuffer();
 
@@ -375,8 +380,21 @@ export class StickerSuiteCommand implements Command {
       return;
     }
 
-    // 11. /vstiker or /gifstiker
-    if (cmd === 'vstiker' || cmd === 'gifstiker') {
+    // 11. /vstiker, /gifstiker, /sgif
+    if (cmd === 'vstiker' || cmd === 'gifstiker' || cmd === 'sgif') {
+      // Validasi tipe media — harus video atau gif
+      const isVideo = media.type === 'video' || media.type === 'gif' ||
+        media.mimetype?.startsWith('video/') || media.mimetype === 'image/gif';
+      if (!isVideo) {
+        const p = ctx.command?.prefix || '/';
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⚠️ Harus *balas video* atau *kirim video* bersama perintah \`${p}${cmd}\`.\n\nContoh: balas video lalu ketik \`${p}${cmd}\`.`,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+
       try {
         await validateMediaSize(buffer.length, ctx.senderId);
       } catch (err: any) {
@@ -521,6 +539,6 @@ function wrapText(text: string, maxCharsPerLine = 20): string[] {
 
 const stickerSuite = new StickerSuiteCommand();
 registerCommand(
-  ['stiker', 's', 'toimg', 'brat', 'quote', 'removebg', 'rbg', 'stikerbg', 'nobgstick', 'circle', 'bulat', 'outline', 'meme', 'emojimix', 'mix', 'vstiker', 'gifstiker', 'batchstiker', 'pack', 'heart', 'love'],
+  ['stiker', 's', 'toimg', 'brat', 'quote', 'removebg', 'rbg', 'stikerbg', 'nobgstick', 'circle', 'bulat', 'outline', 'meme', 'emojimix', 'mix', 'vstiker', 'gifstiker', 'sgif', 'batchstiker', 'pack', 'heart', 'love'],
   stickerSuite
 );
