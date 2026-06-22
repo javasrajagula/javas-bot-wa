@@ -25,6 +25,7 @@ const scaffold = new PRDScaffoldCommand();
 
 for (const entry of PRD_CATALOG) {
   if (EXCLUDED_SCAFFOLD_IDS.has(entry.id)) continue;
+  if (entry.id.startsWith('G')) continue; // Skip all games, handled by prd-games.command
   const names = [entry.name, ...entry.aliases];
   registerCommand(names, scaffold);
 }

@@ -259,12 +259,28 @@ const COMMAND_MODULES = [
 
 // Dynamically append the PRD scaffold commands to COMMAND_MODULES
 const prdScaffoldCommands: string[] = [];
+const prdGameCommands: string[] = [];
+
 for (const entry of PRD_CATALOG) {
-  prdScaffoldCommands.push(entry.name.toLowerCase());
-  for (const alias of entry.aliases) {
-    prdScaffoldCommands.push(alias.toLowerCase());
+  if (entry.id.startsWith('G')) {
+    prdGameCommands.push(entry.name.toLowerCase());
+    for (const alias of entry.aliases) {
+      prdGameCommands.push(alias.toLowerCase());
+    }
+  } else {
+    prdScaffoldCommands.push(entry.name.toLowerCase());
+    for (const alias of entry.aliases) {
+      prdScaffoldCommands.push(alias.toLowerCase());
+    }
   }
 }
+
+// Push games module first, then the scaffold module
+COMMAND_MODULES.push({
+  path: '../games/prd-games.command.js',
+  commands: prdGameCommands
+});
+
 COMMAND_MODULES.push({
   path: '../prd/prd-scaffold.js',
   commands: prdScaffoldCommands

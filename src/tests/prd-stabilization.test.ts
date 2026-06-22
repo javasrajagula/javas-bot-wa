@@ -125,7 +125,8 @@ describe('PRD stabilization foundation', () => {
     } as any;
 
     const EXCLUDED_SCAFFOLD_IDS = new Set([
-      'F007', 'F022', 'F029', 'F031', 'F038', 'F039', 'F040', 'F041', 'F042', 'F043', 'F045', 'F047', 'F048', 'F094', 'F100', 'F113'
+      'F007', 'F022', 'F029', 'F031', 'F038', 'F039', 'F040', 'F041', 'F042', 'F043', 'F045', 'F047', 'F048', 'F094', 'F100', 'F113',
+      'G016', 'G020', 'G021', 'G022', 'G030'
     ]);
 
     for (const entry of PRD_CATALOG) {
