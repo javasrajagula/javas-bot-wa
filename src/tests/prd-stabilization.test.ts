@@ -85,9 +85,9 @@ describe('PRD stabilization foundation', () => {
     await import('../commands/prd/prd-coverage.command.js');
 
     const { commandRegistry } = await import('../commands/registry/command-registry.js');
-    expect(commandRegistry.get('ping')).toBeDefined();
-    expect(commandRegistry.get('statusbot')).toBeDefined();
-    expect(commandRegistry.get('webhook')).toBeDefined();
+    expect(await commandRegistry.get('ping')).toBeDefined();
+    expect(await commandRegistry.get('statusbot')).toBeDefined();
+    expect(await commandRegistry.get('webhook')).toBeDefined();
     expect(commandRegistry.getAll().length).toBeGreaterThan(100);
   });
 

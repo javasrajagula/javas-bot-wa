@@ -199,13 +199,13 @@ describe('WhatsApp Bot System Tests', () => {
     it('should retrieve commands and resolve aliases correctly', async () => {
       await import('../commands/sticker/sticker.command.js');
       const { commandRegistry } = await import('../commands/registry/command-registry.js');
-      const stikerCmd = commandRegistry.get('stiker');
+      const stikerCmd = await commandRegistry.get('stiker');
       expect(stikerCmd).toBeDefined();
       expect(stikerCmd?.metadata.name).toBe('stiker');
       expect(stikerCmd?.metadata.aliases).toContain('s');
       expect(stikerCmd?.metadata.plugin).toBe('sticker');
 
-      const sCmd = commandRegistry.get('s');
+      const sCmd = await commandRegistry.get('s');
       expect(sCmd).toBeDefined();
       expect(sCmd?.metadata.name).toBe('stiker'); // resolves alias to primary command
     });

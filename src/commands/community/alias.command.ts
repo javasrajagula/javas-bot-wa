@@ -43,13 +43,13 @@ export class AliasCommand implements Command {
       }
 
       // Check if the alias is already an existing command in registry
-      if (commandRegistry.get(alias)) {
+      if (await commandRegistry.get(alias)) {
         await adapter.sendMessage(ctx.chatId, `⚠️ Tidak bisa menggunakan *${alias}* sebagai alias karena merupakan command bawaan bot.`, { quotedMessageId: ctx.id });
         return;
       }
 
       // Check if real command exists in registry
-      const targetCmd = commandRegistry.get(realCommand);
+      const targetCmd = await commandRegistry.get(realCommand);
       if (!targetCmd) {
         await adapter.sendMessage(ctx.chatId, `⚠️ Command asli *${realCommand}* tidak ditemukan atau tidak aktif.`, { quotedMessageId: ctx.id });
         return;

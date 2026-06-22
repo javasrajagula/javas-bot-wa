@@ -195,6 +195,106 @@ describe('Fase 21: 500 Dynamic Unified Architecture Commands Tests', () => {
 
       expect(replyText).toContain('WORD CLOUD');
     });
+
+    it('should handle new utility commands correctly', async () => {
+      let replyText = '';
+      const adapter = {
+        sendMessage: async (chatId: string, text: string) => { replyText = text; return { id: 'msg-reply' }; }
+      } as any;
+
+      const axios = (await import('axios')).default;
+      const getSpy = vi.spyOn(axios, 'get').mockImplementation(async (url: string) => {
+        if (url.includes('geocoding-api')) {
+          return { data: { results: [{ latitude: -6.9175, longitude: 107.6191, name: 'Bandung' }] } };
+        }
+        if (url.includes('api.open-meteo.com')) {
+          return { data: { current_weather: { temperature: 25.5, windspeed: 12, weathercode: 0, time: '2026-06-22T12:00' } } };
+        }
+        if (url.includes('is.gd')) {
+          return { data: { shorturl: 'https://is.gd/xyz' } };
+        }
+        return { data: {} };
+      });
+
+      // 1. /bmkgweather
+      await routeMessage({
+        chatId: testGroup,
+        isGroup: true,
+        body: '/bmkgweather Bandung',
+        senderId: memberUser,
+        id: 'msg-bmkgweather'
+      } as any, adapter);
+      expect(replyText).toContain('PRAKIRAAN CUACA');
+      expect(replyText).toContain('Bandung');
+
+      // 2. /shorten
+      await routeMessage({
+        chatId: testGroup,
+        isGroup: true,
+        body: '/shorten https://google.com',
+        senderId: memberUser,
+        id: 'msg-shorten'
+      } as any, adapter);
+      expect(replyText).toContain('SHORTEN');
+      expect(replyText).toContain('https://is.gd/xyz');
+
+      // 3. /holiday
+      await routeMessage({
+        chatId: testGroup,
+        isGroup: true,
+        body: '/holiday juni',
+        senderId: memberUser,
+        id: 'msg-holiday'
+      } as any, adapter);
+      expect(replyText).toContain('HARI LIBUR NASIONAL');
+      expect(replyText).toContain('JUNI');
+
+      // 4. /base64encode
+      await routeMessage({
+        chatId: testGroup,
+        isGroup: true,
+        body: '/base64encode Hello World',
+        senderId: memberUser,
+        id: 'msg-b64enc'
+      } as any, adapter);
+      expect(replyText).toContain('BASE64 ENCODE');
+      expect(replyText).toContain('SGVsbG8gV29ybGQ=');
+
+      // 5. /base64decode
+      await routeMessage({
+        chatId: testGroup,
+        isGroup: true,
+        body: '/base64decode SGVsbG8gV29ybGQ=',
+        senderId: memberUser,
+        id: 'msg-b64dec'
+      } as any, adapter);
+      expect(replyText).toContain('BASE64 DECODE');
+      expect(replyText).toContain('Hello World');
+
+      // 6. /jsonformat
+      await routeMessage({
+        chatId: testGroup,
+        isGroup: true,
+        body: '/jsonformat {"a":1}',
+        senderId: memberUser,
+        id: 'msg-jsonformat'
+      } as any, adapter);
+      expect(replyText).toContain('JSON FORMATTER');
+      expect(replyText).toContain('"a": 1');
+
+      // 7. /wordcount
+      await routeMessage({
+        chatId: testGroup,
+        isGroup: true,
+        body: '/wordcount Hello World from Javas Bot',
+        senderId: memberUser,
+        id: 'msg-wordcount'
+      } as any, adapter);
+      expect(replyText).toContain('WORD COUNTER');
+      expect(replyText).toContain('5 kata');
+
+      getSpy.mockRestore();
+    });
   });
 
   describe('5. Integration & API Dynamic Commands', () => {

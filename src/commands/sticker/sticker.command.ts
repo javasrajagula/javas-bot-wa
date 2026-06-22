@@ -383,8 +383,8 @@ export class StickerSuiteCommand implements Command {
     // 11. /vstiker, /gifstiker — konversi video → stiker animasi (WebP)
     if (cmd === 'vstiker' || cmd === 'gifstiker') {
       // Validasi tipe media — harus video atau gif
-      const isVideo = media.type === 'video' || media.type === 'gif' ||
-        media.mimetype?.startsWith('video/') || media.mimetype === 'image/gif';
+      const isVideo = media.type === 'video' ||
+        media.mimeType?.startsWith('video/') || media.mimeType === 'image/gif';
       if (!isVideo) {
         const p = ctx.command?.prefix || '/';
         await adapter.sendMessage(
@@ -468,8 +468,8 @@ export class StickerSuiteCommand implements Command {
 
     // 11b. /sgif — konversi video → file GIF animasi (bukan stiker)
     if (cmd === 'sgif') {
-      const isVideo = media.type === 'video' || media.type === 'gif' ||
-        media.mimetype?.startsWith('video/') || media.mimetype === 'image/gif';
+      const isVideo = media.type === 'video' ||
+        media.mimeType?.startsWith('video/') || media.mimeType === 'image/gif';
       if (!isVideo) {
         const p = ctx.command?.prefix || '/';
         await adapter.sendMessage(

@@ -268,7 +268,7 @@ for (const metadata of prdMetadata) {
 
 const missingCommandNames = prdMetadata
   .map((metadata) => metadata.name)
-  .filter((name) => !commandRegistry.get(name));
+  .filter((name) => commandRegistry.isPrdCoverageCommand(name));
 
 if (missingCommandNames.length > 0) {
   registerCommand(missingCommandNames, { execute: executePrdCoverage });

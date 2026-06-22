@@ -72,13 +72,19 @@ function canDisplay(meta: any, ctx: {
     const enabled = ctx.features[meta.featureFlag] ?? DEFAULT_FEATURES[meta.featureFlag] ?? true;
     if (!enabled) return false;
   }
+
+  // Plan filtering — hanya blokir kategori premium berat (downloader, media, document)
+  // Audio, text, games, economy, admin, sticker, general tetap muncul untuk semua plan
   if (ctx.isGroup) {
     const cat = meta.category;
-    if (ctx.plan === 'free' && cat !== 'general' && cat !== 'sticker') return false;
-    if (ctx.plan === 'basic' && (cat === 'downloader' || cat === 'media' || cat === 'document')) return false;
+    const PREMIUM_CATS = ['downloader', 'media', 'document'];
+    if (PREMIUM_CATS.includes(cat) && ctx.plan === 'free') return false;
+    // basic: sama seperti free (downloader tetap blok)
+    if (cat === 'downloader' && ctx.plan === 'basic') return false;
   }
   return true;
 }
+
 
 function groupByCategory(commands: any[]): Record<string, any[]> {
   const result: Record<string, any[]> = {};
@@ -248,7 +254,7 @@ export class MenuCommand implements Command {
     // ── /help <command> ──────────────────────────────────────────────────────
     if (rawArg) {
       const cmdName = rawArg.startsWith(prefix) ? rawArg.slice(prefix.length) : rawArg;
-      const found = commandRegistry.get(cmdName);
+      const found = await commandRegistry.get(cmdName);
       if (found) {
         await this.sendHelp(ctx, adapter, found.metadata, { prefix, features, plan });
         return;
@@ -272,22 +278,64 @@ export class MenuCommand implements Command {
     const grouped = groupByCategory(commands);
     const quota = await getQuotaText(ctx, role, plan);
 
+    // Get time-based greeting
+    const hour = new Date().getHours();
+    let greeting = 'Selamat Malam 🌃';
+    if (hour >= 5 && hour < 11) greeting = 'Selamat Pagi 🌅';
+    else if (hour >= 11 && hour < 15) greeting = 'Selamat Siang ☀️';
+    else if (hour >= 15 && hour < 18) greeting = 'Selamat Sore 🌇';
+
+    // Get user level & XP
+    const economy = await prisma.userEconomy.findUnique({ where: { userId: ctx.senderId } });
+    const level = economy?.level ?? 1;
+    const xp = economy?.xp ?? 0;
+    const xpNeeded = level * 200; // Formula: level * 200
+    const percent = Math.min(100, Math.round((xp / xpNeeded) * 100));
+    const progressBars = 10;
+    const activeBars = Math.min(progressBars, Math.round((xp / xpNeeded) * progressBars));
+    const progressBar = '█'.repeat(activeBars) + '░'.repeat(progressBars - activeBars);
+
     const premStatus = await getPremiumStatus(ctx.senderId);
     let premLine = '';
     if (premStatus.isPremium && premStatus.expiresAt) {
-      premLine = `\n⏳ Expired Premium: *${premStatus.expiresAt.toLocaleDateString('id-ID')}* (${premStatus.daysLeft} hari lagi)`;
+      premLine = `\n│  ⏳ Expired Premium: *${premStatus.expiresAt.toLocaleDateString('id-ID')}* (${premStatus.daysLeft} hari lagi)`;
     } else if (premStatus.isPremium) {
-      premLine = `\n⭐ Expired Premium: *Selamanya*`;
+      premLine = `\n│  ⭐ Expired Premium: *Selamanya*`;
     }
 
+    // Performance measurements
+    const dbStart = Date.now();
+    await prisma.$queryRaw`SELECT 1`.catch(() => {});
+    const dbLatency = Date.now() - dbStart;
+    const uptimeSec = process.uptime();
+    const uptimeStr = uptimeSec > 86400 
+      ? `${Math.floor(uptimeSec / 86400)}d ${Math.floor((uptimeSec % 86400) / 3600)}h`
+      : uptimeSec > 3600
+      ? `${Math.floor(uptimeSec / 3600)}h ${Math.floor((uptimeSec % 3600) / 60)}m`
+      : `${Math.floor(uptimeSec / 60)}m`;
+
+    const mem = process.memoryUsage();
+    const ramMB = (mem.heapUsed / 1024 / 1024).toFixed(0);
+
     const header = [
-      `🤖 *JAVAS BOT WA*`,
-      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
-      `👤 *${ctx.senderName || 'User'}* · ${role.toUpperCase()}${ctx.isGroup ? ` · ${plan.toUpperCase()}` : ''}${premLine}`,
-      `📊 Kuota hari ini: *${quota}*`,
-      `⌨️ Prefix: *${prefix}*`,
-      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
-      `📂 *PILIH KATEGORI:*`,
+      `╔════════════════════════════════╗`,
+      `  🤖   *JAVAS BOT SYSTEM DASHBOARD*   `,
+      `╚════════════════════════════════╝`,
+      `👋 *${greeting}, ${ctx.senderName || 'Warga'}!*`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `👤 *USER CARD*`,
+      `│  Name: *${ctx.senderName || 'User'}*`,
+      `│  Role: *${role.toUpperCase()}* ${premStatus.isPremium ? '⭐' : ''}`,
+      `│  Group Plan: *${plan.toUpperCase()}*`,
+      `│  XP Progress: *Level ${level}* [${progressBar}] ${percent}%${premLine}`,
+      `│  Daily Commands: *${quota}*`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `🖥️ *SYSTEM STATUS*`,
+      `│  Uptime: *${uptimeStr}*  |  RAM: *${ramMB}MB*`,
+      `│  Latency: *${dbLatency}ms* (DB)`,
+      `│  Default Prefix: *${prefix}*`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `📂 *KATEGORI FITUR:*`,
       ``
     ].join('\n');
 
@@ -300,17 +348,18 @@ export class MenuCommand implements Command {
 
       const info = CATEGORIES[cat];
       const tag = info.tag ? ` ${info.tag}` : '';
-      cats.push(`${info.emoji} *${info.title}*${tag} _(${cmds.length} cmd)_`);
-      cats.push(`   └ \`${prefix}menu ${cat}\``);
+      cats.push(`  *${info.emoji} ${info.title}*${tag} _(${cmds.length} cmd)_`);
+      cats.push(`  └  \`${prefix}menu ${cat}\` · _${info.desc}_`);
     }
 
     const footer = [
       ``,
-      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
-      `🔍 \`${prefix}cari <kata>\` — cari command`,
-      `❓ \`${prefix}help <cmd>\` — cara pakai`,
-      `📋 \`${prefix}menu all\` — semua command`,
-      `⭐ \`${prefix}menu premium\` — fitur premium`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `🔍 \`${prefix}cari <kata>\` · Cari command`,
+      `❓ \`${prefix}help <cmd>\` · Cara penggunaan`,
+      `📋 \`${prefix}menu all\` · Tampilkan semua`,
+      `⭐ \`${prefix}menu premium\` · Fitur premium`,
+      `╚════════════════════════════════╝`
     ].join('\n');
 
     await adapter.sendMessage(ctx.chatId, header + cats.join('\n') + footer, { quotedMessageId: ctx.id });
@@ -332,9 +381,10 @@ export class MenuCommand implements Command {
     }
 
     const header = [
-      `${info.emoji} *MENU ${info.title.toUpperCase()}*`,
-      `_${info.desc}_`,
-      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `╔════════════════════════════════╗`,
+      `  ${info.emoji}  *KATEGORI: ${info.title.toUpperCase()}*  `,
+      `  _${info.desc}_`,
+      `╚════════════════════════════════╝`,
       ``
     ].join('\n');
 
@@ -345,17 +395,20 @@ export class MenuCommand implements Command {
       const alias = m.aliases?.length
         ? ` _(${m.aliases.slice(0, 2).map((a: string) => `${prefix}${a}`).join(', ')})_`
         : '';
-      return `• \`${prefix}${m.name}\`${alias}\n  _${m.description || '–'}_`;
+      const premTag = m.premiumOnly ? ' ⭐' : '';
+      const adminTag = m.minRole === 'admin' ? ' 🛡️' : m.minRole === 'owner' ? ' 👑' : '';
+      return ` •  \`${prefix}${m.name}\`${alias}${premTag}${adminTag}\n     _${m.description || '–'}_`;
     });
     if (cmds.length > 25) {
-      lines.push(`_…dan ${cmds.length - 25} command lainnya_`);
+      lines.push(` _…dan ${cmds.length - 25} command lainnya_`);
     }
 
     const footer = [
       ``,
-      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
       `💡 \`${prefix}help ${shown[0].metadata.name}\` untuk contoh penggunaan.`,
-      `🔙 \`${prefix}menu\` kembali ke menu utama.`
+      `🔙 \`${prefix}menu\` kembali ke dashboard utama.`,
+      `╚════════════════════════════════╝`
     ].join('\n');
 
     await adapter.sendMessage(ctx.chatId, header + lines.join('\n\n') + footer, { quotedMessageId: ctx.id });
@@ -370,8 +423,10 @@ export class MenuCommand implements Command {
     const total = commands.length;
 
     let text = [
-      `📋 *SEMUA COMMAND* _(${total} total)_`,
-      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `╔════════════════════════════════╗`,
+      `  📋   *DAFTAR SEMUA COMMAND BOT*   `,
+      `  _Total aktif: ${total} command_`,
+      `╚════════════════════════════════╝`,
       ``
     ].join('\n');
 
@@ -382,16 +437,17 @@ export class MenuCommand implements Command {
       if (!cmds.length) continue;
 
       const info = CATEGORIES[cat];
-      // Tampilkan nama command dalam baris singkat, max 10 per kategori
-      const names = cmds.slice(0, 10).map(c => `\`${prefix}${c.metadata.name}\``).join(' ');
-      const more = cmds.length > 10 ? ` _+${cmds.length - 10}_` : '';
-      text += `${info.emoji} *${info.title}* _(${cmds.length})_\n${names}${more}\n\n`;
+      // Tampilkan nama command dalam baris singkat, max 12 per kategori
+      const names = cmds.slice(0, 12).map(c => `\`${prefix}${c.metadata.name}\``).join(' ');
+      const more = cmds.length > 12 ? ` _+${cmds.length - 12}_` : '';
+      text += ` *${info.emoji} ${info.title}* _(${cmds.length})_\n  ${names}${more}\n\n`;
     }
 
     text += [
-      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
-      `💡 \`${prefix}menu <kategori>\` untuk detail per kategori.`,
-      `❓ \`${prefix}help <cmd>\` untuk cara pakai.`
+      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `💡 \`${prefix}menu <kategori>\` detail per kategori.`,
+      `❓ \`${prefix}help <cmd>\` cara penggunaan detail.`,
+      `╚════════════════════════════════╝`
     ].join('\n');
 
     await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
@@ -408,8 +464,9 @@ export class MenuCommand implements Command {
     });
 
     let text = [
-      `⭐ *MENU PREMIUM*`,
-      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+      `╔════════════════════════════════╗`,
+      `  ⭐   *DAFTAR FITUR PREMIUM BOT*   `,
+      `╚════════════════════════════════╝`,
       ``
     ].join('\n');
 
@@ -423,14 +480,15 @@ export class MenuCommand implements Command {
         if (!cmds.length) continue;
         const info = CATEGORIES[cat];
         const names = cmds.map(c => `\`${prefix}${c.metadata.name}\``).join(' ');
-        text += `${info.emoji} *${info.title}*\n${names}\n\n`;
+        text += `*${info.emoji} ${info.title}*\n  ${names}\n\n`;
       }
       text += [
-        `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
+        `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
         `💳 *Aktivasi Premium:*`,
         `• Metode: *${env.PREMIUM_PAYMENT_METHOD || 'GoPay/Transfer'}*`,
         `• Nomor: \`${env.PREMIUM_PAYMENT_NUMBER || '085338123425'}\``,
-        `• Ketik \`${prefix}owner\` untuk konfirmasi ke owner.`
+        `• Ketik \`${prefix}owner\` untuk konfirmasi ke owner.`,
+        `╚════════════════════════════════╝`
       ].join('\n');
     }
 
@@ -450,32 +508,35 @@ export class MenuCommand implements Command {
       : true;
 
     let text = [
-      `${info.emoji} *HELP: ${p}${meta.name}*`,
-      `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄`,
-      `📝 ${meta.description || '–'}`,
+      `╔════════════════════════════════╗`,
+      `  ${info.emoji}  *HELP: ${p}${meta.name}*`,
+      `╚════════════════════════════════╝`,
+      `📝 *Deskripsi:*`,
+      `   ${meta.description || '–'}`,
       ``,
       `💡 *Cara pakai:*`,
-      `\`${(meta.usage || `/${meta.name}`).replace(/\//g, p)}\``,
+      `   \`${(meta.usage || `/${meta.name}`).replace(/\//g, p)}\``,
     ].join('\n');
 
     if (meta.examples?.length) {
       text += `\n\n📌 *Contoh:*\n`;
-      text += meta.examples.slice(0, 3).map((e: string) => `• \`${e.replace(/\//g, p)}\``).join('\n');
+      text += meta.examples.slice(0, 3).map((e: string) => `   • \`${e.replace(/\//g, p)}\``).join('\n');
     }
 
     if (meta.aliases?.length) {
       text += `\n\n🔀 *Alias:* ${meta.aliases.map((a: string) => `\`${p}${a}\``).join(' · ')}`;
     }
 
-    text += `\n\n⚙️ *Status:*`;
-    text += `\n• Kategori: *${info.title}*`;
-    text += `\n• Role min: *${meta.minRole || 'user'}*`;
-    text += `\n• Premium: *${meta.premiumOnly ? 'Ya ⭐' : 'Tidak'}*`;
-    text += `\n• Plugin: *${globalOn ? '🟢 ON' : '🔴 OFF'}*`;
+    text += `\n\n⚙️ *Status & Persyaratan:*`;
+    text += `\n • Kategori: *${info.title}*`;
+    text += `\n • Role min: *${meta.minRole || 'user'}*`;
+    text += `\n • Premium: *${meta.premiumOnly ? 'Ya ⭐' : 'Tidak'}*`;
+    text += `\n • Plugin: *${globalOn ? '🟢 ON' : '🔴 OFF'}*`;
     if (ctx.isGroup) {
-      text += `\n• Fitur grup: *${groupOn ? '🟢 ON' : '🔴 OFF'}*`;
-      text += `\n• Plan grup: *${context.plan.toUpperCase()}*`;
+      text += `\n • Fitur grup: *${groupOn ? '🟢 ON' : '🔴 OFF'}*`;
+      text += `\n • Plan grup: *${context.plan.toUpperCase()}*`;
     }
+    text += `\n╚════════════════════════════════╝`;
 
     await adapter.sendMessage(ctx.chatId, text, { quotedMessageId: ctx.id });
   }

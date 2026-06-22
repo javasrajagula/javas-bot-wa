@@ -620,7 +620,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   }
 
   // Find Command Handler
-  const registeredCmd = commandRegistry.get(commandName);
+  const registeredCmd = await commandRegistry.get(commandName);
   if (!registeredCmd) {
     const now = Date.now();
     const lastTime = lastSuggestionTime.get(ctx.senderId) || 0;
