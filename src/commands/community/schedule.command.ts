@@ -459,13 +459,33 @@ export class ScheduleSuiteCommand implements Command {
     // ==========================================
     // BIRTHDAYS / ULTAH: /ultah
     // ==========================================
-    if (cmd === 'ultah') {
+    if (cmd === 'ultah' || cmd === 'birthday' || cmd === 'f039') {
       if (!ctx.isGroup) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya bisa digunakan di dalam grup.', { quotedMessageId: ctx.id });
         return;
       }
 
       const sub = args[0]?.toLowerCase();
+
+      if (sub === 'card') {
+        const mention = args[1];
+        if (!mention) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/birthday card @user`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const targetJid = normalizeJid(mention);
+        const cardText = `🎂🎉 *SELAMAT ULANG TAHUN* 🎉🎂\n\n` +
+          `Kepada Yth. @${targetJid.split('@')[0]}!\n` +
+          `Semoga panjang umur, sehat selalu, murah rezeki, dan segala cita-citanya tercapai. Amin! 🎈✨\n\n` +
+          `🎈 *Best wishes from the group!* 🎈`;
+
+        await adapter.sendMessage(ctx.chatId, cardText, {
+          quotedMessageId: ctx.id,
+          mentions: [targetJid]
+        });
+        return;
+      }
 
       if (sub === 'add') {
         const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
@@ -569,11 +589,391 @@ export class ScheduleSuiteCommand implements Command {
       await adapter.sendMessage(ctx.chatId, resp.trim(), { mentions: mentionsList });
       return;
     }
+
+    // ==========================================
+    // RECURRING REMINDERS: /reminderulang (F041)
+    // ==========================================
+    if (cmd === 'reminderulang' || cmd === 'f041') {
+      const sub = args[0]?.toLowerCase();
+      if (sub === 'set') {
+        const targetDay = args[1]?.toLowerCase();
+        const timeVal = args[2];
+        const msg = args.slice(3).join(' ').trim();
+
+        if (!targetDay || !timeVal || !msg) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh:\n👉 `/reminderulang set senin 07:00 Rapat` atau `/reminderulang set daily 07:00 Minum obat`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const timeRegex = /^\d{2}[:.]\d{2}$/;
+        if (!timeRegex.test(timeVal)) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format jam salah. Gunakan HH:MM (contoh: 07:00).', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        let interval = '';
+        if (targetDay === 'daily') {
+          interval = 'daily';
+        } else if (DAYS_MAP[targetDay] !== undefined) {
+          interval = `rrule:weekly:${DAYS_MAP[targetDay]}`;
+        } else {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Hari tidak valid. Gunakan `daily` atau nama hari (senin, selasa, dst).', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const now = new Date();
+        const [hour, min] = timeVal.split(':').map(Number);
+        const runAt = new Date(now);
+        runAt.setHours(hour, min, 0, 0);
+
+        if (interval === 'daily') {
+          if (runAt.getTime() <= now.getTime()) {
+            runAt.setDate(runAt.getDate() + 1);
+          }
+        } else {
+          const targetDayNum = DAYS_MAP[targetDay];
+          const currentDayNum = now.getDay();
+          let diff = targetDayNum - currentDayNum;
+          if (diff < 0 || (diff === 0 && runAt.getTime() <= now.getTime())) {
+            diff += 7;
+          }
+          runAt.setDate(runAt.getDate() + diff);
+        }
+
+        const messagePayload = JSON.stringify({
+          recurring: true,
+          interval,
+          originalMessage: msg
+        });
+
+        const reminder = await prisma.reminder.create({
+          data: {
+            scope: ctx.isGroup ? 'group' : 'private',
+            groupId: ctx.isGroup ? ctx.chatId : null,
+            userId: ctx.senderId,
+            message: messagePayload,
+            runAt,
+            status: 'pending'
+          }
+        });
+
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⏰ *Pengingat Berulang Berhasil Dibuat* ⏰\n\n` +
+          `• Tipe: ${interval === 'daily' ? 'Setiap Hari' : 'Setiap ' + targetDay.toUpperCase()}\n` +
+          `• Waktu Pertama: *${runAt.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}*\n` +
+          `• Pesan: "${msg}"\n` +
+          `• ID: \`${reminder.id.slice(0, 8)}\``,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+
+      if (sub === 'list') {
+        const whereClause: any = {
+          status: 'pending',
+          message: { startsWith: '{"recurring":true' }
+        };
+        if (ctx.isGroup) {
+          whereClause.OR = [
+            { userId: ctx.senderId, scope: 'private' },
+            { groupId: ctx.chatId, scope: 'group' }
+          ];
+        } else {
+          whereClause.userId = ctx.senderId;
+          whereClause.scope = 'private';
+        }
+
+        const list = await prisma.reminder.findMany({
+          where: whereClause,
+          orderBy: { runAt: 'asc' }
+        });
+
+        if (list.length === 0) {
+          await adapter.sendMessage(ctx.chatId, '📭 Tidak ada pengingat berulang aktif.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        let resp = `⏰ *DAFTAR PENGINGAT BERULANG* ⏰\n\n`;
+        list.forEach((r) => {
+          try {
+            const payload = JSON.parse(r.message);
+            const type = r.scope === 'group' ? '👥 Grup' : '👤 Pribadi';
+            const recurrenceText = payload.interval === 'daily' ? 'Setiap Hari' : `Setiap ${DAYS_REVERSE[parseInt(payload.interval.split(':')[2], 10)]}`;
+            resp += `• *ID:* \`${r.id.slice(0, 8)}\` (${type})\n`;
+            resp += `  Jadwal: ${recurrenceText}\n`;
+            resp += `  Waktu Terdekat: ${r.runAt.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })}\n`;
+            resp += `  Pesan: "${payload.originalMessage}"\n\n`;
+          } catch {}
+        });
+
+        await adapter.sendMessage(ctx.chatId, resp.trim(), { quotedMessageId: ctx.id });
+        return;
+      }
+
+      if (sub === 'del' || sub === 'delete') {
+        const rid = args[1]?.trim();
+        if (!rid) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/reminderulang del <id>`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const reminders = await prisma.reminder.findMany({
+          where: { id: { startsWith: rid } }
+        });
+
+        if (reminders.length === 0) {
+          await adapter.sendMessage(ctx.chatId, '❌ Pengingat tidak ditemukan.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const reminder = reminders[0];
+        await prisma.reminder.delete({ where: { id: reminder.id } });
+        await adapter.sendMessage(ctx.chatId, `✅ Pengingat berulang ID \`${reminder.id.slice(0, 8)}\` berhasil dihapus.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      await adapter.sendMessage(ctx.chatId, '⚠️ Sub-command tidak dikenal. Gunakan: `/reminderulang set`, `/reminderulang list`, `/reminderulang del`.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    // ==========================================
+    // NATURAL LANGUAGE REMINDERS: /remindernlp (F042)
+    // ==========================================
+    if (cmd === 'remindernlp' || cmd === 'f042') {
+      const text = args.join(' ').trim();
+      if (!text) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tulis pesan pengingat dalam bahasa alami. Contoh:\n👉 `/remindernlp ingatkan saya 10 menit lagi makan siang`', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      let timeVal: Date | null = null;
+      let message = text;
+
+      const cleanText = text.replace(/^(ingatkan saya|ingatkan|remind me|remind)\s+/i, '').trim();
+
+      const relativeMinMatch = cleanText.match(/(\d+)\s*(menit|m)\s*(lagi)?/i);
+      if (relativeMinMatch) {
+        const minutes = parseInt(relativeMinMatch[1], 10);
+        timeVal = new Date(Date.now() + minutes * 60 * 1000);
+        message = cleanText.replace(relativeMinMatch[0], '').trim();
+      }
+
+      const relativeHourMatch = cleanText.match(/(\d+)\s*(jam|h)\s*(lagi)?/i);
+      if (!timeVal && relativeHourMatch) {
+        const hours = parseInt(relativeHourMatch[1], 10);
+        timeVal = new Date(Date.now() + hours * 60 * 60 * 1000);
+        message = cleanText.replace(relativeHourMatch[0], '').trim();
+      }
+
+      const relativeDayMatch = cleanText.match(/(\d+)\s*(hari|d)\s*(lagi)?/i);
+      if (!timeVal && relativeDayMatch) {
+        const days = parseInt(relativeDayMatch[1], 10);
+        timeVal = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+        message = cleanText.replace(relativeDayMatch[0], '').trim();
+      }
+
+      const tomorrowMatch = cleanText.match(/besok\s*(pagi|siang|sore|malam)?\s*(jam|pukul)?\s*(\d{1,2})[:.](\d{2})/i);
+      if (!timeVal && tomorrowMatch) {
+        const dayWord = tomorrowMatch[1]?.toLowerCase();
+        let hours = parseInt(tomorrowMatch[3], 10);
+        const mins = parseInt(tomorrowMatch[4], 10);
+
+        const target = new Date();
+        target.setDate(target.getDate() + 1);
+
+        if (dayWord === 'malam' && hours < 12) hours += 12;
+        if (dayWord === 'sore' && hours < 12) hours += 12;
+
+        target.setHours(hours, mins, 0, 0);
+        timeVal = target;
+        message = cleanText.replace(tomorrowMatch[0], '').trim();
+      }
+
+      const laterMatch = cleanText.match(/nanti\s*(pagi|siang|sore|malam)?\s*(jam|pukul)?\s*(\d{1,2})[:.](\d{2})/i);
+      if (!timeVal && laterMatch) {
+        const dayWord = laterMatch[1]?.toLowerCase();
+        let hours = parseInt(laterMatch[3], 10);
+        const mins = parseInt(laterMatch[4], 10);
+
+        const target = new Date();
+        if (dayWord === 'malam' && hours < 12) hours += 12;
+        if (dayWord === 'sore' && hours < 12) hours += 12;
+
+        target.setHours(hours, mins, 0, 0);
+        if (target.getTime() <= Date.now()) {
+          target.setDate(target.getDate() + 1);
+        }
+        timeVal = target;
+        message = cleanText.replace(laterMatch[0], '').trim();
+      }
+
+      message = message.replace(/^(untuk|bahwa|untuk melakukan|kalau|buat|yaitu)\s+/i, '').trim();
+
+      if (!timeVal || !message) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Gagal memahami waktu atau pesan pengingat Anda. Coba gunakan kata-kata yang lebih sederhana, contoh: `/remindernlp ingatkan saya 15 menit lagi beli pulsa`', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const reminder = await prisma.reminder.create({
+        data: {
+          scope: ctx.isGroup ? 'group' : 'private',
+          groupId: ctx.isGroup ? ctx.chatId : null,
+          userId: ctx.senderId,
+          message,
+          runAt: timeVal,
+          status: 'pending'
+        }
+      });
+
+      await adapter.sendMessage(
+        ctx.chatId,
+        `⏰ *Pengingat Bahasa Alami Dibuat* ⏰\n\n` +
+        `• Waktu: *${timeVal.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}*\n` +
+        `• Pesan: "${message}"\n` +
+        `• ID: \`${reminder.id.slice(0, 8)}\``,
+        { quotedMessageId: ctx.id }
+      );
+      return;
+    }
+
+    // ==========================================
+    // DAILY AGENDA: /agendaharian (F045)
+    // ==========================================
+    if (cmd === 'agendaharian' || cmd === 'f045' || cmd === 'agenda') {
+      const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+      const schedules = ctx.isGroup
+        ? await prisma.schedule.findMany({
+            where: { groupId: ctx.chatId!, dayOfWeek: now.getDay() },
+            orderBy: { time: 'asc' }
+          })
+        : [];
+
+      const remindersWhere: any = {
+        status: 'pending',
+        runAt: { gte: startOfDay, lte: endOfDay }
+      };
+      if (ctx.isGroup) {
+        remindersWhere.OR = [
+          { userId: ctx.senderId, scope: 'private' },
+          { groupId: ctx.chatId, scope: 'group' }
+        ];
+      } else {
+        remindersWhere.userId = ctx.senderId;
+        remindersWhere.scope = 'private';
+      }
+      const reminders = await prisma.reminder.findMany({
+        where: remindersWhere,
+        orderBy: { runAt: 'asc' }
+      });
+
+      const tasks = ctx.isGroup
+        ? await prisma.task.findMany({
+            where: {
+              groupId: ctx.chatId!,
+              status: 'pending',
+              deadline: { gte: startOfDay, lte: endOfDay }
+            },
+            orderBy: { deadline: 'asc' }
+          })
+        : [];
+
+      let agendaMsg = `📅 *AGENDA HARI INI* 📅\n`;
+      agendaMsg += `⎔ Tanggal: *${now.toLocaleDateString('id-ID', { dateStyle: 'full' })}*\n\n`;
+
+      if (schedules.length > 0) {
+        agendaMsg += `📚 *JADWAL PELAJARAN / RUTINITAS GRUP:*\n`;
+        schedules.forEach(s => {
+          agendaMsg += `• [${s.time}] ${s.subject}\n`;
+        });
+        agendaMsg += `\n`;
+      }
+
+      if (tasks.length > 0) {
+        agendaMsg += `📝 *TUGAS / DEADLINE HARI INI:*\n`;
+        tasks.forEach(t => {
+          let desc = t.description;
+          try {
+            const parsed = JSON.parse(t.description);
+            desc = `[${parsed.subject}] ${parsed.details}`;
+          } catch {}
+          const timeStr = t.deadline ? t.deadline.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '';
+          agendaMsg += `• [Jam ${timeStr}] ${desc}\n`;
+        });
+        agendaMsg += `\n`;
+      }
+
+      if (reminders.length > 0) {
+        agendaMsg += `⏰ *PENGINGAT TERJADWAL HARI INI:*\n`;
+        reminders.forEach(r => {
+          let text = r.message;
+          try {
+            const parsed = JSON.parse(r.message);
+            if (parsed.recurring) text = parsed.originalMessage;
+          } catch {}
+          const timeStr = r.runAt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+          agendaMsg += `• [${timeStr}] ${text}\n`;
+        });
+        agendaMsg += `\n`;
+      }
+
+      if (schedules.length === 0 && tasks.length === 0 && reminders.length === 0) {
+        agendaMsg += `🏖️ Hari ini santai! Tidak ada agenda, jadwal pelajaran, tugas, atau pengingat terdaftar untuk hari ini.`;
+      } else {
+        agendaMsg += `✨ *Semoga harimu menyenangkan dan produktif!*`;
+      }
+
+      await adapter.sendMessage(ctx.chatId, agendaMsg.trim(), { quotedMessageId: ctx.id });
+      return;
+    }
+
+    // ==========================================
+    // LINK REMINDER: /linkreminder (F100)
+    // ==========================================
+    if (cmd === 'linkreminder' || cmd === 'f100') {
+      const url = args[0]?.trim();
+      const timeStr = args[1]?.trim();
+
+      if (!url || !timeStr || !url.startsWith('http')) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/linkreminder https://example.com 2h`', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const runAt = parseRelativeOrAbsoluteTime(timeStr);
+      if (!runAt) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format waktu tidak valid. Gunakan: `10m`, `2h`, `1d`, `20:00`, dll.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const reminder = await prisma.reminder.create({
+        data: {
+          scope: 'private',
+          groupId: ctx.isGroup ? ctx.chatId : null,
+          userId: ctx.senderId,
+          message: `Baca link: ${url}`,
+          runAt,
+          status: 'pending'
+        }
+      });
+
+      await adapter.sendMessage(
+        ctx.chatId,
+        `✅ *Link Reminder Berhasil Dibuat* ⏰\n\n` +
+        `• Link: ${url}\n` +
+        `• Waktu Pengingat: *${runAt.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}*\n` +
+        `• ID: \`${reminder.id.slice(0, 8)}\``,
+        { quotedMessageId: ctx.id }
+      );
+      return;
+    }
   }
 }
 
 const schedSuite = new ScheduleSuiteCommand();
 registerCommand(
-  ['remind', 'remindgroup', 'listremind', 'delremind', 'jadwal', 'tugas', 'ultah'],
+  ['remind', 'remindgroup', 'listremind', 'delremind', 'jadwal', 'tugas', 'ultah', 'reminderulang', 'f041', 'remindernlp', 'f042', 'agendaharian', 'f045', 'linkreminder', 'f100', 'birthday', 'f039'],
   schedSuite
 );

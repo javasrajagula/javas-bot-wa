@@ -9,6 +9,14 @@ const LIMITS: Record<string, LimitConfig> = {
   downloader: { maxRequests: 5, windowMs: 10 * 60 * 1000 },
   werewolf: { maxRequests: 30, windowMs: 60 * 1000 },
   brat: { maxRequests: 10, windowMs: 60 * 1000 },
+  reputation: { maxRequests: 10, windowMs: 60 * 1000 },
+  tophelper: { maxRequests: 10, windowMs: 60 * 1000 },
+  votingkeputusan: { maxRequests: 5, windowMs: 60 * 1000 },
+  reminder: { maxRequests: 10, windowMs: 60 * 1000 },
+  notes: { maxRequests: 10, windowMs: 60 * 1000 },
+  presetfitur: { maxRequests: 5, windowMs: 60 * 1000 },
+  lockdownschedule: { maxRequests: 5, windowMs: 60 * 1000 },
+  announcementbuilder: { maxRequests: 5, windowMs: 60 * 1000 },
 };
 
 class RateLimiter {

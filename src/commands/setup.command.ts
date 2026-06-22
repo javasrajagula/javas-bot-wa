@@ -350,15 +350,15 @@ export class SetupCommand implements Command {
       return;
     }
 
-    // /pack [sekolah|jualan|gaming|islami|komunitas]
-    if (commandType === 'pack') {
+    // /pack or /presetfitur or /f022 [sekolah|jualan|gaming|islami|komunitas]
+    if (commandType === 'pack' || commandType === 'presetfitur' || commandType === 'f022') {
       const packName = args[0]?.toLowerCase().trim();
       const preset = PRESETS[packName || ''];
 
       if (!preset) {
         await adapter.sendMessage(
           ctx.chatId,
-          `⚠️ Pack tidak ditemukan. Pilihan:\n• \`/pack sekolah\`\n• \`/pack jualan\`\n• \`/pack gaming\`\n• \`/pack islami\`\n• \`/pack komunitas\``,
+          `⚠️ Pack tidak ditemukan. Pilihan:\n• \`/${commandType} sekolah\`\n• \`/${commandType} jualan\`\n• \`/${commandType} gaming\`\n• \`/${commandType} islami\`\n• \`/${commandType} komunitas\``,
           { quotedMessageId: ctx.id }
         );
         return;
@@ -474,5 +474,5 @@ export class StatusFiturCommand implements Command {
 
 // Register commands
 const setupCmd = new SetupCommand();
-registerCommand(['setup', 'setupwizard', 'groupmode', 'pack', 'setupcheck'], setupCmd);
+registerCommand(['setup', 'setupwizard', 'groupmode', 'pack', 'setupcheck', 'presetfitur', 'f022'], setupCmd);
 registerCommand(['statusfitur', 'features'], new StatusFiturCommand());

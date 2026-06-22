@@ -316,6 +316,42 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
         return;
       }
 
+      // 0.0. Lockdown schedule check (F007)
+      if (flags.group_moderation) {
+        const lockdownScheduleVar = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: 'lockdownschedule'
+            }
+          }
+        });
+        if (lockdownScheduleVar) {
+          const [startStr, endStr] = lockdownScheduleVar.value.split('-');
+          if (startStr && endStr) {
+            const now = new Date();
+            const currentMinutes = now.getHours() * 60 + now.getMinutes();
+            const [startHour, startMin] = startStr.split(':').map(Number);
+            const [endHour, endMin] = endStr.split(':').map(Number);
+            const startMinutes = startHour * 60 + startMin;
+            const endMinutes = endHour * 60 + endMin;
+
+            let isLockdown = false;
+            if (startMinutes <= endMinutes) {
+              isLockdown = currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+            } else {
+              isLockdown = currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+            }
+
+            if (isLockdown) {
+              await adapter.deleteMessage(ctx.chatId, ctx.id, ctx.senderId);
+              return;
+            }
+          }
+        }
+      }
+
       // 0.1 Allowed message types check
       if (flags.allowed_message_types && flags.allowed_message_types !== 'all') {
         const type = flags.allowed_message_types;

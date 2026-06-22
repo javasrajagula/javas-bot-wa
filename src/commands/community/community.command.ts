@@ -55,27 +55,60 @@ export class CommunitySuiteCommand implements Command {
       return;
     }
 
-    // 2. Polling: /poll, /vote, /pollresult, /closepoll
-    if (cmd === 'poll' || cmd === 'vote' || cmd === 'pollresult' || cmd === 'closepoll') {
+    // 2. Polling: /poll, /vote, /pollresult, /closepoll, /votingkeputusan, /f038
+    if (['poll', 'vote', 'pollresult', 'closepoll', 'votingkeputusan', 'f038'].includes(cmd)) {
       if (!ctx.isGroup) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya bisa digunakan di dalam grup.', { quotedMessageId: ctx.id });
         return;
       }
 
-      if (cmd === 'poll') {
+      if (cmd === 'poll' || cmd === 'votingkeputusan' || cmd === 'f038') {
+        let question = '';
+        let options: string[] = [];
+        let deadlineMinutes: number | null = null;
+        let quorum: number | null = null;
+
         const input = args.join(' ');
-        if (!input.includes('|')) {
-          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/poll Pertanyaan | opsi1 | opsi2`', { quotedMessageId: ctx.id });
-          return;
-        }
 
-        const parts = input.split('|').map(p => p.trim());
-        const question = parts[0];
-        const options = parts.slice(1).filter(Boolean);
+        if (cmd === 'votingkeputusan' || cmd === 'f038') {
+          if (!input.includes('|')) {
+            await adapter.sendMessage(ctx.chatId, '⚠️ Format salah.\nGunakan: `/votingkeputusan <pertanyaan> | <opsi1> | <opsi2> | <deadline_menit> | <quorum>`\nContoh: `/votingkeputusan Ganti warna logo? | Merah | Biru | 10 | 5`', { quotedMessageId: ctx.id });
+            return;
+          }
 
-        if (!question || options.length < 2) {
-          await adapter.sendMessage(ctx.chatId, '⚠️ Pertanyaan dan minimal 2 opsi diperlukan.', { quotedMessageId: ctx.id });
-          return;
+          const parts = input.split('|').map(p => p.trim());
+          if (parts.length < 5) {
+            await adapter.sendMessage(ctx.chatId, '⚠️ Format salah.\nGunakan: `/votingkeputusan <pertanyaan> | <opsi1> | <opsi2> | <deadline_menit> | <quorum>`\nContoh: `/votingkeputusan Ganti warna logo? | Merah | Biru | 10 | 5`', { quotedMessageId: ctx.id });
+            return;
+          }
+
+          question = parts[0];
+          const quorumStr = parts[parts.length - 1];
+          const deadlineStr = parts[parts.length - 2];
+          options = parts.slice(1, parts.length - 2).filter(Boolean);
+
+          quorum = parseInt(quorumStr, 10);
+          deadlineMinutes = parseInt(deadlineStr, 10);
+
+          if (!question || options.length < 2 || isNaN(quorum) || isNaN(deadlineMinutes)) {
+            await adapter.sendMessage(ctx.chatId, '⚠️ Pertanyaan, minimal 2 opsi, deadline valid (menit), dan quorum valid (angka) diperlukan.', { quotedMessageId: ctx.id });
+            return;
+          }
+        } else {
+          // Standard /poll
+          if (!input.includes('|')) {
+            await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/poll Pertanyaan | opsi1 | opsi2`', { quotedMessageId: ctx.id });
+            return;
+          }
+
+          const parts = input.split('|').map(p => p.trim());
+          question = parts[0];
+          options = parts.slice(1).filter(Boolean);
+
+          if (!question || options.length < 2) {
+            await adapter.sendMessage(ctx.chatId, '⚠️ Pertanyaan dan minimal 2 opsi diperlukan.', { quotedMessageId: ctx.id });
+            return;
+          }
         }
 
         // Close any existing active polls
@@ -84,22 +117,35 @@ export class CommunitySuiteCommand implements Command {
           data: { status: 'closed' }
         });
 
+        const expiresAt = deadlineMinutes ? new Date(Date.now() + deadlineMinutes * 60 * 1000) : null;
+        const dbQuestion = quorum ? `${question}|quorum:${quorum}` : question;
+
         const newPoll = await prisma.poll.create({
           data: {
             groupId: ctx.chatId,
-            question,
+            question: dbQuestion,
             optionsJson: JSON.stringify(options),
             votesJson: '{}', // { userId: optionIndex }
             status: 'active',
-            createdBy: ctx.senderId
+            createdBy: ctx.senderId,
+            expiresAt
           }
         });
 
-        let pollText = `📊 *POLLING BARU GRUP* 📊\n\n*Pertanyaan:* ${question}\n\n`;
+        let pollText = `📊 *${cmd === 'poll' ? 'POLLING BARU GRUP' : 'VOTING KEPUTUSAN GRUP'}* 📊\n\n`;
+        pollText += `*Pertanyaan:* ${question}\n\n`;
         options.forEach((opt, idx) => {
           pollText += `${idx + 1}. ${opt}\n`;
         });
-        pollText += `\nKetik \`/vote <angka_opsi>\` untuk memilih!`;
+
+        if (deadlineMinutes) {
+          pollText += `\n⏳ *Deadline:* ${deadlineMinutes} menit (${expiresAt?.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })})`;
+        }
+        if (quorum) {
+          pollText += `\n👥 *Quorum:* minimal ${quorum} suara`;
+        }
+
+        pollText += `\n\nKetik \`/vote <angka_opsi>\` untuk memilih!`;
 
         await adapter.sendMessage(ctx.chatId, pollText, { quotedMessageId: ctx.id });
       }
@@ -110,7 +156,13 @@ export class CommunitySuiteCommand implements Command {
         });
 
         if (!active) {
-          await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada polling aktif saat ini.', { quotedMessageId: ctx.id });
+          await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada polling/voting aktif saat ini.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        if (active.expiresAt && new Date() > active.expiresAt) {
+          await prisma.poll.update({ where: { id: active.id }, data: { status: 'closed' } });
+          await adapter.sendMessage(ctx.chatId, '⚠️ Voting/polling keputusan ini sudah ditutup karena telah melewati tenggat waktu (deadline).', { quotedMessageId: ctx.id });
           return;
         }
 
@@ -139,8 +191,15 @@ export class CommunitySuiteCommand implements Command {
         });
 
         if (!active) {
-          await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada polling aktif.', { quotedMessageId: ctx.id });
+          await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada polling/voting aktif.', { quotedMessageId: ctx.id });
           return;
+        }
+
+        let isClosedNow = active.status === 'closed';
+
+        if (active.expiresAt && new Date() > active.expiresAt) {
+          isClosedNow = true;
+          await prisma.poll.update({ where: { id: active.id }, data: { status: 'closed' } });
         }
 
         if (cmd === 'closepoll') {
@@ -150,6 +209,7 @@ export class CommunitySuiteCommand implements Command {
             return;
           }
           await prisma.poll.update({ where: { id: active.id }, data: { status: 'closed' } });
+          isClosedNow = true;
         }
 
         const options: string[] = JSON.parse(active.optionsJson);
@@ -160,10 +220,30 @@ export class CommunitySuiteCommand implements Command {
           if (counts[optIdx] !== undefined) counts[optIdx]++;
         });
 
-        let resText = `📊 *HASIL POLLING [${cmd === 'closepoll' ? 'CLOSED' : 'ACTIVE'}]* 📊\n\n*Pertanyaan:* ${active.question}\n\n`;
+        let displayQuestion = active.question;
+        let quorumNum: number | null = null;
+        if (active.question.includes('|quorum:')) {
+          const qParts = active.question.split('|quorum:');
+          displayQuestion = qParts[0];
+          quorumNum = parseInt(qParts[1], 10);
+        }
+
+        const statusLabel = isClosedNow || cmd === 'closepoll' ? 'CLOSED' : 'ACTIVE';
+        let resText = `📊 *HASIL ${quorumNum ? 'VOTING KEPUTUSAN' : 'POLLING'} [${statusLabel}]* 📊\n\n`;
+        resText += `*Pertanyaan:* ${displayQuestion}\n\n`;
         options.forEach((opt, idx) => {
           resText += `- ${opt}: *${counts[idx]} suara*\n`;
         });
+
+        const totalVotes = Object.keys(votes).length;
+        if (quorumNum !== null) {
+          const met = totalVotes >= quorumNum;
+          resText += `\n👥 *Quorum:* minimal ${quorumNum} suara (Total masuk: ${totalVotes} suara)\n👉 *Status Keputusan:* ${met ? '✅ SAH / VALID' : '❌ TIDAK SAH (Quorum tidak tercapai)'}`;
+        }
+
+        if (active.expiresAt) {
+          resText += `\n⏳ *Deadline:* ${active.expiresAt.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}`;
+        }
 
         await adapter.sendMessage(ctx.chatId, resText, { quotedMessageId: ctx.id });
       }
@@ -363,6 +443,10 @@ export class CommunitySuiteCommand implements Command {
 
 const commSuite = new CommunitySuiteCommand();
 registerCommand(
-  ['addreply', 'delreply', 'listreply', 'poll', 'vote', 'pollresult', 'closepoll', 'confess', 'menfess', 'event', 'listevent', 'delevent', 'absen'],
+  [
+    'addreply', 'delreply', 'listreply', 'poll', 'vote', 'pollresult', 'closepoll',
+    'confess', 'menfess', 'event', 'listevent', 'delevent', 'absen',
+    'votingkeputusan', 'f038'
+  ],
   commSuite
 );

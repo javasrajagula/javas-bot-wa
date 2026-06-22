@@ -1,5 +1,6 @@
 import { RegisteredCommand, CommandMetadata } from './command-types.js';
 import { COMMAND_METADATA_LIST } from './command-metadata.js';
+import { PRD_CATALOG } from '../prd/prd-feature-catalog.js';
 import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
 
@@ -20,7 +21,7 @@ const COMMAND_MODULES = [
   },
   {
     path: '../setup.command.js',
-    commands: ['setup', 'setupwizard', 'groupmode', 'pack', 'setupcheck', 'statusfitur', 'features']
+    commands: ['setup', 'setupwizard', 'groupmode', 'pack', 'setupcheck', 'statusfitur', 'features', 'presetfitur', 'f022']
   },
   {
     path: '../feature.command.js',
@@ -124,15 +125,15 @@ const COMMAND_MODULES = [
   },
   {
     path: '../community/community.command.js',
-    commands: ['add', 'kick', 'promote', 'demote', 'setname', 'setdesc', 'setppgc', 'linkgc', 'resetlink', 'tagall', 'hidetag']
+    commands: ['add', 'kick', 'promote', 'demote', 'setname', 'setdesc', 'setppgc', 'linkgc', 'resetlink', 'tagall', 'hidetag', 'votingkeputusan', 'f038']
   },
   {
     path: '../community/schedule.command.js',
-    commands: ['jadwal', 'agenda', 'pengingat', 'remind', 'jadwalshalat', 'cuaca']
+    commands: ['jadwal', 'agenda', 'pengingat', 'remind', 'jadwalshalat', 'cuaca', 'reminderulang', 'f041', 'remindernlp', 'f042', 'agendaharian', 'f045', 'linkreminder', 'f100', 'birthday', 'f039']
   },
   {
     path: '../community/alias.command.js',
-    commands: ['alias', 'addalias', 'delalias', 'listalias']
+    commands: ['alias', 'addalias', 'delalias', 'listalias', 'addcmd', 'delcmd', 'listcmd', 'cmdalias']
   },
   {
     path: '../community/locale.command.js',
@@ -144,7 +145,7 @@ const COMMAND_MODULES = [
   },
   {
     path: '../community/school.command.js',
-    commands: ['schoolmode', 'tugas', 'tugasadd', 'tugasdone', 'absen', 'jadwal']
+    commands: ['schoolmode', 'tugas', 'tugasadd', 'tugasdone', 'absen', 'jadwal', 'jadwalpelajaran', 'f031']
   },
   {
     path: '../community/attendance.command.js',
@@ -156,11 +157,11 @@ const COMMAND_MODULES = [
   },
   {
     path: '../community/reputation.command.js',
-    commands: ['rep', 'thank', 'makasih', 'reputasi', 'badgeworld']
+    commands: ['rep', 'thank', 'makasih', 'reputasi', 'badgeworld', 'reputasipositif', 'f040', 'tophelper', 'f113', '-rep', 'toprep', 'trustlevel', 'audit']
   },
   {
     path: '../community/notes.command.js',
-    commands: ['note', 'todo', 'catatan', 'jadwalpribadi', 'targetharian', 'habit', 'mood', 'diary', 'memory']
+    commands: ['note', 'todo', 'catatan', 'jadwalpribadi', 'targetharian', 'habit', 'mood', 'diary', 'memory', 'quicknote', 'f047', 'checklistgrup', 'f043', 'kanbanmini', 'f048', 'bookmarkgrup', 'f094']
   },
   {
     path: '../community/business.command.js',
@@ -216,7 +217,7 @@ const COMMAND_MODULES = [
   },
   {
     path: '../moderation/dynamic-security.command.js',
-    commands: ['antiflood', 'whitelistlink', 'antiforward', 'antijoinbot', 'captcha2', 'muteprogressive', 'lockdownschedule', 'antitagall', 'moderationappeal', 'safetydigest']
+    commands: ['antiflood', 'whitelistlink', 'antiforward', 'antijoinbot', 'captcha2', 'muteprogressive', 'lockdownschedule', 'antitagall', 'moderationappeal', 'safetydigest', 'f007']
   },
   {
     path: '../owner/owner.command.js',
@@ -252,9 +253,22 @@ const COMMAND_MODULES = [
   },
   {
     path: '../owner/webhook.command.js',
-    commands: ['webhook', 'announce', 'announcements', 'announcement']
+    commands: ['webhook', 'announce', 'announcements', 'announcement', 'announcementbuilder', 'f029']
   }
 ];
+
+// Dynamically append the PRD scaffold commands to COMMAND_MODULES
+const prdScaffoldCommands: string[] = [];
+for (const entry of PRD_CATALOG) {
+  prdScaffoldCommands.push(entry.name.toLowerCase());
+  for (const alias of entry.aliases) {
+    prdScaffoldCommands.push(alias.toLowerCase());
+  }
+}
+COMMAND_MODULES.push({
+  path: '../prd/prd-scaffold.js',
+  commands: prdScaffoldCommands
+});
 
 class CommandRegistry {
   private registry = new Map<string, RegistryEntry>();

@@ -76,6 +76,19 @@ export const DEFAULT_FEATURES: Record<string, any> = {
   faq_mapping: '{}',
   sentiment_analysis: false,
   footer_text: '',
+
+  // Category Specific Feature Flags
+  group_moderation: true,
+  privacy: true,
+  admin: true,
+  school: true,
+  productivity: true,
+  business: true,
+  automation: true,
+  analytics: true,
+  developer: true,
+  premium: true,
+  games: true,
 };
 
 export interface GroupFeatures {

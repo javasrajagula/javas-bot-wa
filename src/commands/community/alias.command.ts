@@ -20,13 +20,17 @@ export class AliasCommand implements Command {
 
     const commandType = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
-    // 1. /addcmd <alias> = <realcommand>
-    if (commandType === 'addcmd') {
-      const fullText = args.join(' ');
+    // Unified helper or standalone commands
+    const action = args[0]?.toLowerCase().trim();
+
+    // 1. /addcmd or /addalias or /alias add
+    if (commandType === 'addcmd' || commandType === 'addalias' || (commandType === 'alias' && action === 'add')) {
+      const aliasArgs = (commandType === 'alias') ? args.slice(1) : args;
+      const fullText = aliasArgs.join(' ');
       const parts = fullText.split('=');
 
       if (parts.length !== 2) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah.\nGunakan: `/addcmd <alias> = <realcommand>`\nContoh: `/addcmd st = stiker`', { quotedMessageId: ctx.id });
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah.\nGunakan: `/addcmd <alias> = <realcommand>` atau `/alias add <alias> = <realcommand>`\nContoh: `/addcmd st = stiker`', { quotedMessageId: ctx.id });
         return;
       }
 
@@ -89,11 +93,12 @@ export class AliasCommand implements Command {
       return;
     }
 
-    // 2. /delcmd <alias>
-    if (commandType === 'delcmd') {
-      let alias = args[0]?.trim().toLowerCase();
+    // 2. /delcmd or /delalias or /alias del/remove
+    if (commandType === 'delcmd' || commandType === 'delalias' || (commandType === 'alias' && (action === 'del' || action === 'delete' || action === 'remove'))) {
+      const aliasArgs = (commandType === 'alias') ? args.slice(1) : args;
+      let alias = aliasArgs[0]?.trim().toLowerCase();
       if (!alias) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah.\nGunakan: `/delcmd <alias>`\nContoh: `/delcmd st`', { quotedMessageId: ctx.id });
+        await adapter.sendMessage(ctx.chatId, '⚠️ Format salah.\nGunakan: `/delcmd <alias>` atau `/alias del <alias>`\nContoh: `/delcmd st`', { quotedMessageId: ctx.id });
         return;
       }
 
@@ -119,8 +124,13 @@ export class AliasCommand implements Command {
       return;
     }
 
-    // 3. /listcmd or /cmdalias
-    if (commandType === 'listcmd' || commandType === 'cmdalias') {
+    // 3. /listcmd or /cmdalias or /listalias or /alias or /alias list
+    if (
+      commandType === 'listcmd' ||
+      commandType === 'cmdalias' ||
+      commandType === 'listalias' ||
+      (commandType === 'alias' && (!action || action === 'list'))
+    ) {
       try {
         const aliases = await prisma.commandAlias.findMany({
           where: { groupId: ctx.chatId }
@@ -148,4 +158,7 @@ export class AliasCommand implements Command {
 
 // Register commands
 const aliasCmd = new AliasCommand();
-registerCommand(['addcmd', 'delcmd', 'listcmd', 'cmdalias'], aliasCmd);
+registerCommand([
+  'addcmd', 'delcmd', 'listcmd', 'cmdalias',
+  'alias', 'addalias', 'delalias', 'listalias'
+], aliasCmd);

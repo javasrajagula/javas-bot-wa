@@ -329,8 +329,91 @@ export class WebhookCommand implements Command {
       );
       return;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // /announcementbuilder build <template> | <judul> | <pesan> (F029)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (cmd === 'announcementbuilder' || cmd === 'f029') {
+      if (!ctx.isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya untuk grup.', { quotedMessageId: ctx.id });
+        return;
+      }
+      const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+      if (!isAdmin) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Hanya Admin yang dapat menggunakan announcement builder.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const action = args[0]?.toLowerCase().trim();
+      if (action !== 'build') {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `📣 *ANNOUNCEMENT BUILDER*\n\nGunakan: \`/announcementbuilder build <template> | <judul> | <pesan>\`\nPilihan template: *event*, *info*, *alert*\n\nContoh: \`/announcementbuilder build info | Rapat RT | Diharapkan hadir besok malam.\``,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+
+      const rawInput = args.slice(1).join(' ').trim();
+      const parts = rawInput.split('|').map(p => p.trim());
+
+      if (parts.length < 3) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `⚠️ Format salah.\nGunakan: \`/announcementbuilder build <template> | <judul> | <pesan>\`\nContoh: \`/announcementbuilder build info | Rapat RT | Diharapkan hadir besok malam.\``,
+          { quotedMessageId: ctx.id }
+        );
+        return;
+      }
+
+      const template = parts[0].toLowerCase();
+      const title = parts[1];
+      const message = parts.slice(2).join('|');
+
+      if (!['event', 'info', 'alert'].includes(template)) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Template tidak dikenal. Pilihan: *event*, *info*, *alert*.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      let header = '';
+      if (template === 'event') header = '🎉 *EVENT GRUP BARU* 🎉';
+      else if (template === 'info') header = 'ℹ️ *INFORMASI GRUP* ℹ️';
+      else if (template === 'alert') header = '⚠️ *PERINGATAN GRUP* ⚠️';
+
+      const now = new Date();
+      const dateStr = now.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'full', timeStyle: 'short' });
+      const announceId = `ANN-${Date.now()}`;
+
+      const formatted =
+        `${header}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `📌 *Judul:* ${title}\n` +
+        `📝 *Pesan:* ${message}\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━\n` +
+        `🕐 ${dateStr}\n` +
+        `🆔 \`${announceId}\`\n` +
+        `👤 Admin: @${ctx.senderId.split('@')[0]}`;
+
+      // Store to PrdStateRecord for history
+      await prisma.prdStateRecord.create({
+        data: {
+          type: 'announcement',
+          scope: ctx.chatId,
+          ownerId: ctx.senderId,
+          status: 'active',
+          text: formatted,
+          metadataJson: JSON.stringify({ announceId, dateStr, template, title, rawMessage: message })
+        }
+      });
+
+      await adapter.sendMessage(ctx.chatId, formatted, { quotedMessageId: ctx.id });
+
+      // Emit webhook event
+      await emitWebhookEvent(ctx.chatId, 'announcement_posted', { announceId, text: formatted });
+      return;
+    }
   }
 }
 
 const webhookCmd = new WebhookCommand();
-registerCommand(['webhook', 'announce', 'announcements', 'announcement'], webhookCmd);
+registerCommand(['webhook', 'announce', 'announcements', 'announcement', 'announcementbuilder', 'f029'], webhookCmd);

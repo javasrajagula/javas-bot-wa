@@ -650,8 +650,792 @@ export class NotesCommand implements Command {
         return;
       }
     }
+
+    // --- 6. QUICKNOTE SYSTEM (/quicknote, /f047) ---
+    if (cmd === 'quicknote' || cmd === 'f047') {
+      const action = args[0]?.toLowerCase().trim();
+
+      // /quicknote set <tag> = <isi> or /quicknote add <tag> = <isi>
+      if (action === 'set' || action === 'add') {
+        const fullArgs = args.slice(1).join(' ').trim();
+        let key = '';
+        let value = '';
+
+        if (fullArgs.includes('=')) {
+          const parts = fullArgs.split('=').map(p => p.trim());
+          key = parts[0];
+          value = parts.slice(1).join('=');
+        } else {
+          const parts = fullArgs.split(/\s+/);
+          key = parts[0];
+          value = parts.slice(1).join(' ');
+        }
+
+        if (!key || !value) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/quicknote set <tag> = <isi>`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const noteKey = `quicknote:${key.toLowerCase()}`;
+        const noteData = {
+          content: value,
+          createdAt: Date.now()
+        };
+
+        const targetGroup = ctx.isGroup ? ctx.chatId : 'private';
+
+        await prisma.customVariable.upsert({
+          where: {
+            groupId_userId_key: {
+              groupId: targetGroup,
+              userId: ctx.senderId,
+              key: noteKey
+            }
+          },
+          create: {
+            groupId: targetGroup,
+            userId: ctx.senderId,
+            key: noteKey,
+            value: JSON.stringify(noteData)
+          },
+          update: {
+            value: JSON.stringify(noteData)
+          }
+        });
+
+        await adapter.sendMessage(ctx.chatId, `✅ Catatan pribadi *"${key}"* berhasil disimpan.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /quicknote delete <tag> or /quicknote del <tag>
+      if (action === 'delete' || action === 'del') {
+        const key = args.slice(1).join(' ').trim();
+        if (!key) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan tag catatan yang ingin dihapus.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const noteKey = `quicknote:${key.toLowerCase()}`;
+        const targetGroup = ctx.isGroup ? ctx.chatId : 'private';
+        const existing = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: targetGroup,
+              userId: ctx.senderId,
+              key: noteKey
+            }
+          }
+        });
+
+        if (!existing) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Catatan pribadi *"${key}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        await prisma.customVariable.delete({ where: { id: existing.id } });
+        await adapter.sendMessage(ctx.chatId, `✅ Catatan pribadi *"${key}"* berhasil dihapus.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /quicknote list
+      if (!action || action === 'list') {
+        const targetGroup = ctx.isGroup ? ctx.chatId : 'private';
+        const notes = await prisma.customVariable.findMany({
+          where: {
+            groupId: targetGroup,
+            userId: ctx.senderId,
+            key: { startsWith: 'quicknote:' }
+          }
+        });
+
+        if (notes.length === 0) {
+          await adapter.sendMessage(ctx.chatId, '📭 Belum ada catatan pribadi terdaftar.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        let msg = `📝 *DAFTAR CATATAN PRIBADI* 📝\n\n`;
+        notes.forEach((n, i) => {
+          const name = n.key.slice(10); // remove 'quicknote:'
+          msg += `${i + 1}. *${name}*\n`;
+        });
+        msg += `\nGunakan \`/quicknote get <tag>\` untuk membaca catatan.`;
+
+        await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /quicknote get <tag> or /quicknote <tag>
+      const key = action === 'get' ? args.slice(1).join(' ').trim() : args.join(' ').trim();
+      if (!key) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan tag catatan pribadi. Contoh: `/quicknote get rahasia`', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const noteKey = `quicknote:${key.toLowerCase()}`;
+      const targetGroup = ctx.isGroup ? ctx.chatId : 'private';
+      const note = await prisma.customVariable.findUnique({
+        where: {
+          groupId_userId_key: {
+            groupId: targetGroup,
+            userId: ctx.senderId,
+            key: noteKey
+          }
+        }
+      });
+
+      if (!note) {
+        await adapter.sendMessage(ctx.chatId, `⚠️ Catatan pribadi *"${key}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(note.value);
+        await adapter.sendMessage(ctx.chatId, parsed.content, { quotedMessageId: ctx.id });
+      } catch {
+        await adapter.sendMessage(ctx.chatId, note.value, { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    // --- 7. CHECKLIST GRUP SYSTEM (/checklistgrup, /f043) ---
+    if (cmd === 'checklistgrup' || cmd === 'f043') {
+      if (!ctx.isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya bisa digunakan di dalam grup.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const action = args[0]?.toLowerCase().trim();
+
+      // /checklistgrup create <judul>
+      if (action === 'create') {
+        const title = args.slice(1).join(' ').trim();
+        if (!title) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan judul checklist. Contoh: `/checklistgrup create Belanja Bulanan`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const id = this.generateShortId().slice(0, 4);
+        const checklistKey = `checklist:${id}`;
+        const checklistData = {
+          title,
+          items: [],
+          createdBy: ctx.senderId,
+          createdAt: Date.now()
+        };
+
+        await prisma.customVariable.create({
+          data: {
+            groupId: ctx.chatId,
+            userId: 'group',
+            key: checklistKey,
+            value: JSON.stringify(checklistData)
+          }
+        });
+
+        await adapter.sendMessage(ctx.chatId, `✅ Checklist *"${title}"* berhasil dibuat dengan ID: *${id}*\nTambahkan item dengan: \`/checklistgrup add ${id} <item>\``, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /checklistgrup add <id> <item>
+      if (action === 'add') {
+        const id = args[1]?.trim().toUpperCase();
+        const itemText = args.slice(2).join(' ').trim();
+
+        if (!id || !itemText) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/checklistgrup add <ID> <nama item>`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const checklistKey = `checklist:${id}`;
+        const checklist = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: checklistKey
+            }
+          }
+        });
+
+        if (!checklist) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Checklist dengan ID *"${id}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const parsed = JSON.parse(checklist.value);
+        parsed.items.push({ text: itemText, checked: false });
+
+        await prisma.customVariable.update({
+          where: { id: checklist.id },
+          data: { value: JSON.stringify(parsed) }
+        });
+
+        await adapter.sendMessage(ctx.chatId, `✅ Berhasil menambahkan *"${itemText}"* ke checklist *"${parsed.title}"*.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /checklistgrup check <id> <index>
+      // /checklistgrup uncheck <id> <index>
+      if (action === 'check' || action === 'uncheck') {
+        const id = args[1]?.trim().toUpperCase();
+        const indexStr = args[2]?.trim();
+        const index = parseInt(indexStr, 10);
+
+        if (!id || isNaN(index)) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Format salah. Gunakan: \`/checklistgrup ${action} <ID> <nomor_item>\``, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const checklistKey = `checklist:${id}`;
+        const checklist = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: checklistKey
+            }
+          }
+        });
+
+        if (!checklist) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Checklist dengan ID *"${id}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const parsed = JSON.parse(checklist.value);
+        const itemIdx = index - 1; // 1-indexed to 0-indexed
+
+        if (itemIdx < 0 || itemIdx >= parsed.items.length) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Item nomor *${index}* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const isCheck = action === 'check';
+        parsed.items[itemIdx].checked = isCheck;
+        parsed.items[itemIdx].checkedBy = isCheck ? ctx.senderId : undefined;
+
+        await prisma.customVariable.update({
+          where: { id: checklist.id },
+          data: { value: JSON.stringify(parsed) }
+        });
+
+        const statusText = isCheck ? '✓ Selesai' : '✗ Belum Selesai';
+        await adapter.sendMessage(ctx.chatId, `✅ Status *"${parsed.items[itemIdx].text}"* diubah menjadi: *${statusText}*.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /checklistgrup show <id>
+      if (action === 'show') {
+        const id = args[1]?.trim().toUpperCase();
+        if (!id) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan ID Checklist. Contoh: `/checklistgrup show AB12`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const checklistKey = `checklist:${id}`;
+        const checklist = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: checklistKey
+            }
+          }
+        });
+
+        if (!checklist) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Checklist dengan ID *"${id}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const parsed = JSON.parse(checklist.value);
+        let msg = `📋 *CHECKLIST: ${parsed.title.toUpperCase()}* 📋\n`;
+        msg += `🆔 ID: *${id}*\n\n`;
+
+        if (parsed.items.length === 0) {
+          msg += `_Belum ada item. Tambahkan dengan \`/checklistgrup add ${id} <nama item>\`_\n`;
+        } else {
+          parsed.items.forEach((item: any, idx: number) => {
+            const checkEmoji = item.checked ? '✅' : '⬜';
+            const userStr = item.checkedBy ? ` (oleh @${item.checkedBy.split('@')[0]})` : '';
+            msg += `${idx + 1}. ${checkEmoji} ${item.text}${userStr}\n`;
+          });
+        }
+
+        msg += `\n💡 Ketik \`/checklistgrup check ${id} <nomor>\` untuk menyelesaikan item.`;
+        await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /checklistgrup del <id>
+      if (action === 'del' || action === 'delete') {
+        const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+        if (!isAdmin) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Hanya admin yang dapat menghapus checklist grup.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const id = args[1]?.trim().toUpperCase();
+        if (!id) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan ID Checklist yang ingin dihapus.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const checklistKey = `checklist:${id}`;
+        const existing = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: checklistKey
+            }
+          }
+        });
+
+        if (!existing) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Checklist dengan ID *"${id}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        await prisma.customVariable.delete({ where: { id: existing.id } });
+        await adapter.sendMessage(ctx.chatId, `✅ Checklist dengan ID *"${id}"* berhasil dihapus.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /checklistgrup list
+      if (!action || action === 'list') {
+        const checklists = await prisma.customVariable.findMany({
+          where: {
+            groupId: ctx.chatId,
+            userId: 'group',
+            key: { startsWith: 'checklist:' }
+          }
+        });
+
+        if (checklists.length === 0) {
+          await adapter.sendMessage(ctx.chatId, '📭 Belum ada checklist grup terdaftar.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        let msg = `📋 *DAFTAR CHECKLIST GRUP* 📋\n\n`;
+        checklists.forEach((c) => {
+          const id = c.key.slice(10);
+          try {
+            const parsed = JSON.parse(c.value);
+            msg += `• *[ID: ${id}]* ${parsed.title} (${parsed.items.length} item)\n`;
+          } catch {
+            msg += `• *[ID: ${id}]* Invalid data\n`;
+          }
+        });
+        msg += `\nGunakan \`/checklistgrup show <ID>\` untuk melihat isi checklist.`;
+        await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+        return;
+      }
+    }
+
+    // --- 8. MINI KANBAN SYSTEM (/kanbanmini, /f048) ---
+    if (cmd === 'kanbanmini' || cmd === 'f048') {
+      if (!ctx.isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya bisa digunakan di dalam grup.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const action = args[0]?.toLowerCase().trim();
+
+      // /kanbanmini create <judul>
+      if (action === 'create') {
+        const title = args.slice(1).join(' ').trim();
+        if (!title) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan judul papan Kanban. Contoh: `/kanbanmini create Project Web`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const id = this.generateShortId().slice(0, 4);
+        const boardKey = `kanban:${id}`;
+        const boardData = {
+          title,
+          nextId: 1,
+          tasks: [],
+          createdBy: ctx.senderId,
+          createdAt: Date.now()
+        };
+
+        await prisma.customVariable.create({
+          data: {
+            groupId: ctx.chatId,
+            userId: 'group',
+            key: boardKey,
+            value: JSON.stringify(boardData)
+          }
+        });
+
+        await adapter.sendMessage(ctx.chatId, `✅ Papan Kanban *"${title}"* berhasil dibuat dengan ID: *${id}*\nTambahkan tugas: \`/kanbanmini add ${id} <tugas>\``, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /kanbanmini add <boardId> <tugas>
+      if (action === 'add') {
+        const boardId = args[1]?.trim().toUpperCase();
+        const taskText = args.slice(2).join(' ').trim();
+
+        if (!boardId || !taskText) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/kanbanmini add <boardId> <nama tugas>`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const boardKey = `kanban:${boardId}`;
+        const board = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: boardKey
+            }
+          }
+        });
+
+        if (!board) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Papan Kanban dengan ID *"${boardId}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const parsed = JSON.parse(board.value);
+        const taskId = `T${parsed.nextId++}`;
+        parsed.tasks.push({
+          id: taskId,
+          text: taskText,
+          status: 'todo'
+        });
+
+        await prisma.customVariable.update({
+          where: { id: board.id },
+          data: { value: JSON.stringify(parsed) }
+        });
+
+        await adapter.sendMessage(ctx.chatId, `✅ Tugas *"${taskText}"* [ID: *${taskId}*] berhasil ditambahkan ke kolom *To Do*.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /kanbanmini move <boardId> <taskId> <todo|doing|done>
+      if (action === 'move') {
+        const boardId = args[1]?.trim().toUpperCase();
+        const taskId = args[2]?.trim().toUpperCase();
+        const newStatus = args[3]?.toLowerCase().trim();
+
+        if (!boardId || !taskId || !['todo', 'doing', 'done'].includes(newStatus)) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/kanbanmini move <boardId> <taskId> <todo|doing|done>`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const boardKey = `kanban:${boardId}`;
+        const board = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: boardKey
+            }
+          }
+        });
+
+        if (!board) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Papan Kanban dengan ID *"${boardId}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const parsed = JSON.parse(board.value);
+        const task = parsed.tasks.find((t: any) => t.id === taskId);
+
+        if (!task) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Tugas dengan ID *"${taskId}"* tidak ditemukan di papan *"${boardId}"*.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const oldStatus = task.status;
+        task.status = newStatus;
+
+        await prisma.customVariable.update({
+          where: { id: board.id },
+          data: { value: JSON.stringify(parsed) }
+        });
+
+        await adapter.sendMessage(ctx.chatId, `✅ Tugas *"${task.text}"* [${taskId}] dipindahkan dari *${oldStatus.toUpperCase()}* ke *${newStatus.toUpperCase()}*.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /kanbanmini show <boardId>
+      if (action === 'show') {
+        const boardId = args[1]?.trim().toUpperCase();
+        if (!boardId) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan ID Papan Kanban. Contoh: `/kanbanmini show AB12`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const boardKey = `kanban:${boardId}`;
+        const board = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: boardKey
+            }
+          }
+        });
+
+        if (!board) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Papan Kanban dengan ID *"${boardId}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const parsed = JSON.parse(board.value);
+        const todoList = parsed.tasks.filter((t: any) => t.status === 'todo');
+        const doingList = parsed.tasks.filter((t: any) => t.status === 'doing');
+        const doneList = parsed.tasks.filter((t: any) => t.status === 'done');
+
+        let msg = `📋 *KANBAN: ${parsed.title.toUpperCase()}* 📋\n`;
+        msg += `🆔 ID: *${boardId}*\n\n`;
+
+        msg += `📝 *TO DO* 📝\n`;
+        if (todoList.length === 0) msg += ` _(Kosong)_\n`;
+        else todoList.forEach((t: any) => msg += ` • [${t.id}] ${t.text}\n`);
+
+        msg += `\n⚙️ *DOING* ⚙️\n`;
+        if (doingList.length === 0) msg += ` _(Kosong)_\n`;
+        else doingList.forEach((t: any) => msg += ` • [${t.id}] ${t.text}\n`);
+
+        msg += `\n✅ *DONE* ✅\n`;
+        if (doneList.length === 0) msg += ` _(Kosong)_\n`;
+        else doneList.forEach((t: any) => msg += ` • [${t.id}] ${t.text}\n`);
+
+        msg += `\n💡 Pindahkan tugas dengan: \`/kanbanmini move ${boardId} <tugasId> <todo|doing|done>\``;
+
+        await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /kanbanmini del <boardId>
+      if (action === 'del' || action === 'delete') {
+        const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+        if (!isAdmin) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Hanya admin yang dapat menghapus papan Kanban.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const boardId = args[1]?.trim().toUpperCase();
+        if (!boardId) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan ID Papan Kanban yang ingin dihapus.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const boardKey = `kanban:${boardId}`;
+        const existing = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: boardKey
+            }
+          }
+        });
+
+        if (!existing) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Papan Kanban dengan ID *"${boardId}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        await prisma.customVariable.delete({ where: { id: existing.id } });
+        await adapter.sendMessage(ctx.chatId, `✅ Papan Kanban dengan ID *"${boardId}"* berhasil dihapus.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /kanbanmini list
+      if (!action || action === 'list') {
+        const boards = await prisma.customVariable.findMany({
+          where: {
+            groupId: ctx.chatId,
+            userId: 'group',
+            key: { startsWith: 'kanban:' }
+          }
+        });
+
+        if (boards.length === 0) {
+          await adapter.sendMessage(ctx.chatId, '📭 Belum ada papan Kanban grup terdaftar.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        let msg = `📋 *DAFTAR PAPAN KANBAN GRUP* 📋\n\n`;
+        boards.forEach((b) => {
+          const id = b.key.slice(7);
+          try {
+            const parsed = JSON.parse(b.value);
+            msg += `• *[ID: ${id}]* ${parsed.title} (${parsed.tasks.length} tugas)\n`;
+          } catch {
+            msg += `• *[ID: ${id}]* Invalid data\n`;
+          }
+        });
+        msg += `\nGunakan \`/kanbanmini show <ID>\` untuk melihat papan Kanban.`;
+        await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+        return;
+      }
+    }
+
+    // --- 9. BOOKMARK GRUP SYSTEM (/bookmarkgrup, /f094) ---
+    if (cmd === 'bookmarkgrup' || cmd === 'f094') {
+      if (!ctx.isGroup) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Command ini hanya bisa digunakan di dalam grup.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const action = args[0]?.toLowerCase().trim();
+
+      // /bookmarkgrup add <nama> = <url/text>
+      if (action === 'add' || action === 'set') {
+        const fullArgs = args.slice(1).join(' ').trim();
+        let key = '';
+        let value = '';
+
+        if (fullArgs.includes('=')) {
+          const parts = fullArgs.split('=').map(p => p.trim());
+          key = parts[0];
+          value = parts.slice(1).join('=');
+        } else {
+          const parts = fullArgs.split(/\s+/);
+          key = parts[0];
+          value = parts.slice(1).join(' ');
+        }
+
+        if (!key || !value) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Gunakan: `/bookmarkgrup add <nama> = <url/text>`', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const bKey = `bookmarkgrup:${key.toLowerCase()}`;
+        const bData = {
+          content: value,
+          createdBy: ctx.senderId,
+          createdAt: Date.now()
+        };
+
+        await prisma.customVariable.upsert({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: bKey
+            }
+          },
+          create: {
+            groupId: ctx.chatId,
+            userId: 'group',
+            key: bKey,
+            value: JSON.stringify(bData)
+          },
+          update: {
+            value: JSON.stringify(bData)
+          }
+        });
+
+        await adapter.sendMessage(ctx.chatId, `✅ Bookmark grup *"${key}"* berhasil disimpan.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /bookmarkgrup delete <nama> or /bookmarkgrup del <nama>
+      if (action === 'delete' || action === 'del') {
+        const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+        if (!isAdmin) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Hanya admin yang dapat menghapus bookmark grup.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const key = args.slice(1).join(' ').trim();
+        if (!key) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan nama bookmark yang ingin dihapus.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const bKey = `bookmarkgrup:${key.toLowerCase()}`;
+        const existing = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: bKey
+            }
+          }
+        });
+
+        if (!existing) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Bookmark grup *"${key}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        await prisma.customVariable.delete({ where: { id: existing.id } });
+        await adapter.sendMessage(ctx.chatId, `✅ Bookmark grup *"${key}"* berhasil dihapus.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /bookmarkgrup list
+      if (!action || action === 'list') {
+        const bookmarks = await prisma.customVariable.findMany({
+          where: {
+            groupId: ctx.chatId,
+            userId: 'group',
+            key: { startsWith: 'bookmarkgrup:' }
+          }
+        });
+
+        if (bookmarks.length === 0) {
+          await adapter.sendMessage(ctx.chatId, '📭 Belum ada bookmark grup terdaftar.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        let msg = `🔖 *DAFTAR BOOKMARK GRUP* 🔖\n\n`;
+        bookmarks.forEach((b, i) => {
+          const name = b.key.slice(13); // remove 'bookmarkgrup:'
+          msg += `${i + 1}. *${name}*\n`;
+        });
+        msg += `\nGunakan \`/bookmarkgrup get <nama>\` untuk membuka bookmark.`;
+
+        await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // /bookmarkgrup get <nama> or /bookmarkgrup <nama>
+      const key = action === 'get' ? args.slice(1).join(' ').trim() : args.join(' ').trim();
+      if (!key) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan nama bookmark grup. Contoh: `/bookmarkgrup get drive`', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      const bKey = `bookmarkgrup:${key.toLowerCase()}`;
+      const bookmark = await prisma.customVariable.findUnique({
+        where: {
+          groupId_userId_key: {
+            groupId: ctx.chatId,
+            userId: 'group',
+            key: bKey
+          }
+        }
+      });
+
+      if (!bookmark) {
+        await adapter.sendMessage(ctx.chatId, `⚠️ Bookmark grup *"${key}"* tidak ditemukan.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(bookmark.value);
+        await adapter.sendMessage(ctx.chatId, parsed.content, { quotedMessageId: ctx.id });
+      } catch {
+        await adapter.sendMessage(ctx.chatId, bookmark.value, { quotedMessageId: ctx.id });
+      }
+      return;
+    }
   }
 }
 
 const notesCmd = new NotesCommand();
-registerCommand(['note', 'notes', 'faq', 'wiki', 'bookmark', 'bookmarks', 'pinbot', 'pinlist', 'unpinbot'], notesCmd);
+registerCommand([
+  'note', 'notes', 'faq', 'wiki', 'bookmark', 'bookmarks', 'pinbot', 'pinlist', 'unpinbot',
+  'quicknote', 'f047', 'checklistgrup', 'f043', 'kanbanmini', 'f048', 'bookmarkgrup', 'f094'
+], notesCmd);

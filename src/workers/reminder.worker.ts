@@ -15,22 +15,58 @@ export function startReminderWorker(adapter: WhatsAppAdapter) {
 
       for (const reminder of pendingReminders) {
         try {
+          let isRecurring = false;
+          let intervalType = '';
+          let displayMessage = reminder.message;
+
+          try {
+            const parsed = JSON.parse(reminder.message);
+            if (parsed && typeof parsed === 'object' && parsed.recurring) {
+              isRecurring = true;
+              intervalType = parsed.interval;
+              displayMessage = parsed.originalMessage;
+            }
+          } catch {
+            // Not a JSON payload, treat as normal message
+          }
+
           if (reminder.scope === 'group' && reminder.groupId) {
             const mentionUser = `@${reminder.userId.split('@')[0]}`;
-            const text = `🔔 *PENGINGAT GRUP* 🔔\n\nHalo ${mentionUser}, ini pengingat Anda:\n👉 *${reminder.message}*`;
+            const text = `🔔 *PENGINGAT GRUP* 🔔\n\nHalo ${mentionUser}, ini pengingat Anda:\n👉 *${displayMessage}*`;
             await adapter.sendMessage(reminder.groupId, text, {
               mentions: [reminder.userId]
             });
           } else {
-            const text = `🔔 *PENGINGAT* 🔔\n\nHalo, ini pengingat Anda:\n👉 *${reminder.message}*`;
+            const text = `🔔 *PENGINGAT* 🔔\n\nHalo, ini pengingat Anda:\n👉 *${displayMessage}*`;
             await adapter.sendMessage(reminder.userId, text);
           }
 
-          // Mark as sent
-          await prisma.reminder.update({
-            where: { id: reminder.id },
-            data: { status: 'sent' }
-          });
+          if (isRecurring) {
+            // Calculate next run time
+            const nextRunAt = new Date(reminder.runAt);
+            if (intervalType === 'daily') {
+              nextRunAt.setDate(nextRunAt.getDate() + 1);
+            } else if (intervalType.startsWith('rrule:weekly:')) {
+              nextRunAt.setDate(nextRunAt.getDate() + 7);
+            } else {
+              // fallback
+              nextRunAt.setDate(nextRunAt.getDate() + 7);
+            }
+
+            await prisma.reminder.update({
+              where: { id: reminder.id },
+              data: {
+                runAt: nextRunAt,
+                status: 'pending'
+              }
+            });
+          } else {
+            // Mark as sent
+            await prisma.reminder.update({
+              where: { id: reminder.id },
+              data: { status: 'sent' }
+            });
+          }
         } catch (err: any) {
           console.error(`[ReminderWorker] Failed to process reminder ${reminder.id}:`, err.message);
           // Mark as failed or sent to avoid infinite loop

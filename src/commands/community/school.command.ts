@@ -334,8 +334,8 @@ export class SchoolCommand implements Command {
       return;
     }
 
-    // --- 4. /jadwal & /jadwalpelajaran ---
-    if (cmd === 'jadwal' || cmd === 'jadwalpelajaran') {
+    // --- 4. /jadwal & /jadwalpelajaran & /f031 ---
+    if (cmd === 'jadwal' || cmd === 'jadwalpelajaran' || cmd === 'f031') {
       const sub = args[0]?.toLowerCase().trim();
 
       // /jadwal add <hari> | <jam> | <mapel>
@@ -653,4 +653,4 @@ export class SchoolCommand implements Command {
 
 // Register commands
 const schoolCmd = new SchoolCommand();
-registerCommand(['tugas', 'deadline', 'rekaptugas', 'jadwal', 'jadwalpelajaran', 'ujian', 'calendar', 'kalender'], schoolCmd);
+registerCommand(['tugas', 'deadline', 'rekaptugas', 'jadwal', 'jadwalpelajaran', 'f031', 'ujian', 'calendar', 'kalender'], schoolCmd);

@@ -130,6 +130,47 @@ const INITIAL_PLUGINS: PluginMetadata[] = [
   }
 ];
 
+// Dynamically register the new PRD commands and plugins
+import { PRD_CATALOG } from '../commands/prd/prd-feature-catalog.js';
+
+const newPlugins: Record<string, string[]> = {
+  privacy: [],
+  school: [],
+  productivity: [],
+  business: [],
+  automation: [],
+  analytics: [],
+  developer: [],
+  premium: [],
+  ai: [],
+  admin: []
+};
+
+for (const entry of PRD_CATALOG) {
+  const pName = entry.plugin.toLowerCase();
+  const cmds = [entry.name, ...entry.aliases];
+
+  if (pName in newPlugins) {
+    newPlugins[pName].push(...cmds);
+  } else {
+    const existing = INITIAL_PLUGINS.find(p => p.name.toLowerCase() === pName);
+    if (existing) {
+      existing.commands.push(...cmds);
+    }
+  }
+}
+
+for (const [name, commands] of Object.entries(newPlugins)) {
+  const categoryName = name.charAt(0).toUpperCase() + name.slice(1);
+  INITIAL_PLUGINS.push({
+    name,
+    commands,
+    enabled: true,
+    permission: name === 'developer' || name === 'premium' ? 'OWNER' : 'USER',
+    category: categoryName
+  });
+}
+
 class PluginManager {
   private plugins: PluginMetadata[] = [];
 

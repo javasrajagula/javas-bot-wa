@@ -22,12 +22,21 @@ export class ReputationCommand implements Command {
 
     const cmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
 
-    // --- 1. /rep @user or /rep (show own) ---
-    if (cmd === 'rep') {
+    // --- 1. /rep @user or /rep (show own) or /reputasipositif, /thank, /makasih, /reputasi, /f040 ---
+    if (['rep', 'reputasi', 'reputasipositif', 'f040', 'thank', 'makasih'].includes(cmd)) {
+      let targetUserId: string | null = null;
       const rawUser = args[0];
-      
-      // If no args, show own reputation and trust level
-      if (!rawUser) {
+
+      if (rawUser) {
+        targetUserId = rawUser.includes('@')
+          ? rawUser.replace(/[@\s]/g, '').trim() + '@s.whatsapp.net'
+          : rawUser.trim() + '@s.whatsapp.net';
+      } else if (ctx.quotedMessage?.senderId) {
+        targetUserId = ctx.quotedMessage.senderId;
+      }
+
+      // If no target user and command is rep / reputasi, show own reputation and trust level
+      if (!targetUserId && ['rep', 'reputasi'].includes(cmd)) {
         const repVar = await prisma.customVariable.findUnique({
           where: {
             groupId_userId_key: {
@@ -54,10 +63,11 @@ export class ReputationCommand implements Command {
         return;
       }
 
-      // If repping someone
-      const targetUserId = rawUser.includes('@')
-        ? rawUser.replace(/[@\s]/g, '').trim() + '@s.whatsapp.net'
-        : rawUser.trim() + '@s.whatsapp.net';
+      // If still no target user (e.g. for /thank, /makasih, /reputasipositif)
+      if (!targetUserId) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Quote pesan atau tag pengguna yang ingin diberikan reputasi. Contoh: `/thank @user` atau balas pesannya dengan `/thank`', { quotedMessageId: ctx.id });
+        return;
+      }
 
       if (targetUserId === ctx.senderId) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Kamu tidak bisa memberikan reputasi ke dirimu sendiri.', { quotedMessageId: ctx.id });
@@ -127,17 +137,23 @@ export class ReputationCommand implements Command {
       return;
     }
 
-    // --- 2. /-rep @user ---
+    // --- 2. /-rep @user or /-rep (replying to message) ---
     if (cmd === '-rep') {
+      let targetUserId: string | null = null;
       const rawUser = args[0];
-      if (!rawUser) {
-        await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan pengguna yang ingin dikurangi reputasinya. Contoh: `/-rep @user`', { quotedMessageId: ctx.id });
-        return;
+
+      if (rawUser) {
+        targetUserId = rawUser.includes('@')
+          ? rawUser.replace(/[@\s]/g, '').trim() + '@s.whatsapp.net'
+          : rawUser.trim() + '@s.whatsapp.net';
+      } else if (ctx.quotedMessage?.senderId) {
+        targetUserId = ctx.quotedMessage.senderId;
       }
 
-      const targetUserId = rawUser.includes('@')
-        ? rawUser.replace(/[@\s]/g, '').trim() + '@s.whatsapp.net'
-        : rawUser.trim() + '@s.whatsapp.net';
+      if (!targetUserId) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Masukkan pengguna yang ingin dikurangi reputasinya atau balas pesannya dengan `/-rep`. Contoh: `/-rep @user`', { quotedMessageId: ctx.id });
+        return;
+      }
 
       if (targetUserId === ctx.senderId) {
         await adapter.sendMessage(ctx.chatId, '⚠️ Kamu tidak bisa mengurangi reputasi dirimu sendiri.', { quotedMessageId: ctx.id });
@@ -207,8 +223,8 @@ export class ReputationCommand implements Command {
       return;
     }
 
-    // --- 3. /toprep ---
-    if (cmd === 'toprep') {
+    // --- 3. /toprep or /tophelper or /f113 ---
+    if (['toprep', 'tophelper', 'f113'].includes(cmd)) {
       const records = await prisma.customVariable.findMany({
         where: { groupId: ctx.chatId, key: 'reputation' }
       });
@@ -223,7 +239,8 @@ export class ReputationCommand implements Command {
         return;
       }
 
-      let msg = `🏆 *PAPAN PERINGKAT REPUTASI WARGA* 🏆\n\n`;
+      const title = cmd === 'tophelper' || cmd === 'f113' ? '🏆 PAPAN PERINGKAT TOP HELPER GRUP 🏆' : '🏆 PAPAN PERINGKAT REPUTASI WARGA 🏆';
+      let msg = `${title}\n\n`;
       const mentions: string[] = [];
 
       sorted.forEach((item, index) => {
@@ -305,4 +322,7 @@ export class ReputationCommand implements Command {
 }
 
 const reputationCmd = new ReputationCommand();
-registerCommand(['rep', '-rep', 'toprep', 'trustlevel', 'audit'], reputationCmd);
+registerCommand([
+  'rep', 'reputasi', 'reputasipositif', 'f040', 'thank', 'makasih',
+  '-rep', 'toprep', 'tophelper', 'f113', 'trustlevel', 'audit'
+], reputationCmd);

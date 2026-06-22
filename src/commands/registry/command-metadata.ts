@@ -1,4 +1,5 @@
 import { CommandMetadata } from './command-types.js';
+import { PRD_CATALOG } from '../prd/prd-feature-catalog.js';
 
 export const COMMAND_METADATA_LIST: CommandMetadata[] = [
   // --- STICKER SUITE ---
@@ -1847,3 +1848,5 @@ export const COMMAND_METADATA_LIST: CommandMetadata[] = [
     examples: ['/announcement ANN-1234567890']
   }
 ];
+
+COMMAND_METADATA_LIST.push(...PRD_CATALOG);

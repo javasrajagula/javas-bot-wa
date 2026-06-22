@@ -219,13 +219,18 @@ Utility non-paid AI & Offline System Dependencies:
 | `/tugasdone <id>` | Tandai tugas selesai | Admin |
 | `/absen [buka/list/tutup]` | Kelola absensi kehadiran | Admin |
 | `/jadwal [add/lihat/hapus]` | Kelola jadwal pelajaran/kegiatan | Admin |
+| `/jadwalpelajaran` | Alias untuk jadwal pelajaran sekolah (F031) | Admin |
 | `/ulang [add/list]` | Daftar ulang tahun anggota | User |
+| `/birthday card [@user]` | Generate kartu ulang tahun estetik (F039) | User |
 | `/stats` | Statistik aktivitas grup | Admin |
 | `/topaktif` | Peringkat member paling aktif | User |
 | `/profil [@user]` | Kartu profil & reputasi member | User |
 | `/reputasi [@user]` | Skor reputasi & trust level | User |
+| `/reputasipositif` / `/thank` / `/makasih` | Berikan +1 poin reputasi kepada member lain (F040) | User |
+| `/tophelper` | Papan peringkat top helper (leaderboard reputasi) (F113) | User |
 | `/note [add/list/get/delete]` | Catatan grup / FAQ | Admin |
 | `/wiki [add/get/list]` | Wiki konten grup | Admin |
+| `/presetfitur <preset>` | Terapkan preset bundle fitur (sekolah/jualan/gaming/islami/komunitas) (F022) | Admin |
 | `/misi` | Daftar misi harian aktif | User |
 | `/claimdaily` | Klaim reward misi harian | User |
 
@@ -283,6 +288,9 @@ Utility non-paid AI & Offline System Dependencies:
 | `/rule tambah <aturan>` | Tambah smart rule | Admin |
 | `/rule list` | Daftar smart rules | User |
 | `/rule delete <id>` | Hapus smart rule | Admin |
+| `/alias` / `/addalias` | Tambah custom command alias di grup | Admin |
+| `/delalias` / `/listalias` | Hapus / daftar alias terdaftar | Admin |
+| `/addcmd` / `/delcmd` | Tambah / hapus pemetaan command kustom | Admin |
 
 ### 🔒 Privasi & Data
 
@@ -304,6 +312,7 @@ Utility non-paid AI & Offline System Dependencies:
 | Command | Deskripsi | Peran |
 |:--------|:----------|:------|
 | `/announce <pesan>` | Buat pengumuman resmi bergaya format | Admin |
+| `/announcementbuilder` | Buat pengumuman interaktif bertemplat (info/event/alert) (F029) | Admin |
 | `/announcements` | Daftar 10 pengumuman terakhir | User |
 | `/announcement <id>` | Detail satu pengumuman | User |
 
@@ -501,9 +510,18 @@ Utility non-paid AI & Offline System Dependencies:
 | `/kalkulatorgizi` | Hitung kebutuhan kalori & gizi harian | User |
 | `/bmi <tinggi> <berat>` | Hitung Body Mass Index | User |
 | `/todo [add/done/list/clear]` | Daftar tugas personal (to-do list) | User |
+| `/checklistgrup` | Kelola shared checklist grup (F043) | User |
+| `/kanbanmini` | Kelola papan kanban mini grup (F048) | User |
+| `/quicknote` | Kelola catatan pribadi bersandi tag (F047) | User |
+| `/bookmarkgrup` | Kelola bookmark tautan bersama di grup (F094) | User |
 | `/reminder <waktu> <pesan>` | Atur pengingat personal | User |
+| `/reminderulang` | Atur pengingat berulang harian/mingguan (F041) | User |
+| `/remindernlp` | Atur pengingat dengan bahasa alami (F042) | User |
+| `/linkreminder` | Atur pengingat membaca tautan (F100) | User |
+| `/agendaharian` / `/agenda` | Lihat rangkuman agenda hari ini (F045) | User |
 | `/timer <menit>` | Countdown timer di grup | User |
 | `/polling <pertanyaan> | <opsi1> | <opsi2>` | Buat polling interaktif | Admin |
+| `/votingkeputusan` | Polling keputusan dengan quorum & deadline (F038) | Admin |
 | `/formlink <url>` | Bagikan link form Google/Typeform | Admin |
 | `/encryptteks` | Enkripsi teks dengan password | User |
 | `/decryptteks` | Dekripsi teks terenkripsi | User |

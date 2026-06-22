@@ -1,4 +1,4 @@
-import { Command, registerCommand } from '../index.js';
+import { Command, registerCommand, checkIfAdmin } from '../index.js';
 import { MessageContext } from '../../bot/message.types.js';
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
 import prisma from '../../db/client.js';
@@ -11,7 +11,8 @@ const SECURITY_MODERATION_LIST = [
   'rules-welcome', 'clearwarn', 'kickprotect', 'antitagall', 'waitlist', 'scrubinfo', 'antivirusdoc',
   'spamlearn', 'historybackup', 'shadowban', 'privacymode', 'autodeletemedia', 'ipfilter', 'antiforeign',
   'toxicthreshold', 'infoupdate', 'ratelimitmsg', 'appeal', 'antiinvitelink', 'verifybadge',
-  'groupschedule', 'guardabuse', 'banmessage', 'lockoffline', 'antieditabuse', 'antiviewonce', 'antifarming'
+  'groupschedule', 'guardabuse', 'banmessage', 'lockoffline', 'antieditabuse', 'antiviewonce', 'antifarming',
+  'lockdownschedule', 'f007'
 ];
 
 const OWNER_RESELLER_LIST = [
@@ -33,8 +34,75 @@ export class DynamicSecurityCommand implements Command {
     const textArg = args.join(' ').trim();
 
     if (SECURITY_MODERATION_LIST.includes(cmd)) {
-      // Logic for Security and Moderation
       const action = cmd.toUpperCase();
+
+      if (cmd === 'lockdownschedule' || cmd === 'f007') {
+        const isAdmin = await checkIfAdmin(ctx.chatId, ctx.senderId, adapter);
+        if (!isAdmin) {
+          await adapter.sendMessage(ctx.chatId, '⚠️ Hanya admin yang dapat mengatur jadwal lockdown.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const sub = args[0]?.toLowerCase();
+        if (sub === 'set') {
+          const timeRange = args[1];
+          if (!timeRange || !/^\d{2}:\d{2}-\d{2}:\d{2}$/.test(timeRange)) {
+            await adapter.sendMessage(ctx.chatId, '⚠️ Format salah. Contoh: `/lockdownschedule set 22:00-05:00`', { quotedMessageId: ctx.id });
+            return;
+          }
+
+          await prisma.customVariable.upsert({
+            where: {
+              groupId_userId_key: {
+                groupId: ctx.chatId!,
+                userId: 'group',
+                key: 'lockdownschedule'
+              }
+            },
+            create: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: 'lockdownschedule',
+              value: timeRange
+            },
+            update: {
+              value: timeRange
+            }
+          });
+
+          await adapter.sendMessage(ctx.chatId, `✅ Jadwal lockdown berhasil diset ke *${timeRange}*.\nGrup akan terkunci otomatis pada jam tersebut setiap hari.`, { quotedMessageId: ctx.id });
+          return;
+        }
+
+        if (sub === 'off' || sub === 'delete' || sub === 'del') {
+          await prisma.customVariable.deleteMany({
+            where: {
+              groupId: ctx.chatId,
+              userId: 'group',
+              key: 'lockdownschedule'
+            }
+          });
+          await adapter.sendMessage(ctx.chatId, '✅ Jadwal lockdown berhasil dinonaktifkan.', { quotedMessageId: ctx.id });
+          return;
+        }
+
+        const current = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: ctx.chatId!,
+              userId: 'group',
+              key: 'lockdownschedule'
+            }
+          }
+        });
+
+        if (current) {
+          await adapter.sendMessage(ctx.chatId, `🔒 *JADWAL LOCKDOWN GRUP* 🔒\n\nStatus: *Aktif*\nJadwal: *${current.value}*\n\nPerintah:\n• \`/lockdownschedule set <HH:MM-HH:MM>\` untuk mengubah\n• \`/lockdownschedule off\` untuk menonaktifkan`, { quotedMessageId: ctx.id });
+        } else {
+          await adapter.sendMessage(ctx.chatId, `🔒 *JADWAL LOCKDOWN GRUP* 🔒\n\nStatus: *Nonaktif*\n\nKetik \`/lockdownschedule set 22:00-05:00\` untuk mengaktifkan lockdown harian otomatis.`, { quotedMessageId: ctx.id });
+        }
+        return;
+      }
       
       // Math captcha simulation
       if (cmd === 'join-captcha') {
