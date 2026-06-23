@@ -46,6 +46,70 @@ const TYPING_RACE_POOL = [
   'Membaca kode orang lain membantu kita belajar teknik pemrograman baru.'
 ];
 
+const TRIVIA_POOL = [
+  { question: 'Apakah nama ibukota Indonesia saat ini?', options: ['A. Jakarta', 'B. Bandung', 'C. Surabaya', 'D. Nusantara'], answer: 'd' },
+  { question: 'Siapakah presiden pertama Indonesia?', options: ['A. Soeharto', 'B. Soekarno', 'C. BJ Habibie', 'D. Gus Dur'], answer: 'b' },
+  { question: 'Planet manakah yang paling dekat dengan matahari?', options: ['A. Venus', 'B. Mars', 'C. Merkurius', 'D. Yupiter'], answer: 'c' },
+  { question: 'Berapakah hasil dari 12 dikali 12?', options: ['A. 124', 'B. 144', 'C. 134', 'D. 154'], answer: 'b' },
+  { question: 'Hewan mamalia terbesar di dunia adalah...', options: ['A. Gajah', 'B. Hiu Megalodon', 'C. Paus Biru', 'D. Jerapah'], answer: 'c' },
+  { question: 'Benua terkecil di dunia adalah...', options: ['A. Asia', 'B. Afrika', 'C. Eropa', 'D. Australia'], answer: 'd' },
+  { question: 'Zat hijau daun pada tumbuhan disebut...', options: ['A. Klorofil', 'B. Oksigen', 'C. Stomata', 'D. Glukosa'], answer: 'a' }
+];
+
+const DETECTIVE_POOL = [
+  {
+    title: 'Kasus Pencurian Kalung Berlian',
+    setup: 'Kalung berlian Nyonya Sandra hilang dari brankas kamarnya semalam. Brankas dibuka menggunakan kode kombinasi yang hanya diketahui oleh orang terdekat.',
+    suspects: 'A. Budi (Kepala Pelayan) - Terlihat cemas dan memiliki hutang judi.\nB. Clara (Sekretaris) - Sering merapikan dokumen di kamar Nyonya Sandra.\nC. Doni (Keponakan) - Membutuhkan modal untuk bisnis barunya.',
+    clues: [
+      'Clue 1: Tidak ditemukan tanda kerusakan paksa pada pintu brankas.',
+      'Clue 2: Sidik jari Doni ditemukan pada gagang pintu kamar Sandra, namun ia mengaku tidak masuk ke kamar.',
+      'Clue 3: Buku catatan Budi berisi coretan angka yang persis dengan kode brankas.'
+    ],
+    answer: 'a'
+  },
+  {
+    title: 'Kasus Pembakaran Gudang Kertas',
+    setup: 'Gudang kertas milik Pak Toni terbakar habis pada jam 2 dini hari. Detektif menemukan bekas minyak tanah di dekat pintu masuk gudang.',
+    suspects: 'A. Eko (Mantan Karyawan) - Dipecat minggu lalu karena malas.\nB. Feri (Penjaga Malam) - Tertidur saat kejadian berlangsung.\nC. Gani (Kompetitor Bisnis) - Gudangnya berada tepat di sebelah gudang Pak Toni.',
+    clues: [
+      'Clue 1: Feri mengaku mencium bau minyak tanah sebelum tertidur.',
+      'Clue 2: Kamera pengawas di seberang jalan menunjukkan sesosok orang pincang melarikan diri dari lokasi.',
+      'Clue 3: Eko berjalan pincang akibat kecelakaan kerja sebulan yang lalu.'
+    ],
+    answer: 'a'
+  }
+];
+
+const TREASURE_POOL = [
+  {
+    riddle: 'Saya adalah sebuah negara kepulauan yang dilintasi garis khatulistiwa. Saya memiliki pulau berbentuk huruf K.',
+    hints: [
+      'Hint 1: Pulau tersebut adalah Sulawesi.',
+      'Hint 2: Nama saya diawali huruf I.',
+      'Hint 3: Ibukota saya saat ini adalah Jakarta / Nusantara.'
+    ],
+    answer: 'indonesia'
+  },
+  {
+    riddle: 'Saya adalah sebuah bahasa pemrograman yang dikembangkan oleh Microsoft, merupakan superset dari JavaScript dengan static typing.',
+    hints: [
+      'Hint 1: Ekstensi berkas saya adalah .ts.',
+      'Hint 2: Dikembangkan oleh Anders Hejlsberg.',
+      'Hint 3: Nama saya diawali huruf T.'
+    ],
+    answer: 'typescript'
+  }
+];
+
+const PUZZLE_24_POOL = [
+  { numbers: [3, 8, 3, 1], solution: '8 / (3 - (8 / 3))' },
+  { numbers: [4, 4, 10, 10], solution: '(10 * 10 - 4) / 4' },
+  { numbers: [5, 5, 5, 1], solution: '5 * (5 - 1 / 5)' },
+  { numbers: [3, 3, 8, 8], solution: '8 / (3 - 8 / 3)' },
+  { numbers: [1, 5, 5, 5], solution: '5 * (5 - 1 / 5)' }
+];
+
 export class PrdGamesSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
     const rawCmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
@@ -62,7 +126,7 @@ export class PrdGamesSuiteCommand implements Command {
     if (!entry) return;
 
     // Check if the command is one of the implemented games
-    const implementedIds = new Set(['G016', 'G020', 'G021', 'G022', 'G030', 'G001', 'G002', 'G008', 'G019', 'G023', 'G024', 'G025']);
+    const implementedIds = new Set(['G016', 'G020', 'G021', 'G022', 'G030', 'G001', 'G002', 'G008', 'G019', 'G023', 'G024', 'G025', 'G004', 'G006', 'G011', 'G012', 'G018']);
     if (!implementedIds.has(entry.id)) {
       // Fallback scaffold message for unimplemented games
       await adapter.sendMessage(
@@ -102,6 +166,16 @@ export class PrdGamesSuiteCommand implements Command {
       await this.playMemoryCards(ctx, args, adapter);
     } else if (gameId === 'G025') {
       await this.playMinesweeperChat(ctx, args, adapter);
+    } else if (gameId === 'G011') {
+      await this.playQuizDuel(ctx, args, adapter);
+    } else if (gameId === 'G012') {
+      await this.playQuizBattleRoyale(ctx, args, adapter);
+    } else if (gameId === 'G004') {
+      await this.playDetective(ctx, args, adapter);
+    } else if (gameId === 'G006') {
+      await this.playTreasure(ctx, args, adapter);
+    } else if (gameId === 'G018') {
+      await this.playPuzzle24(ctx, args, adapter);
     }
   }
 
@@ -1018,6 +1092,666 @@ export class PrdGamesSuiteCommand implements Command {
     }
     return out;
   }
+
+  // ─── Quiz Duel 1v1 (G011) ──────────────────────────────────────────────────
+  private async playQuizDuel(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+
+    if (action === 'join') {
+      const room = activeRooms.get(ctx.chatId);
+      if (!room || room.gameType !== 'G011') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Quiz Duel yang sedang membuka pendaftaran.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.status !== 'lobby') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Game sudah dimulai.', { quotedMessageId: ctx.id });
+        return;
+      }
+      const success = room.join(ctx.senderId);
+      if (success) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `✅ @${ctx.senderId.split('@')[0]} bergabung ke Quiz Duel! (Total pemain: ${room.players.length}/2)`,
+          { mentions: [ctx.senderId] }
+        );
+        if (room.players.length === 2) {
+          room.start();
+          room.state = {
+            round: 1,
+            totalRounds: 3,
+            scores: { [room.players[0]]: 0, [room.players[1]]: 0 },
+            currentAnswers: {},
+            currentQuestion: null
+          };
+          await this.setupQuizDuelRound(room, adapter);
+        }
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Anda sudah bergabung atau lobby sudah penuh.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G011') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Quiz Duel 1v1 telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Quiz Duel aktif.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G011',
+      gameName: 'Quiz Duel 1v1',
+      hostId: ctx.senderId,
+      minPlayers: 2,
+      maxPlayers: 2
+    });
+
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(180000, async () => {
+      if (activeRooms.get(ctx.chatId) === room && room.status === 'lobby') {
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '⏰ *Quiz Duel Lobby Timeout!* Lobi dibatalkan karena tidak ada lawan bergabung.');
+      }
+    });
+
+    const initMsg = `⚔️ *QUIZ DUEL 1v1 LOBBY* ⚔️\n\n` +
+      `Host: @${ctx.senderId.split('@')[0]}\n` +
+      `Menunggu lawan untuk bergabung...\n\n` +
+      `Ketik \`/quizduel join\` untuk menantang host!`;
+    await adapter.sendMessage(ctx.chatId, initMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+  }
+
+  private async setupQuizDuelRound(room: GameRoom, adapter: WhatsAppAdapter): Promise<void> {
+    const state = room.state;
+    state.currentAnswers = {};
+    
+    const questionIdx = Math.floor(Math.random() * TRIVIA_POOL.length);
+    state.currentQuestion = TRIVIA_POOL[questionIdx];
+
+    const q = state.currentQuestion;
+    const msg = `⚡ *QUIZ DUEL 1v1 — PUTARAN ${state.round}/${state.totalRounds}* ⚡\n\n` +
+      `🤔 *Pertanyaan:* ${q.question}\n\n` +
+      `${q.options.join('\n')}\n\n` +
+      `✉️ *Cara Menjawab:* Ketik pilihan Anda (\`A\`, \`B\`, \`C\`, atau \`D\`) di grup chat!\n` +
+      `Waktu menjawab: *30 detik*.`;
+
+    await adapter.sendMessage(room.id, msg);
+
+    room.setAfkTimeout(30000, async () => {
+      if (activeRooms.get(room.id) === room && room.status === 'playing') {
+        await this.evaluateQuizDuelRound(room, adapter, true);
+      }
+    });
+  }
+
+  public async evaluateQuizDuelRound(room: GameRoom, adapter: WhatsAppAdapter, timeout = false): Promise<void> {
+    room.clearAfkTimeout();
+    const state = room.state;
+    const q = state.currentQuestion;
+    const correctAns = q.answer.toLowerCase();
+
+    let resultMsg = `📊 *HASIL QUIZ DUEL — PUTARAN ${state.round}* 📊\n\n` +
+      `Jawaban yang benar: *${correctAns.toUpperCase()}. ${q.options.find((o: string) => o.toLowerCase().startsWith(correctAns))?.slice(3) || ''}*\n\n`;
+
+    const mentions: string[] = [];
+    for (const player of room.players) {
+      const choice = state.currentAnswers[player];
+      const isCorrect = choice === correctAns;
+      if (isCorrect) {
+        state.scores[player] = (state.scores[player] || 0) + 10;
+      }
+      const choiceStr = choice ? choice.toUpperCase() : 'Tidak Menjawab';
+      const mark = isCorrect ? '✅' : '❌';
+      resultMsg += `@${player.split('@')[0]}: ${choiceStr} ${mark} (+${isCorrect ? 10 : 0} poin)\n`;
+      mentions.push(player);
+    }
+
+    resultMsg += `\n*Skor Sementara:*\n`;
+    for (const player of room.players) {
+      resultMsg += `- @${player.split('@')[0]}: ${state.scores[player]} poin\n`;
+    }
+
+    await adapter.sendMessage(room.id, resultMsg, { mentions });
+
+    if (state.round >= state.totalRounds) {
+      activeRooms.delete(room.id);
+      let winMsg = `🏆 *QUIZ DUEL SELESAI!* 🏆\n\n`;
+      const p1 = room.players[0];
+      const p2 = room.players[1];
+      const s1 = state.scores[p1] || 0;
+      const s2 = state.scores[p2] || 0;
+
+      if (s1 > s2) {
+        await rewardPlayer(p1, 100, 30);
+        await recordGameStats(p1, room.id, 'quizduel', true, s1);
+        await recordGameStats(p2, room.id, 'quizduel', false, s2);
+        winMsg += `👑 Pemenang: @${p1.split('@')[0]} dengan ${s1} poin!\n` +
+          `💰 Hadiah: +100 Koin | +30 XP`;
+        await adapter.sendMessage(room.id, winMsg, { mentions: [p1] });
+      } else if (s2 > s1) {
+        await rewardPlayer(p2, 100, 30);
+        await recordGameStats(p2, room.id, 'quizduel', true, s2);
+        await recordGameStats(p1, room.id, 'quizduel', false, s1);
+        winMsg += `👑 Pemenang: @${p2.split('@')[0]} dengan ${s2} poin!\n` +
+          `💰 Hadiah: +100 Koin | +30 XP`;
+        await adapter.sendMessage(room.id, winMsg, { mentions: [p2] });
+      } else {
+        await rewardPlayer(p1, 50, 15);
+        await rewardPlayer(p2, 50, 15);
+        await recordGameStats(p1, room.id, 'quizduel', true, s1);
+        await recordGameStats(p2, room.id, 'quizduel', true, s2);
+        winMsg += `🤝 Hasil SERI! Kedua pemain mendapatkan +50 Koin | +15 XP.`;
+        await adapter.sendMessage(room.id, winMsg, { mentions: [p1, p2] });
+      }
+    } else {
+      state.round += 1;
+      setTimeout(async () => {
+        if (activeRooms.get(room.id) === room && room.status === 'playing') {
+          await this.setupQuizDuelRound(room, adapter);
+        }
+      }, 3000);
+    }
+  }
+
+  // ─── Quiz Battle Royale (G012) ──────────────────────────────────────────────
+  private async playQuizBattleRoyale(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+
+    if (action === 'join') {
+      const room = activeRooms.get(ctx.chatId);
+      if (!room || room.gameType !== 'G012') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Quiz Battle Royale yang sedang membuka pendaftaran.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.status !== 'lobby') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Game sudah dimulai.', { quotedMessageId: ctx.id });
+        return;
+      }
+      const success = room.join(ctx.senderId);
+      if (success) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `✅ @${ctx.senderId.split('@')[0]} bergabung! (Total pemain: ${room.players.length}/12)`,
+          { mentions: [ctx.senderId] }
+        );
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Anda sudah bergabung atau lobby sudah penuh.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (action === 'start') {
+      const room = activeRooms.get(ctx.chatId);
+      if (!room || room.gameType !== 'G012') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Quiz Battle Royale.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.hostId !== ctx.senderId) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Hanya host yang bisa memulai game.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.players.length < 2) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Butuh minimal 2 pemain untuk memulai Quiz Battle Royale.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      room.start();
+      room.state = {
+        round: 1,
+        activePlayers: [...room.players],
+        currentAnswers: {},
+        currentQuestion: null,
+        maxRounds: 10
+      };
+      await this.setupQuizBRRound(room, adapter);
+      return;
+    }
+
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G012') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Quiz Battle Royale telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Quiz Battle Royale aktif.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G012',
+      gameName: 'Quiz Battle Royale',
+      hostId: ctx.senderId,
+      minPlayers: 2,
+      maxPlayers: 12
+    });
+
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(180000, async () => {
+      if (activeRooms.get(ctx.chatId) === room && room.status === 'lobby') {
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '⏰ *Quiz Battle Royale Lobby Timeout!* Lobi dibatalkan karena tidak dimulai.');
+      }
+    });
+
+    const initMsg = `💥 *QUIZ BATTLE ROYALE LOBBY* 💥\n\n` +
+      `Host: @${ctx.senderId.split('@')[0]}\n` +
+      `Pemain saat ini: 1/12\n\n` +
+      `Hubungi anggota lain untuk ikut bergabung!\n` +
+      `Ketik \`/quizbattleroyale join\` untuk mendaftar.\n` +
+      `Host ketik \`/quizbattleroyale start\` untuk memulai.`;
+    await adapter.sendMessage(ctx.chatId, initMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+  }
+
+  private async setupQuizBRRound(room: GameRoom, adapter: WhatsAppAdapter): Promise<void> {
+    const state = room.state;
+    state.currentAnswers = {};
+
+    const questionIdx = Math.floor(Math.random() * TRIVIA_POOL.length);
+    state.currentQuestion = TRIVIA_POOL[questionIdx];
+
+    const q = state.currentQuestion;
+    const activeMentions = state.activePlayers;
+    const listPemain = state.activePlayers.map((p: string) => `@${p.split('@')[0]}`).join(', ');
+
+    const msg = `💥 *QUIZ BATTLE ROYALE — PUTARAN ${state.round}* 💥\n\n` +
+      `👥 *Pemain Tersisa:* ${listPemain}\n\n` +
+      `🤔 *Pertanyaan:* ${q.question}\n\n` +
+      `${q.options.join('\n')}\n\n` +
+      `⚠️ *Aturan:* Jawaban salah/tidak menjawab = ELEMINASI!\n` +
+      `Ketik pilihan Anda (\`A\`, \`B\`, \`C\`, atau \`D\`) di grup chat!\n` +
+      `Waktu menjawab: *30 detik*.`;
+
+    await adapter.sendMessage(room.id, msg, { mentions: activeMentions });
+
+    room.setAfkTimeout(30000, async () => {
+      if (activeRooms.get(room.id) === room && room.status === 'playing') {
+        await this.evaluateQuizBRRound(room, adapter, true);
+      }
+    });
+  }
+
+  public async evaluateQuizBRRound(room: GameRoom, adapter: WhatsAppAdapter, timeout = false): Promise<void> {
+    room.clearAfkTimeout();
+    const state = room.state;
+    const q = state.currentQuestion;
+    const correctAns = q.answer.toLowerCase();
+
+    const survivors: string[] = [];
+    const eliminated: string[] = [];
+
+    for (const player of state.activePlayers) {
+      const choice = state.currentAnswers[player];
+      if (choice === correctAns) {
+        survivors.push(player);
+      } else {
+        eliminated.push(player);
+      }
+    }
+
+    let resultMsg = `📊 *HASIL BATTLE ROYALE — PUTARAN ${state.round}* 📊\n\n` +
+      `Jawaban yang benar: *${correctAns.toUpperCase()}. ${q.options.find((o: string) => o.toLowerCase().startsWith(correctAns))?.slice(3) || ''}*\n\n`;
+
+    if (eliminated.length > 0) {
+      resultMsg += `💀 *Tereliminasi:* ${eliminated.map(p => `@${p.split('@')[0]}`).join(', ')}\n`;
+    }
+
+    const mentions = [...state.activePlayers];
+
+    if (survivors.length === 0) {
+      resultMsg += `\n⚠️ *Semua pemain tersisa menjawab salah!* Putaran diulang dengan pertanyaan baru untuk memberi kesempatan kedua.`;
+      await adapter.sendMessage(room.id, resultMsg, { mentions });
+      
+      setTimeout(async () => {
+        if (activeRooms.get(room.id) === room && room.status === 'playing') {
+          await this.setupQuizBRRound(room, adapter);
+        }
+      }, 3000);
+      return;
+    }
+
+    resultMsg += `🛡️ *Selamat (Lolos):* ${survivors.map(p => `@${p.split('@')[0]}`).join(', ')}`;
+    await adapter.sendMessage(room.id, resultMsg, { mentions });
+
+    if (survivors.length === 1) {
+      const winner = survivors[0];
+      activeRooms.delete(room.id);
+
+      await rewardPlayer(winner, 150, 50);
+      await recordGameStats(winner, room.id, 'quizbattleroyale', true, 100);
+      for (const player of room.players) {
+        if (player !== winner) {
+          await recordGameStats(player, room.id, 'quizbattleroyale', false, 0);
+        }
+      }
+
+      const winMsg = `👑 *BATTLE ROYALE SELESAI!* 👑\n\n` +
+        `🏆 Pemenang Utama: @${winner.split('@')[0]} adalah satu-satunya yang bertahan!\n` +
+        `💰 Hadiah Utama: +150 Koin | +50 XP`;
+      await adapter.sendMessage(room.id, winMsg, { mentions: [winner] });
+    } else if (state.round >= state.maxRounds) {
+      activeRooms.delete(room.id);
+      
+      let winMsg = `🏁 *BATTLE ROYALE BERAKHIR (Batas Putaran Tercapai)* 🏁\n\n` +
+        `🏆 Pemenang Bersama:\n`;
+      const winnerMentions: string[] = [];
+      for (const winner of survivors) {
+        await rewardPlayer(winner, 100, 30);
+        await recordGameStats(winner, room.id, 'quizbattleroyale', true, 50);
+        winMsg += `- @${winner.split('@')[0]} (+100 Koin | +30 XP)\n`;
+        winnerMentions.push(winner);
+      }
+      await adapter.sendMessage(room.id, winMsg, { mentions: winnerMentions });
+    } else {
+      state.activePlayers = survivors;
+      state.round += 1;
+      setTimeout(async () => {
+        if (activeRooms.get(room.id) === room && room.status === 'playing') {
+          await this.setupQuizBRRound(room, adapter);
+        }
+      }, 3000);
+    }
+  }
+
+  // ─── Detective Case (G004) ──────────────────────────────────────────────────
+  private async playDetective(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G004') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Kasus Detektif telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Kasus Detektif aktif.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const caseItem = DETECTIVE_POOL[Math.floor(Math.random() * DETECTIVE_POOL.length)];
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G004',
+      gameName: 'Detective Case',
+      hostId: ctx.senderId
+    });
+
+    room.state = {
+      title: caseItem.title,
+      setup: caseItem.setup,
+      suspects: caseItem.suspects,
+      clues: caseItem.clues,
+      answer: caseItem.answer,
+      cluesRevealed: 0,
+      attempts: {} as Record<string, boolean>
+    };
+    room.status = 'playing';
+    activeRooms.set(ctx.chatId, room);
+
+    const initMsg = `🕵️‍♂️ *KASUS DETEKTIF BARU DIMULAI!* 🕵️‍♂️\n\n` +
+      `📖 *Judul:* ${caseItem.title}\n` +
+      `📝 *Kasus:* ${caseItem.setup}\n\n` +
+      `👥 *Tersangka:*\n${caseItem.suspects}\n\n` +
+      `🔎 Petunjuk pertama akan muncul dalam *20 detik*!\n` +
+      `*Cara Menjawab:* Ketik koordinat tersangka (\`A\`, \`B\`, atau \`C\`) di chat grup. Setiap pemain hanya punya *1 KALI KESEMPATAN* menebak!`;
+
+    await adapter.sendMessage(ctx.chatId, initMsg, { quotedMessageId: ctx.id });
+
+    this.scheduleDetectiveClue(room, adapter);
+  }
+
+  private scheduleDetectiveClue(room: GameRoom, adapter: WhatsAppAdapter): void {
+    room.setAfkTimeout(20000, async () => {
+      if (activeRooms.get(room.id) !== room || room.status !== 'playing') return;
+
+      const state = room.state;
+      if (state.cluesRevealed < state.clues.length) {
+        const clue = state.clues[state.cluesRevealed];
+        state.cluesRevealed += 1;
+
+        const msg = `🔎 *PETUNJUK DETEKTIF #${state.cluesRevealed}* 🔍\n\n` +
+          `💬 ${clue}\n\n` +
+          `Silakan tebak (\`A\`, \`B\`, atau \`C\`) jika Anda sudah tahu pelakunya!`;
+
+        await adapter.sendMessage(room.id, msg);
+
+        this.scheduleDetectiveClue(room, adapter);
+      } else {
+        room.setAfkTimeout(45000, async () => {
+          if (activeRooms.get(room.id) === room && room.status === 'playing') {
+            activeRooms.delete(room.id);
+            const failMsg = `⏰ *WAKTU HABIS!* Kasus gagal dipecahkan oleh para detektif.\n\n` +
+              `Pelaku yang benar adalah: *${state.answer.toUpperCase()}*`;
+            await adapter.sendMessage(room.id, failMsg);
+          }
+        });
+      }
+    });
+  }
+
+  // ─── Treasure Hunt (G006) ───────────────────────────────────────────────────
+  private async playTreasure(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G006') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Perburuan Harta Karun telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Perburuan Harta Karun aktif.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const treasureItem = TREASURE_POOL[Math.floor(Math.random() * TREASURE_POOL.length)];
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G006',
+      gameName: 'Treasure Hunt',
+      hostId: ctx.senderId
+    });
+
+    room.state = {
+      riddle: treasureItem.riddle,
+      hints: treasureItem.hints,
+      answer: treasureItem.answer,
+      hintsRevealed: 0
+    };
+    room.status = 'playing';
+    activeRooms.set(ctx.chatId, room);
+
+    const initMsg = `🏴‍☠️ *PERBURUAN HARTA KARUN DIMULAI!* 🏴‍☠️\n\n` +
+      `🧩 *Teka-teki:* ${treasureItem.riddle}\n\n` +
+      `💡 Petunjuk berikutnya akan muncul otomatis setiap *25 detik*!\n` +
+      `*Cara Menjawab:* Ketik tebakan kata Anda langsung di chat grup!`;
+
+    await adapter.sendMessage(ctx.chatId, initMsg, { quotedMessageId: ctx.id });
+
+    this.scheduleTreasureHint(room, adapter);
+  }
+
+  private scheduleTreasureHint(room: GameRoom, adapter: WhatsAppAdapter): void {
+    room.setAfkTimeout(25000, async () => {
+      if (activeRooms.get(room.id) !== room || room.status !== 'playing') return;
+
+      const state = room.state;
+      if (state.hintsRevealed < state.hints.length) {
+        const hint = state.hints[state.hintsRevealed];
+        state.hintsRevealed += 1;
+
+        const msg = `💡 *PETUNJUK HARTA KARUN #${state.hintsRevealed}* 💡\n\n` +
+          `💬 ${hint}\n\n` +
+          `Ketik jawaban Anda di chat!`;
+
+        await adapter.sendMessage(room.id, msg);
+
+        this.scheduleTreasureHint(room, adapter);
+      } else {
+        room.setAfkTimeout(45000, async () => {
+          if (activeRooms.get(room.id) === room && room.status === 'playing') {
+            activeRooms.delete(room.id);
+            const failMsg = `⏰ *WAKTU HABIS!* Harta karun gagal ditemukan.\n\n` +
+              `Jawaban yang benar adalah: *${state.answer.toUpperCase()}*`;
+            await adapter.sendMessage(room.id, failMsg);
+          }
+        });
+      }
+    });
+  }
+
+  // ─── Puzzle Angka 24 (G018) ─────────────────────────────────────────────────
+  private async playPuzzle24(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G018') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Game Puzzle Angka 24 telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Puzzle Angka 24 aktif.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const puzzleItem = PUZZLE_24_POOL[Math.floor(Math.random() * PUZZLE_24_POOL.length)];
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G018',
+      gameName: 'Puzzle Angka 24',
+      hostId: ctx.senderId
+    });
+
+    room.state = {
+      numbers: puzzleItem.numbers,
+      solution: puzzleItem.solution
+    };
+    room.status = 'playing';
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(180000, async () => {
+      if (activeRooms.get(room.id) === room && room.status === 'playing') {
+        activeRooms.delete(room.id);
+        const failMsg = `⏰ *WAKTU HABIS!* Puzzle Angka 24 gagal dipecahkan.\n\n` +
+          `Salah satu contoh solusi: *${puzzleItem.solution}*`;
+        await adapter.sendMessage(room.id, failMsg);
+      }
+    });
+
+    const initMsg = `🔢 *PUZZLE ANGKA 24* 🔢\n\n` +
+      `Gunakan *semua 4 angka* di bawah ini tepat sekali dengan operasi matematika \`+\`, \`-\`, \`*\`, \`/\`, dan tanda kurung \`()\` agar bernilai *24*!\n\n` +
+      `👉 Angka Anda: *${puzzleItem.numbers.join(', ')}*\n\n` +
+      `*Cara Menjawab:* Ketik langsung rumus matematika Anda di chat grup (contoh: \`(10 * 10 - 4) / 4\` atau \`8 / (3 - 8/3)\`).`;
+
+    await adapter.sendMessage(ctx.chatId, initMsg, { quotedMessageId: ctx.id });
+  }
+}
+
+export function evaluateSafeMath(expr: string): number {
+  const tokens = expr.match(/\d+|\+|\-|\*|\/|\(|\)/g);
+  if (!tokens) throw new Error('Ekspresi kosong atau tidak valid.');
+  
+  const outputQueue: string[] = [];
+  const operatorStack: string[] = [];
+  const precedence: Record<string, number> = {
+    '+': 1,
+    '-': 1,
+    '*': 2,
+    '/': 2
+  };
+  
+  for (const token of tokens) {
+    if (/^\d+$/.test(token)) {
+      outputQueue.push(token);
+    } else if (token in precedence) {
+      while (
+        operatorStack.length > 0 &&
+        operatorStack[operatorStack.length - 1] in precedence &&
+        precedence[operatorStack[operatorStack.length - 1]] >= precedence[token]
+      ) {
+        outputQueue.push(operatorStack.pop()!);
+      }
+      operatorStack.push(token);
+    } else if (token === '(') {
+      operatorStack.push(token);
+    } else if (token === ')') {
+      while (operatorStack.length > 0 && operatorStack[operatorStack.length - 1] !== '(') {
+        outputQueue.push(operatorStack.pop()!);
+      }
+      if (operatorStack.length === 0) {
+        throw new Error('Tanda kurung tidak cocok.');
+      }
+      operatorStack.pop();
+    }
+  }
+  
+  while (operatorStack.length > 0) {
+    const op = operatorStack.pop()!;
+    if (op === '(' || op === ')') {
+      throw new Error('Tanda kurung tidak cocok.');
+    }
+    outputQueue.push(op);
+  }
+  
+  const stack: number[] = [];
+  for (const token of outputQueue) {
+    if (/^\d+$/.test(token)) {
+      stack.push(parseFloat(token));
+    } else {
+      if (stack.length < 2) throw new Error('Ekspresi tidak valid.');
+      const b = stack.pop()!;
+      const a = stack.pop()!;
+      if (token === '+') stack.push(a + b);
+      else if (token === '-') stack.push(a - b);
+      else if (token === '*') stack.push(a * b);
+      else if (token === '/') {
+        if (b === 0) throw new Error('Pembagian dengan nol.');
+        stack.push(a / b);
+      }
+    }
+  }
+  
+  if (stack.length !== 1) throw new Error('Ekspresi tidak valid.');
+  return stack[0];
 }
 
 // Intercept game answers
@@ -1051,6 +1785,11 @@ class PrdGameAnswerHandler implements GameAnswerHandler {
       else if (gameType === 'G021') validCommands = ['hangmanindo', 'hangman', 'g021'];
       else if (gameType === 'G022') validCommands = ['anagramrace', 'anagram', 'g022'];
       else if (gameType === 'G016') validCommands = ['mathsprint', 'math', 'g016'];
+      else if (gameType === 'G011') validCommands = ['quizduel', 'duel', 'g011'];
+      else if (gameType === 'G012') validCommands = ['quizbattleroyale', 'battleroyale', 'g012'];
+      else if (gameType === 'G004') validCommands = ['detective', 'detektif', 'g004'];
+      else if (gameType === 'G006') validCommands = ['treasure', 'harta', 'g006'];
+      else if (gameType === 'G018') validCommands = ['puzzle24', 'angka24', 'g018'];
 
       if (validCommands.includes(cmdName)) {
         if (isControl || args.length === 0) {
@@ -1135,6 +1874,129 @@ class PrdGameAnswerHandler implements GameAnswerHandler {
     } else if (room.gameType === 'G025') {
       // Minesweeper Chat
       return await this.handleMinesweeperGuess(room, text, ctx, adapter);
+    } else if (room.gameType === 'G011') {
+      if (room.players.includes(ctx.senderId) && ['a', 'b', 'c', 'd'].includes(text)) {
+        if (room.state.currentAnswers[ctx.senderId] === undefined) {
+          room.state.currentAnswers[ctx.senderId] = text;
+          await adapter.sendMessage(
+            room.id,
+            `✅ @${ctx.senderId.split('@')[0]} telah mengunci jawaban!`,
+            { mentions: [ctx.senderId], quotedMessageId: ctx.id }
+          );
+          const allAnswered = room.players.every(p => room.state.currentAnswers[p] !== undefined);
+          if (allAnswered) {
+            const prdGames = new PrdGamesSuiteCommand();
+            await prdGames.evaluateQuizDuelRound(room, adapter);
+          }
+        }
+        return true;
+      }
+    } else if (room.gameType === 'G012') {
+      if (room.state.activePlayers.includes(ctx.senderId) && ['a', 'b', 'c', 'd'].includes(text)) {
+        if (room.state.currentAnswers[ctx.senderId] === undefined) {
+          room.state.currentAnswers[ctx.senderId] = text;
+          await adapter.sendMessage(
+            room.id,
+            `✅ @${ctx.senderId.split('@')[0]} telah mengunci jawaban!`,
+            { mentions: [ctx.senderId], quotedMessageId: ctx.id }
+          );
+          const allAnswered = room.state.activePlayers.every((p: string) => room.state.currentAnswers[p] !== undefined);
+          if (allAnswered) {
+            const prdGames = new PrdGamesSuiteCommand();
+            await prdGames.evaluateQuizBRRound(room, adapter);
+          }
+        }
+        return true;
+      }
+    } else if (room.gameType === 'G004') {
+      if (room.state.attempts[ctx.senderId] === undefined && ['a', 'b', 'c'].includes(text)) {
+        room.state.attempts[ctx.senderId] = true;
+        if (text === room.state.answer) {
+          room.clearAfkTimeout();
+          activeRooms.delete(room.id);
+          const coins = 100;
+          await rewardPlayer(ctx.senderId, coins, 30);
+          await recordGameStats(ctx.senderId, room.id, 'detective', true, coins);
+          const winMsg = `🎉 *KASUS TERPECAHKAN!* 🎉\n\n` +
+            `Selamat @${ctx.senderId.split('@')[0]} berhasil menebak pelaku dengan tepat: *${text.toUpperCase()}*!\n\n` +
+            `💰 *Hadiah:* +${coins} Koin | +30 XP`;
+          await adapter.sendMessage(room.id, winMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+        } else {
+          await adapter.sendMessage(
+            room.id,
+            `❌ @${ctx.senderId.split('@')[0]} salah menebak pelaku! Anda tidak dapat menebak lagi di kasus ini.`,
+            { mentions: [ctx.senderId], quotedMessageId: ctx.id }
+          );
+        }
+        return true;
+      }
+    } else if (room.gameType === 'G006') {
+      if (text === room.state.answer.toLowerCase()) {
+        room.clearAfkTimeout();
+        activeRooms.delete(room.id);
+        const coins = 100;
+        await rewardPlayer(ctx.senderId, coins, 30);
+        await recordGameStats(ctx.senderId, room.id, 'treasure', true, coins);
+        const winMsg = `🎉 *HARTA KARUN DITEMUKAN!* 🎉\n\n` +
+          `Selamat @${ctx.senderId.split('@')[0]} berhasil menebak kata misteri dengan tepat: *${room.state.answer.toUpperCase()}*!\n\n` +
+          `💰 *Hadiah:* +${coins} Koin | +30 XP`;
+        await adapter.sendMessage(room.id, winMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+        return true;
+      }
+    } else if (room.gameType === 'G018') {
+      const trimmed = rawText.trim();
+      const hasDigit = /\d+/.test(trimmed);
+      if (hasDigit) {
+        if (/[^\d\+\-\*\/\(\)\s]/.test(trimmed)) {
+          return false;
+        }
+        try {
+          const digits = trimmed.match(/\d+/g);
+          if (!digits || digits.length === 0) return false;
+          
+          const exprNumbers = digits.map(n => parseInt(n, 10));
+          const sortedExpr = [...exprNumbers].sort((a, b) => a - b);
+          const sortedPuzzle = [...room.state.numbers].sort((a, b) => a - b);
+
+          if (JSON.stringify(sortedExpr) !== JSON.stringify(sortedPuzzle)) {
+            await adapter.sendMessage(
+              room.id,
+              `⚠️ @${ctx.senderId.split('@')[0]} angka yang digunakan harus sama persis dengan angka puzzle: *${room.state.numbers.join(', ')}*.`,
+              { mentions: [ctx.senderId], quotedMessageId: ctx.id }
+            );
+            return true;
+          }
+
+          const value = evaluateSafeMath(trimmed);
+
+          if (Math.abs(value - 24) < 1e-6) {
+            room.clearAfkTimeout();
+            activeRooms.delete(room.id);
+            const coins = 100;
+            await rewardPlayer(ctx.senderId, coins, 30);
+            await recordGameStats(ctx.senderId, room.id, 'puzzle24', true, coins);
+            const winMsg = `🎉 *PUZZLE 24 BERHASIL DIPECAHKAN!* 🎉\n\n` +
+              `Selamat @${ctx.senderId.split('@')[0]} memecahkan puzzle dengan rumus:\n` +
+              `👉 *${trimmed} = 24*\n\n` +
+              `💰 *Hadiah:* +${coins} Koin | +30 XP`;
+            await adapter.sendMessage(room.id, winMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+          } else {
+            await adapter.sendMessage(
+              room.id,
+              `❌ @${ctx.senderId.split('@')[0]} hasil dari \`${trimmed}\` adalah *${value}* (bukan 24). Coba lagi!`,
+              { mentions: [ctx.senderId], quotedMessageId: ctx.id }
+            );
+          }
+          return true;
+        } catch (err: any) {
+          await adapter.sendMessage(
+            room.id,
+            `⚠️ @${ctx.senderId.split('@')[0]} Ekspresi tidak valid: ${err.message}`,
+            { mentions: [ctx.senderId], quotedMessageId: ctx.id }
+          );
+          return true;
+        }
+      }
     }
 
     return false;

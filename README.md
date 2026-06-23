@@ -334,6 +334,11 @@ Utility non-paid AI & Offline System Dependencies:
 | `/typingrace` | Lomba ketik cepat kalimat (G023) | User |
 | `/memorycards` / `/memory` | Game Memory Cards mencocokkan kartu (G024) | User |
 | `/minesweeperchat` / `/minesweeper` | Sapu ranjau berbasis grid chat (G025) | User |
+| `/quizduel [join/cancel]` | Quiz Duel 1v1 — duel trivia 3 putaran (G011) | User |
+| `/quizbattleroyale [join/start/cancel]` | Quiz Battle Royale — eliminasi massal sampai 1 survivor (G012) | User |
+| `/detective [stop]` | Kasus Detektif — pecahkan kasus dari petunjuk bertahap (G004) | User |
+| `/treasure [stop]` | Perburuan Harta Karun — tebak kata misteri dari teka-teki (G006) | User |
+| `/puzzle24 [stop]` | Puzzle Angka 24 — susun ekspresi matematika bernilai 24 (G018) | User |
 | `/tod` / `/truth` / `/dare` | Truth or Dare | User |
 | `/tebakkata` | Tebak kata berhadiah XP | User |
 | `/suit` @user | Batu Gunting Kertas PvP | User |
@@ -676,8 +681,10 @@ Test suite (Vitest) mencakup:
 - Dynamic Unified Routers (AI, Security, Games, Utility, Integration)
 - Watermark video dengan 5 pilihan posisi overlay
 - Tebak Emoji, Sudoku Mini, Typing Race, Memory Cards, Minesweeper Chat (Batch 7)
+- Quiz Duel 1v1, Quiz Battle Royale, Detective Case, Treasure Hunt, Puzzle Angka 24 (Batch 8)
+- Safe math expression parser (`evaluateSafeMath`) tanpa `eval()`
 
-**Total: 305 tests passing (40 test files)**
+**Total: 311 tests passing (41 test files)**
 
 ---
 

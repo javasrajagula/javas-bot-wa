@@ -1896,7 +1896,7 @@ export const PRD_CATALOG: CatalogEntry[] = [
   },
   {
     id: 'G004',
-    implementationStatus: 'scaffold',
+    implementationStatus: 'implemented',
     name: 'detective',
     aliases: ['g004'],
     category: 'games',
@@ -1922,7 +1922,7 @@ export const PRD_CATALOG: CatalogEntry[] = [
   },
   {
     id: 'G006',
-    implementationStatus: 'scaffold',
+    implementationStatus: 'implemented',
     name: 'treasure',
     aliases: ['g006'],
     category: 'games',
@@ -1987,7 +1987,7 @@ export const PRD_CATALOG: CatalogEntry[] = [
   },
   {
     id: 'G011',
-    implementationStatus: 'scaffold',
+    implementationStatus: 'implemented',
     name: 'quizduel',
     aliases: ['g011'],
     category: 'games',
@@ -2000,7 +2000,7 @@ export const PRD_CATALOG: CatalogEntry[] = [
   },
   {
     id: 'G012',
-    implementationStatus: 'scaffold',
+    implementationStatus: 'implemented',
     name: 'quizbattleroyale',
     aliases: ['g012'],
     category: 'games',
@@ -2078,7 +2078,7 @@ export const PRD_CATALOG: CatalogEntry[] = [
   },
   {
     id: 'G018',
-    implementationStatus: 'scaffold',
+    implementationStatus: 'implemented',
     name: 'puzzle24',
     aliases: ['g018'],
     category: 'games',
