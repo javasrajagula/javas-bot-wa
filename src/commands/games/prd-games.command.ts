@@ -103,11 +103,55 @@ const TREASURE_POOL = [
 ];
 
 const PUZZLE_24_POOL = [
-  { numbers: [3, 8, 3, 1], solution: '8 / (3 - (8 / 3))' },
+  { numbers: [3, 8, 3, 1], solution: '(8 - 1) * 3 + 3' },
   { numbers: [4, 4, 10, 10], solution: '(10 * 10 - 4) / 4' },
   { numbers: [5, 5, 5, 1], solution: '5 * (5 - 1 / 5)' },
   { numbers: [3, 3, 8, 8], solution: '8 / (3 - 8 / 3)' },
   { numbers: [1, 5, 5, 5], solution: '5 * (5 - 1 / 5)' }
+];
+
+const KATA_BERANTAI_STARTER = [
+  'apel', 'buku', 'cinta', 'dunia', 'elang', 'foto', 'gula', 'hujan', 'ikan', 'jalan',
+  'kuda', 'langit', 'mawar', 'nasi', 'ombak', 'pohon', 'rasa', 'sungai', 'tanah', 'udara'
+];
+
+// Pool of Indonesian words for chain validation (used to reject invalid/non-existent words)
+const KATA_BERANTAI_VALID_WORDS = new Set([
+  'apel', 'buku', 'cinta', 'dunia', 'elang', 'foto', 'gula', 'hujan', 'ikan', 'jalan',
+  'kuda', 'langit', 'mawar', 'nasi', 'ombak', 'pohon', 'rasa', 'sungai', 'tanah', 'udara',
+  'lumba', 'bambu', 'unik', 'kapal', 'layang', 'gunung', 'negara', 'air', 'radar', 'rupa',
+  'angin', 'naik', 'kuat', 'telur', 'roti', 'itik', 'katak', 'kopi', 'indah', 'harum',
+  'meja', 'angsa', 'ambil', 'labu', 'ulat', 'toko', 'obat', 'tanam', 'mobil', 'libur',
+  'rumah', 'habis', 'subur', 'roket', 'timur', 'rusak', 'kilat', 'tiang', 'gajah', 'hotel',
+  'lambat', 'tepat', 'anting', 'gedung', 'gagak', 'kening', 'gabus', 'semut', 'tidur', 'robot',
+  'lembut', 'truk', 'kerja', 'asap', 'pintu', 'ular', 'radar', 'denyut', 'turut', 'tarik'
+]);
+
+const RANKING_POOL = [
+  {
+    question: 'Urutkan tahun kemerdekaan negara berikut dari yang paling awal (terlama) hingga paling akhir!',
+    items: ['Indonesia (1945)', 'Singapura (1965)', 'Malaysia (1957)', 'Timor Leste (2002)', 'Brunei (1984)'],
+    correctOrder: [1, 3, 2, 5, 4],
+    hint: 'Dari tahun terkecil ke terbesar.'
+  },
+  {
+    question: 'Urutkan planet-planet berikut berdasarkan jarak dari Matahari, dari yang terdekat ke terjauh!',
+    items: ['Jupiter', 'Mars', 'Bumi', 'Merkurius', 'Saturnus'],
+    correctOrder: [4, 3, 2, 1, 5],
+    hint: 'Merkurius → Venus → Bumi → Mars → Jupiter → Saturnus.'
+  },
+  {
+    question: 'Urutkan angka-angka berikut dari yang terkecil ke terbesar!',
+    items: ['17', '3', '99', '42', '8'],
+    correctOrder: [2, 5, 1, 4, 3],
+    hint: 'Bandingkan nilai numeriknya.'
+  },
+  {
+    question: 'Urutkan presiden Indonesia berikut sesuai urutan jabatan dari yang pertama!',
+    items: ['Joko Widodo', 'Soekarno', 'Megawati', 'Soeharto', 'B.J. Habibie'],
+    correctOrder: [2, 4, 5, 3, 1],
+    hint: 'Soekarno → Soeharto → Habibie → Wahid → Megawati → SBY → Jokowi.'
+  }
 ];
 
 export class PrdGamesSuiteCommand implements Command {
@@ -126,7 +170,7 @@ export class PrdGamesSuiteCommand implements Command {
     if (!entry) return;
 
     // Check if the command is one of the implemented games
-    const implementedIds = new Set(['G016', 'G020', 'G021', 'G022', 'G030', 'G001', 'G002', 'G008', 'G019', 'G023', 'G024', 'G025', 'G004', 'G006', 'G011', 'G012', 'G018']);
+    const implementedIds = new Set(['G016', 'G020', 'G021', 'G022', 'G030', 'G001', 'G002', 'G008', 'G019', 'G023', 'G024', 'G025', 'G004', 'G006', 'G011', 'G012', 'G018', 'G007', 'G013', 'G017', 'G026', 'G027']);
     if (!implementedIds.has(entry.id)) {
       // Fallback scaffold message for unimplemented games
       await adapter.sendMessage(
@@ -176,6 +220,16 @@ export class PrdGamesSuiteCommand implements Command {
       await this.playTreasure(ctx, args, adapter);
     } else if (gameId === 'G018') {
       await this.playPuzzle24(ctx, args, adapter);
+    } else if (gameId === 'G007') {
+      await this.playKataBerantai(ctx, args, adapter);
+    } else if (gameId === 'G013') {
+      await this.playRankingCepat(ctx, args, adapter);
+    } else if (gameId === 'G017') {
+      await this.playMathBoss(ctx, args, adapter);
+    } else if (gameId === 'G026') {
+      await this.playTicTacToeUltimate(ctx, args, adapter);
+    } else if (gameId === 'G027') {
+      await this.playConnectFour(ctx, args, adapter);
     }
   }
 
@@ -1684,6 +1738,564 @@ export class PrdGamesSuiteCommand implements Command {
 
     await adapter.sendMessage(ctx.chatId, initMsg, { quotedMessageId: ctx.id });
   }
+
+  // ─── Kata Berantai Battle (G007) ─────────────────────────────────────────────
+  public async playKataBerantai(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+
+    if (action === 'join') {
+      const room = activeRooms.get(ctx.chatId);
+      if (!room || room.gameType !== 'G007') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Kata Berantai yang sedang membuka pendaftaran.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.status !== 'lobby') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Game sudah dimulai.', { quotedMessageId: ctx.id });
+        return;
+      }
+      const success = room.join(ctx.senderId);
+      if (success) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `✅ @${ctx.senderId.split('@')[0]} bergabung ke Kata Berantai Battle! (Total: ${room.players.length} pemain)`,
+          { mentions: [ctx.senderId] }
+        );
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Anda sudah bergabung atau lobby sudah penuh.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (action === 'leave') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G007' && room.status === 'lobby') {
+        const success = room.leave(ctx.senderId);
+        if (success) {
+          await adapter.sendMessage(ctx.chatId, `👋 @${ctx.senderId.split('@')[0]} keluar dari lobby.`, { mentions: [ctx.senderId] });
+        }
+      }
+      return;
+    }
+
+    if (action === 'start') {
+      const room = activeRooms.get(ctx.chatId);
+      if (!room || room.gameType !== 'G007') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada lobby Kata Berantai.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.hostId !== ctx.senderId) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Hanya host yang bisa memulai game.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.players.length < 2) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Butuh minimal 2 pemain untuk memulai Kata Berantai Battle.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      room.start();
+      const starterWord = KATA_BERANTAI_STARTER[Math.floor(Math.random() * KATA_BERANTAI_STARTER.length)];
+      room.state = {
+        activePlayers: [...room.players],
+        currentPlayerIndex: 0,
+        lastWord: starterWord,
+        usedWords: new Set<string>([starterWord])
+      };
+
+      await this.nextKataBerantaiTurn(room, adapter, `🎮 *KATA BERANTAI BATTLE DIMULAI!* 🎮\n\n` +
+        `Kata awal: *${starterWord.toUpperCase()}* (Berakhiran huruf *${starterWord.slice(-1).toUpperCase()}*)`);
+      return;
+    }
+
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G007') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Game Kata Berantai Battle telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Kata Berantai aktif.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G007',
+      gameName: 'Kata Berantai Battle',
+      hostId: ctx.senderId,
+      minPlayers: 2,
+      maxPlayers: 8
+    });
+
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(180000, async () => {
+      if (activeRooms.get(ctx.chatId) === room && room.status === 'lobby') {
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '⏰ *Lobby Kata Berantai Timeout!* Lobi dibatalkan.');
+      }
+    });
+
+    const initMsg = `📝 *KATA BERANTAI BATTLE LOBBY* 📝\n\n` +
+      `Host: @${ctx.senderId.split('@')[0]}\n` +
+      `Pemain saat ini: 1/8\n\n` +
+      `Ketik \`/kataberantai join\` untuk bergabung.\n` +
+      `Host ketik \`/kataberantai start\` untuk memulai.`;
+    await adapter.sendMessage(ctx.chatId, initMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+  }
+
+  public async nextKataBerantaiTurn(room: GameRoom, adapter: WhatsAppAdapter, header: string = ''): Promise<void> {
+    const state = room.state;
+    if (state.activePlayers.length <= 1) {
+      const winner = state.activePlayers[0];
+      room.clearAfkTimeout();
+      activeRooms.delete(room.id);
+
+      if (winner) {
+        await rewardPlayer(winner, 100, 30);
+        await recordGameStats(winner, room.id, 'kataberantai', true, 100);
+        const winMsg = `${header}\n\n🏆 Pemenang Utama: @${winner.split('@')[0]}! Selamat!\n💰 Reward: *+100 Koin* | *+30 XP*`;
+        await adapter.sendMessage(room.id, winMsg, { mentions: [winner] });
+      } else {
+        await adapter.sendMessage(room.id, `${header}\n\nGame selesai tanpa pemenang.`);
+      }
+      return;
+    }
+
+    const currentPlayer = state.activePlayers[state.currentPlayerIndex];
+    const lastChar = state.lastWord.slice(-1).toUpperCase();
+    const turnMsg = `${header ? header + '\n\n' : ''}` +
+      `👉 Giliran: @${currentPlayer.split('@')[0]}\n` +
+      `Ketik satu kata bahasa Indonesia berawalan huruf *${lastChar}*!\n` +
+      `Waktu: *20 detik*`;
+
+    await adapter.sendMessage(room.id, turnMsg, { mentions: [currentPlayer] });
+
+    room.setAfkTimeout(20000, async () => {
+      const stateInner = room.state;
+      const timedOutPlayer = stateInner.activePlayers[stateInner.currentPlayerIndex];
+      
+      stateInner.activePlayers.splice(stateInner.currentPlayerIndex, 1);
+      if (stateInner.currentPlayerIndex >= stateInner.activePlayers.length) {
+        stateInner.currentPlayerIndex = 0;
+      }
+
+      await this.nextKataBerantaiTurn(room, adapter, `⏰ @${timedOutPlayer.split('@')[0]} tereliminasi karena kehabisan waktu (20 detik)!`);
+    });
+  }
+
+  // ─── Ranking Cepat (G013) ───────────────────────────────────────────────────
+  public async playRankingCepat(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G013') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Game Ranking Cepat telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Ranking Cepat aktif yang bisa dibatalkan.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const question = RANKING_POOL[Math.floor(Math.random() * RANKING_POOL.length)];
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G013',
+      gameName: 'Ranking Cepat',
+      hostId: ctx.senderId
+    });
+
+    room.state = {
+      question
+    };
+    room.status = 'playing';
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(60000, async () => {
+      if (activeRooms.get(ctx.chatId) === room) {
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, `⏰ *Ranking Cepat Waktu Habis!* Urutan yang benar: *${question.correctOrder.join(' ')}*\n💡 Hint: ${question.hint}`);
+      }
+    });
+
+    let itemsStr = '';
+    question.items.forEach((item: string, index: number) => {
+      itemsStr += `${index + 1}. ${item}\n`;
+    });
+
+    const initMsg = `⚡ *RANKING CEPAT* ⚡\n\n` +
+      `${question.question}\n\n` +
+      `${itemsStr}\n` +
+      `👉 *Cara Menjawab:* Ketik 5 angka urutan yang benar dipisahkan spasi (misal: \`2 5 1 4 3\`)\n` +
+      `⏱️ Waktu Anda *60 detik*!`;
+    await adapter.sendMessage(ctx.chatId, initMsg, { quotedMessageId: ctx.id });
+  }
+
+  // ─── Math Boss (G017) ────────────────────────────────────────────────────────
+  public async playMathBoss(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+
+    if (action === 'join') {
+      const room = activeRooms.get(ctx.chatId);
+      if (!room || room.gameType !== 'G017') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada lobby Math Boss yang sedang membuka pendaftaran.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.status !== 'lobby') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Pertarungan Boss sudah dimulai.', { quotedMessageId: ctx.id });
+        return;
+      }
+      const success = room.join(ctx.senderId);
+      if (success) {
+        await adapter.sendMessage(
+          ctx.chatId,
+          `✅ @${ctx.senderId.split('@')[0]} bergabung ke Tim Penyerang Boss! (Total: ${room.players.length} pemain)`,
+          { mentions: [ctx.senderId] }
+        );
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Anda sudah bergabung atau lobby sudah penuh.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (action === 'leave') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G017' && room.status === 'lobby') {
+        const success = room.leave(ctx.senderId);
+        if (success) {
+          await adapter.sendMessage(ctx.chatId, `👋 @${ctx.senderId.split('@')[0]} keluar dari lobby.`, { mentions: [ctx.senderId] });
+        }
+      }
+      return;
+    }
+
+    if (action === 'start') {
+      const room = activeRooms.get(ctx.chatId);
+      if (!room || room.gameType !== 'G017') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada lobby Math Boss.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.hostId !== ctx.senderId) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Hanya host yang bisa memulai pertarungan.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.players.length < 2) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Butuh minimal 2 pemain untuk menyerang Math Boss.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      room.start();
+      const q = this.generateMathQuestion();
+      room.state = {
+        bossHp: 500,
+        maxHp: 500,
+        bossName: 'Giga Calculator',
+        currentAns: q.answer,
+        currentEq: q.equation,
+        participants: new Set<string>()
+      };
+
+      room.setAfkTimeout(180000, async () => {
+        if (activeRooms.get(room.id) === room) {
+          activeRooms.delete(room.id);
+          await adapter.sendMessage(room.id, `⏰ *WAKTU HABIS!* Boss *Giga Calculator* menang! Tim penyerang gagal mengalahkan boss dalam 3 menit.`);
+        }
+      });
+
+      const initMsg = `⚔️ *MATH BOSS: GIGA CALCULATOR* ⚔️\n\n` +
+        `Boss HP: ❤️ *500/500*\n` +
+        `Setiap jawaban benar memberikan *-20 HP* ke boss!\n` +
+        `Kalahkan boss sebelum waktu habis (3 menit)!\n\n` +
+        `🔢 Soal Pertama:\n` +
+        `*${q.equation} = ?*`;
+      await adapter.sendMessage(room.id, initMsg);
+      return;
+    }
+
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G017') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Pertarungan Math Boss telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Math Boss aktif.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G017',
+      gameName: 'Math Boss',
+      hostId: ctx.senderId,
+      minPlayers: 2,
+      maxPlayers: 8
+    });
+
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(180000, async () => {
+      if (activeRooms.get(ctx.chatId) === room && room.status === 'lobby') {
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '⏰ *Lobby Math Boss Timeout!* Lobi dibatalkan.');
+      }
+    });
+
+    const initMsg = `⚔️ *MATH BOSS LOBBY* ⚔️\n\n` +
+      `Host: @${ctx.senderId.split('@')[0]}\n` +
+      `Pemain saat ini: 1/8\n\n` +
+      `Ketik \`/mathboss join\` untuk bergabung.\n` +
+      `Host ketik \`/mathboss start\` untuk memulai.`;
+    await adapter.sendMessage(ctx.chatId, initMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+  }
+
+  // ─── TicTacToe Ultimate (G026) ───────────────────────────────────────────────
+  private async playTicTacToeUltimate(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G026') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Game TicTacToe Ultimate telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi TicTacToe Ultimate aktif.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (action === 'join') {
+      const room = activeRooms.get(ctx.chatId);
+      if (!room || room.gameType !== 'G026') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada lobby TicTacToe Ultimate.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.status !== 'lobby') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Game sudah dimulai.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.players.includes(ctx.senderId)) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Anda sudah bergabung.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      room.join(ctx.senderId);
+      room.status = 'playing';
+
+      room.state = {
+        board: Array(9).fill(''),
+        scores: {
+          [room.players[0]]: 0,
+          [room.players[1]]: 0
+        },
+        currentTurn: room.players[0],
+        set: 1
+      };
+
+      await this.nextTicTacToeTurn(room, adapter, `🎮 *TICTACTOE ULTIMATE DIMULAI!* 🎮\n\n` +
+        `⚔️ Matchup: @${room.players[0].split('@')[0]} (❌) vs @${room.players[1].split('@')[0]} (⭕)`);
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G026',
+      gameName: 'TicTacToe Ultimate',
+      hostId: ctx.senderId,
+      minPlayers: 2,
+      maxPlayers: 2
+    });
+
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(180000, async () => {
+      if (activeRooms.get(ctx.chatId) === room && room.status === 'lobby') {
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '⏰ *TicTacToe Lobby Timeout!* Lobi dibatalkan.');
+      }
+    });
+
+    room.join(ctx.senderId);
+
+    const initMsg = `❌ *TICTACTOE ULTIMATE LOBBY* ⭕\n\n` +
+      `Host: @${ctx.senderId.split('@')[0]}\n` +
+      `Pemain: 1/2\n\n` +
+      `Menunggu lawan... Ketik \`/tictactoeultimate join\` untuk bergabung dan langsung bermain!\n` +
+      `Format: Best of 3 sets.`;
+    await adapter.sendMessage(ctx.chatId, initMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+  }
+
+  public renderTicTacToeBoard(board: string[]): string {
+    const emojis = board.map(cell => cell === 'X' ? '❌' : cell === 'O' ? '⭕' : '⬜');
+    return `${emojis[0]} | ${emojis[1]} | ${emojis[2]}\n` +
+      `${emojis[3]} | ${emojis[4]} | ${emojis[5]}\n` +
+      `${emojis[6]} | ${emojis[7]} | ${emojis[8]}`;
+  }
+
+  public async nextTicTacToeTurn(room: GameRoom, adapter: WhatsAppAdapter, header: string = ''): Promise<void> {
+    const state = room.state;
+    const boardStr = this.renderTicTacToeBoard(state.board);
+    const p1 = room.players[0];
+    const p2 = room.players[1];
+    
+    const turnMsg = `${header ? header + '\n\n' : ''}` +
+      `🏆 *Set ${state.set}* | Skor Seri: @${p1.split('@')[0]}: *${state.scores[p1]}* - @${p2.split('@')[0]}: *${state.scores[p2]}*\n\n` +
+      `${boardStr}\n\n` +
+      `👉 Giliran: @${state.currentTurn.split('@')[0]} (${state.currentTurn === p1 ? '❌' : '⭕'})\n` +
+      `Ketik angka *1-9* untuk menaruh simbol Anda!\n` +
+      `Waktu: *45 detik*`;
+
+    await adapter.sendMessage(room.id, turnMsg, { mentions: room.players });
+
+    room.setAfkTimeout(45000, async () => {
+      if (activeRooms.get(room.id) === room) {
+        activeRooms.delete(room.id);
+        const winner = state.currentTurn === p1 ? p2 : p1;
+        await rewardPlayer(winner, 100, 35);
+        await recordGameStats(winner, room.id, 'tictactoeultimate', true, 100);
+        await adapter.sendMessage(room.id, `⏰ @${state.currentTurn.split('@')[0]} AFK! Kemenangan WO diberikan kepada @${winner.split('@')[0]}.\n💰 Reward: *+100 Koin* | *+35 XP*`, { mentions: [p1, p2] });
+      }
+    });
+  }
+
+  // ─── Connect Four (G027) ─────────────────────────────────────────────────────
+  public async playConnectFour(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G027') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Game Connect Four telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Connect Four aktif.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (action === 'join') {
+      const room = activeRooms.get(ctx.chatId);
+      if (!room || room.gameType !== 'G027') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada lobby Connect Four.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.status !== 'lobby') {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Game sudah dimulai.', { quotedMessageId: ctx.id });
+        return;
+      }
+      if (room.players.includes(ctx.senderId)) {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Anda sudah bergabung.', { quotedMessageId: ctx.id });
+        return;
+      }
+
+      room.join(ctx.senderId);
+      room.status = 'playing';
+
+      room.state = {
+        board: Array(6).fill(null).map(() => Array(7).fill('')),
+        currentTurn: room.players[0],
+        p1Symbol: '🔴',
+        p2Symbol: '🟡'
+      };
+
+      await this.nextConnectFourTurn(room, adapter, `🎮 *CONNECT FOUR DIMULAI!* 🎮\n\n` +
+        `⚔️ Matchup: @${room.players[0].split('@')[0]} (🔴) vs @${room.players[1].split('@')[0]} (🟡)`);
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G027',
+      gameName: 'Connect Four',
+      hostId: ctx.senderId,
+      minPlayers: 2,
+      maxPlayers: 2
+    });
+
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(180000, async () => {
+      if (activeRooms.get(ctx.chatId) === room && room.status === 'lobby') {
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '⏰ *Connect Four Lobby Timeout!* Lobi dibatalkan.');
+      }
+    });
+
+    room.join(ctx.senderId);
+
+    const initMsg = `🔴 *CONNECT FOUR LOBBY* 🟡\n\n` +
+      `Host: @${ctx.senderId.split('@')[0]}\n` +
+      `Pemain: 1/2\n\n` +
+      `Menunggu lawan... Ketik \`/connectfour join\` untuk bergabung dan bermain!`;
+    await adapter.sendMessage(ctx.chatId, initMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+  }
+
+  public renderConnectFourBoard(board: string[][]): string {
+    let output = '';
+    for (let r = 0; r < 6; r++) {
+      const row = board[r].map(cell => cell === 'R' ? '🔴' : cell === 'Y' ? '🟡' : '⚪').join(' ');
+      output += `${row}\n`;
+    }
+    output += `1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣`;
+    return output;
+  }
+
+  public async nextConnectFourTurn(room: GameRoom, adapter: WhatsAppAdapter, header: string = ''): Promise<void> {
+    const state = room.state;
+    const boardStr = this.renderConnectFourBoard(state.board);
+    const p1 = room.players[0];
+    const p2 = room.players[1];
+    const symbol = state.currentTurn === p1 ? '🔴' : '🟡';
+
+    const turnMsg = `${header ? header + '\n\n' : ''}` +
+      `${boardStr}\n\n` +
+      `👉 Giliran: @${state.currentTurn.split('@')[0]} (${symbol})\n` +
+      `Ketik angka kolom *1-7* untuk menjatuhkan kepingan Anda!\n` +
+      `Waktu: *45 detik*`;
+
+    await adapter.sendMessage(room.id, turnMsg, { mentions: room.players });
+
+    room.setAfkTimeout(45000, async () => {
+      if (activeRooms.get(room.id) === room) {
+        activeRooms.delete(room.id);
+        const winner = state.currentTurn === p1 ? p2 : p1;
+        await rewardPlayer(winner, 100, 35);
+        await recordGameStats(winner, room.id, 'connectfour', true, 100);
+        await adapter.sendMessage(room.id, `⏰ @${state.currentTurn.split('@')[0]} AFK! Kemenangan WO diberikan kepada @${winner.split('@')[0]}.\n💰 Reward: *+100 Koin* | *+35 XP*`, { mentions: [p1, p2] });
+      }
+    });
+  }
 }
 
 export function evaluateSafeMath(expr: string): number {
@@ -1790,6 +2402,11 @@ class PrdGameAnswerHandler implements GameAnswerHandler {
       else if (gameType === 'G004') validCommands = ['detective', 'detektif', 'g004'];
       else if (gameType === 'G006') validCommands = ['treasure', 'harta', 'g006'];
       else if (gameType === 'G018') validCommands = ['puzzle24', 'angka24', 'g018'];
+      else if (gameType === 'G007') validCommands = ['kataberantai', 'g007'];
+      else if (gameType === 'G013') validCommands = ['rankingcepat', 'ranking', 'g013'];
+      else if (gameType === 'G017') validCommands = ['mathboss', 'boss', 'g017'];
+      else if (gameType === 'G026') validCommands = ['tictactoeultimate', 'ttt', 'g026'];
+      else if (gameType === 'G027') validCommands = ['connectfour', 'connect', 'g027'];
 
       if (validCommands.includes(cmdName)) {
         if (isControl || args.length === 0) {
@@ -1996,6 +2613,288 @@ class PrdGameAnswerHandler implements GameAnswerHandler {
           );
           return true;
         }
+      }
+    } else if (room.gameType === 'G007') {
+      const state = room.state;
+      const currentPlayer = state.activePlayers[state.currentPlayerIndex];
+      
+      if (!state.activePlayers.includes(ctx.senderId)) {
+        return false;
+      }
+      
+      if (ctx.senderId !== currentPlayer) {
+        await adapter.sendMessage(room.id, `⚠️ @${ctx.senderId.split('@')[0]}, ini giliran @${currentPlayer.split('@')[0]}!`, { mentions: [ctx.senderId, currentPlayer], quotedMessageId: ctx.id });
+        return true;
+      }
+
+      const word = text.trim();
+      const lastChar = state.lastWord.slice(-1).toLowerCase();
+      
+      if (!/^[a-zA-Z]+$/.test(word)) {
+        await adapter.sendMessage(room.id, `⚠️ @${ctx.senderId.split('@')[0]}, masukkan kata yang hanya berisi huruf!`, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+        return true;
+      }
+
+      if (word.charAt(0) !== lastChar) {
+        state.activePlayers.splice(state.currentPlayerIndex, 1);
+        if (state.currentPlayerIndex >= state.activePlayers.length) {
+          state.currentPlayerIndex = 0;
+        }
+        const prdGames = new PrdGamesSuiteCommand();
+        await prdGames.nextKataBerantaiTurn(room, adapter, `❌ @${ctx.senderId.split('@')[0]} tereliminasi! Kata *${word.toUpperCase()}* tidak dimulai dengan huruf *${lastChar.toUpperCase()}*.`);
+        return true;
+      }
+
+      if (state.usedWords.has(word)) {
+        state.activePlayers.splice(state.currentPlayerIndex, 1);
+        if (state.currentPlayerIndex >= state.activePlayers.length) {
+          state.currentPlayerIndex = 0;
+        }
+        const prdGames = new PrdGamesSuiteCommand();
+        await prdGames.nextKataBerantaiTurn(room, adapter, `❌ @${ctx.senderId.split('@')[0]} tereliminasi! Kata *${word.toUpperCase()}* sudah pernah digunakan.`);
+        return true;
+      }
+
+      if (!KATA_BERANTAI_VALID_WORDS.has(word)) {
+        state.activePlayers.splice(state.currentPlayerIndex, 1);
+        if (state.currentPlayerIndex >= state.activePlayers.length) {
+          state.currentPlayerIndex = 0;
+        }
+        const prdGames = new PrdGamesSuiteCommand();
+        await prdGames.nextKataBerantaiTurn(room, adapter, `❌ @${ctx.senderId.split('@')[0]} tereliminasi! Kata *${word.toUpperCase()}* tidak ada di kamus.`);
+        return true;
+      }
+
+      state.usedWords.add(word);
+      state.lastWord = word;
+      state.currentPlayerIndex = (state.currentPlayerIndex + 1) % state.activePlayers.length;
+
+      const prdGames = new PrdGamesSuiteCommand();
+      await prdGames.nextKataBerantaiTurn(room, adapter, `✅ @${ctx.senderId.split('@')[0]} mengetik *${word.toUpperCase()}*!`);
+      return true;
+    } else if (room.gameType === 'G013') {
+      const trimmed = rawText.trim();
+      const parts = trimmed.split(/\s+/);
+      if (parts.length === 5 && parts.every(p => /^[1-5]$/.test(p))) {
+        const ans = parts.map(Number);
+        const correct = room.state.question.correctOrder;
+        
+        if (JSON.stringify(ans) === JSON.stringify(correct)) {
+          room.clearAfkTimeout();
+          activeRooms.delete(room.id);
+          
+          const coins = 80;
+          await rewardPlayer(ctx.senderId, coins, 25);
+          await recordGameStats(ctx.senderId, room.id, 'rankingcepat', true, coins);
+          
+          const winMsg = `🎉 *RANKING CEPAT TERJAWAB!* 🎉\n\n` +
+            `Selamat @${ctx.senderId.split('@')[0]} berhasil menebak urutan yang benar: *${ans.join(' ')}*!\n` +
+            `💡 *Hint:* ${room.state.question.hint}\n\n` +
+            `💰 *Hadiah:* +${coins} Koin | +25 XP`;
+          await adapter.sendMessage(room.id, winMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+        } else {
+          await adapter.sendMessage(room.id, `❌ @${ctx.senderId.split('@')[0]} urutan Anda *${ans.join(' ')}* salah! Coba lagi!`, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+        }
+        return true;
+      }
+    } else if (room.gameType === 'G017') {
+      if (!room.players.includes(ctx.senderId)) return false;
+      const num = parseInt(text, 10);
+      if (!isNaN(num) && num === room.state.currentAns) {
+        room.updateActivity();
+        const state = room.state;
+        state.bossHp -= 20;
+        state.participants.add(ctx.senderId);
+
+        if (state.bossHp <= 0) {
+          room.clearAfkTimeout();
+          activeRooms.delete(room.id);
+
+          const coins = 100;
+          const xp = 40;
+          const winners = Array.from(state.participants) as string[];
+
+          for (const winner of winners) {
+            await rewardPlayer(winner, coins, xp);
+            await recordGameStats(winner, room.id, 'mathboss', true, coins);
+          }
+
+          const winMsg = `🎉 *GIGA CALCULATOR TELAH DIKALAHKAN!* 🎉\n\n` +
+            `Tim penyerang berhasil menghancurkan Boss matematika!\n` +
+            `🏆 *Pahlawan Penyerang:*\n` +
+            winners.map(w => `- @${w.split('@')[0]}`).join('\n') + `\n\n` +
+            `💰 *Hadiah:* +${coins} Koin | +${xp} XP untuk semua kontributor!`;
+          await adapter.sendMessage(room.id, winMsg, { mentions: winners, quotedMessageId: ctx.id });
+        } else {
+          const prdGames = new PrdGamesSuiteCommand();
+          const q = prdGames.generateMathQuestion();
+          state.currentAns = q.answer;
+          state.currentEq = q.equation;
+
+          const hpBar = '❤️'.repeat(Math.ceil(state.bossHp / 50)) + '🖤'.repeat(10 - Math.ceil(state.bossHp / 50));
+          const hitMsg = `💥 @${ctx.senderId.split('@')[0]} menjawab benar! *-20 DMG* ke Boss.\n` +
+            `Boss HP: ${hpBar} (*${state.bossHp}/${state.maxHp}*)\n\n` +
+            `🔢 Soal Berikutnya:\n` +
+            `*${q.equation} = ?*`;
+          await adapter.sendMessage(room.id, hitMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+        }
+        return true;
+      }
+    } else if (room.gameType === 'G026') {
+      if (ctx.senderId !== room.state.currentTurn) return false;
+      const num = parseInt(text, 10);
+      if (!isNaN(num) && num >= 1 && num <= 9) {
+        room.updateActivity();
+        const state = room.state;
+        const idx = num - 1;
+
+        if (state.board[idx] !== '') {
+          await adapter.sendMessage(room.id, `⚠️ Kotak *${num}* sudah terisi! Pilih kotak kosong lainnya.`, { quotedMessageId: ctx.id });
+          return true;
+        }
+
+        const p1 = room.players[0];
+        const p2 = room.players[1];
+        const symbol = ctx.senderId === p1 ? 'X' : 'O';
+        state.board[idx] = symbol;
+
+        const winPatterns = [
+          [0, 1, 2], [3, 4, 5], [6, 7, 8],
+          [0, 3, 6], [1, 4, 7], [2, 5, 8],
+          [0, 4, 8], [2, 4, 6]
+        ];
+
+        let hasWon = false;
+        for (const pattern of winPatterns) {
+          if (state.board[pattern[0]] === symbol &&
+              state.board[pattern[1]] === symbol &&
+              state.board[pattern[2]] === symbol) {
+            hasWon = true;
+            break;
+          }
+        }
+
+        const prdGames = new PrdGamesSuiteCommand();
+
+        if (hasWon) {
+          state.scores[ctx.senderId] += 1;
+          const wonSet = state.set;
+
+          if (state.scores[ctx.senderId] >= 2) {
+            room.clearAfkTimeout();
+            activeRooms.delete(room.id);
+
+            const coins = 100;
+            const xp = 35;
+            await rewardPlayer(ctx.senderId, coins, xp);
+            await recordGameStats(ctx.senderId, room.id, 'tictactoeultimate', true, coins);
+            
+            const boardStr = prdGames.renderTicTacToeBoard(state.board);
+            const winMsg = `🏆 *TICTACTOE ULTIMATE CHAMPION!* 🏆\n\n` +
+              `${boardStr}\n\n` +
+              `Selamat @${ctx.senderId.split('@')[0]} memenangkan Set ${wonSet} dan menjuarai permainan dengan skor akhir *${state.scores[p1]}-${state.scores[p2]}*!\n` +
+              `💰 *Hadiah:* +${coins} Koin | +${xp} XP`;
+            await adapter.sendMessage(room.id, winMsg, { mentions: room.players, quotedMessageId: ctx.id });
+          } else {
+            state.set += 1;
+            state.board = Array(9).fill('');
+            state.currentTurn = ctx.senderId === p1 ? p2 : p1;
+            
+            await prdGames.nextTicTacToeTurn(room, adapter, `🎉 @${ctx.senderId.split('@')[0]} memenangkan Set ${wonSet}!`);
+          }
+        } else if (state.board.every((cell: string) => cell !== '')) {
+          state.board = Array(9).fill('');
+          state.currentTurn = state.currentTurn === p1 ? p2 : p1;
+          await prdGames.nextTicTacToeTurn(room, adapter, `🤝 Set ${state.set} berakhir SERI! Papan di-reset untuk babak ulang.`);
+        } else {
+          state.currentTurn = ctx.senderId === p1 ? p2 : p1;
+          await prdGames.nextTicTacToeTurn(room, adapter);
+        }
+        return true;
+      }
+    } else if (room.gameType === 'G027') {
+      if (ctx.senderId !== room.state.currentTurn) return false;
+      const num = parseInt(text, 10);
+      if (!isNaN(num) && num >= 1 && num <= 7) {
+        room.updateActivity();
+        const state = room.state;
+        const col = num - 1;
+
+        let targetRow = -1;
+        for (let r = 5; r >= 0; r--) {
+          if (state.board[r][col] === '') {
+            targetRow = r;
+            break;
+          }
+        }
+
+        if (targetRow === -1) {
+          await adapter.sendMessage(room.id, `⚠️ Kolom *${num}* sudah penuh! Pilih kolom lainnya.`, { quotedMessageId: ctx.id });
+          return true;
+        }
+
+        const p1 = room.players[0];
+        const p2 = room.players[1];
+        const symbol = ctx.senderId === p1 ? 'R' : 'Y';
+        state.board[targetRow][col] = symbol;
+
+        const checkWin = (board: string[][], sym: string): boolean => {
+          for (let r = 0; r < 6; r++) {
+            for (let c = 0; c < 4; c++) {
+              if (board[r][c] === sym && board[r][c+1] === sym && board[r][c+2] === sym && board[r][c+3] === sym) return true;
+            }
+          }
+          for (let r = 0; r < 3; r++) {
+            for (let c = 0; c < 7; c++) {
+              if (board[r][c] === sym && board[r+1][c] === sym && board[r+2][c] === sym && board[r+3][c] === sym) return true;
+            }
+          }
+          for (let r = 0; r < 3; r++) {
+            for (let c = 0; c < 4; c++) {
+              if (board[r][c] === sym && board[r+1][c+1] === sym && board[r+2][c+2] === sym && board[r+3][c+3] === sym) return true;
+            }
+          }
+          for (let r = 3; r < 6; r++) {
+            for (let c = 0; c < 4; c++) {
+              if (board[r][c] === sym && board[r-1][c+1] === sym && board[r-2][c+2] === sym && board[r-3][c+3] === sym) return true;
+            }
+          }
+          return false;
+        };
+
+        const prdGames = new PrdGamesSuiteCommand();
+
+        if (checkWin(state.board, symbol)) {
+          room.clearAfkTimeout();
+          activeRooms.delete(room.id);
+
+          const coins = 100;
+          const xp = 35;
+          await rewardPlayer(ctx.senderId, coins, xp);
+          await recordGameStats(ctx.senderId, room.id, 'connectfour', true, coins);
+
+          const boardStr = prdGames.renderConnectFourBoard(state.board);
+          const winMsg = `🏆 *CONNECT FOUR WINNER!* 🏆\n\n` +
+            `${boardStr}\n\n` +
+            `Selamat @${ctx.senderId.split('@')[0]} (${ctx.senderId === p1 ? '🔴' : '🟡'}) berhasil menyusun 4 koin sejajar!\n` +
+            `💰 *Hadiah:* +${coins} Koin | +${xp} XP`;
+          await adapter.sendMessage(room.id, winMsg, { mentions: room.players, quotedMessageId: ctx.id });
+        } else {
+          const isDraw = state.board[0].every((cell: string) => cell !== '');
+          if (isDraw) {
+            room.clearAfkTimeout();
+            activeRooms.delete(room.id);
+            const boardStr = prdGames.renderConnectFourBoard(state.board);
+            const drawMsg = `🤝 *CONNECT FOUR DRAW!* 🤝\n\n` +
+              `${boardStr}\n\n` +
+              `Papan penuh! Permainan berakhir dengan seri.`;
+            await adapter.sendMessage(room.id, drawMsg, { quotedMessageId: ctx.id });
+          } else {
+            state.currentTurn = ctx.senderId === p1 ? p2 : p1;
+            await prdGames.nextConnectFourTurn(room, adapter);
+          }
+        }
+        return true;
       }
     }
 

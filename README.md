@@ -339,6 +339,11 @@ Utility non-paid AI & Offline System Dependencies:
 | `/detective [stop]` | Kasus Detektif — pecahkan kasus dari petunjuk bertahap (G004) | User |
 | `/treasure [stop]` | Perburuan Harta Karun — tebak kata misteri dari teka-teki (G006) | User |
 | `/puzzle24 [stop]` | Puzzle Angka 24 — susun ekspresi matematika bernilai 24 (G018) | User |
+| `/kataberantai [join/leave/start/stop/cancel]` | Kata Berantai Battle — eliminasi kata berantai multiplayer (G007) | User |
+| `/rankingcepat` | Ranking Cepat — mengurutkan 5 item secepatnya free-for-all (G013) | User |
+| `/mathboss [join/leave/start/stop/cancel]` | Math Boss — serang Boss matematika kooperatif HP (G017) | User |
+| `/tictactoeultimate` / `/tttultimate` @user | TicTacToe Ultimate — PvP best-of-3 TTT (G026) | User |
+| `/connectfour` / `/c4` @user | Connect Four — PvP menyusun 4 koin di grid 6x7 (G027) | User |
 | `/tod` / `/truth` / `/dare` | Truth or Dare | User |
 | `/tebakkata` | Tebak kata berhadiah XP | User |
 | `/suit` @user | Batu Gunting Kertas PvP | User |
@@ -682,9 +687,10 @@ Test suite (Vitest) mencakup:
 - Watermark video dengan 5 pilihan posisi overlay
 - Tebak Emoji, Sudoku Mini, Typing Race, Memory Cards, Minesweeper Chat (Batch 7)
 - Quiz Duel 1v1, Quiz Battle Royale, Detective Case, Treasure Hunt, Puzzle Angka 24 (Batch 8)
+- Kata Berantai Battle, Ranking Cepat, Math Boss, TicTacToe Ultimate, Connect Four (Batch 9)
 - Safe math expression parser (`evaluateSafeMath`) tanpa `eval()`
 
-**Total: 311 tests passing (41 test files)**
+**Total: 316 tests passing (42 test files)**
 
 ---
 

@@ -1935,7 +1935,7 @@ export const PRD_CATALOG: CatalogEntry[] = [
   },
   {
     id: 'G007',
-    implementationStatus: 'scaffold',
+    implementationStatus: 'implemented',
     name: 'kataberantai',
     aliases: ['g007'],
     category: 'games',
@@ -2013,7 +2013,7 @@ export const PRD_CATALOG: CatalogEntry[] = [
   },
   {
     id: 'G013',
-    implementationStatus: 'scaffold',
+    implementationStatus: 'implemented',
     name: 'rankingcepat',
     aliases: ['g013'],
     category: 'games',
@@ -2065,7 +2065,7 @@ export const PRD_CATALOG: CatalogEntry[] = [
   },
   {
     id: 'G017',
-    implementationStatus: 'scaffold',
+    implementationStatus: 'implemented',
     name: 'mathboss',
     aliases: ['g017'],
     category: 'games',
@@ -2182,7 +2182,7 @@ export const PRD_CATALOG: CatalogEntry[] = [
   },
   {
     id: 'G026',
-    implementationStatus: 'scaffold',
+    implementationStatus: 'implemented',
     name: 'tictactoeultimate',
     aliases: ['g026'],
     category: 'games',
@@ -2195,7 +2195,7 @@ export const PRD_CATALOG: CatalogEntry[] = [
   },
   {
     id: 'G027',
-    implementationStatus: 'scaffold',
+    implementationStatus: 'implemented',
     name: 'connectfour',
     aliases: ['g027'],
     category: 'games',
