@@ -5,6 +5,7 @@ import { PRD_CATALOG } from '../prd/prd-feature-catalog.js';
 import { GameRoom, rewardPlayer, recordGameStats } from '../../services/games/game-engine.js';
 import { gameSessionService, GameAnswerHandler } from '../../services/games/game-session.service.js';
 import { normalizeJid } from '../../utils/jid.util.js';
+import { werewolfEngine } from '../../services/werewolf/werewolf.engine.js';
 
 // In-memory active game rooms mapping chatId -> GameRoom
 export const activeRooms = new Map<string, GameRoom>();
@@ -24,6 +25,27 @@ const ANAGRAM_WORDS = [
   'sepeda', 'jakarta', 'jerapah', 'lemari', 'belajar', 'pintar', 'kucing', 'anjing', 'harimau', 'singa'
 ];
 
+const TEBAK_EMOJI_POOL = [
+  { clue: '🎬🦁👑', answer: 'lion king' },
+  { clue: '🍎📱', answer: 'iphone' },
+  { clue: '⚡👓🧙‍♂️', answer: 'harry potter' },
+  { clue: '🦇🦸‍♂️', answer: 'batman' },
+  { clue: '🕷️🦸‍♂️', answer: 'spiderman' },
+  { clue: '🧊🚢', answer: 'titanic' },
+  { clue: '🐱🐭', answer: 'tom and jerry' },
+  { clue: '🍭🍫🏭', answer: 'charlie and the chocolate factory' },
+  { clue: '🎈🤡', answer: 'it' },
+  { clue: '🦖🦖🦖', answer: 'jurassic park' }
+];
+
+const TYPING_RACE_POOL = [
+  'Antigravity adalah AI coding assistant yang cerdas dan handal.',
+  'Belajar pemrograman TypeScript sangat menyenangkan dan menantang.',
+  'Keamanan grup dan privasi data pengguna adalah prioritas nomor satu.',
+  'Javas Bot WA dikembangkan menggunakan TypeScript dan SQLite lokal.',
+  'Membaca kode orang lain membantu kita belajar teknik pemrograman baru.'
+];
+
 export class PrdGamesSuiteCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
     const rawCmd = ctx.command?.commandName || ctx.body.trim().split(/\s+/)[0].replace(/^[^\w\s]+/, '').toLowerCase();
@@ -39,19 +61,22 @@ export class PrdGamesSuiteCommand implements Command {
     const entry = PRD_CATALOG.find(e => e.name.toLowerCase() === commandName || e.aliases.map(a => a.toLowerCase()).includes(commandName));
     if (!entry) return;
 
-    // Check if the command is one of the 5 implemented games
-    const implementedIds = new Set(['G016', 'G020', 'G021', 'G022', 'G030']);
+    // Check if the command is one of the implemented games
+    const implementedIds = new Set(['G016', 'G020', 'G021', 'G022', 'G030', 'G001', 'G002', 'G008', 'G019', 'G023', 'G024', 'G025']);
     if (!implementedIds.has(entry.id)) {
-      // Fallback scaffold message for 45 unimplemented games
+      // Fallback scaffold message for unimplemented games
       await adapter.sendMessage(
         ctx.chatId,
-        `⚠️ Game /${commandName} (coming soon / scaffold ready) sedang dalam pengembangan.`,
+        `🎮 Game *[${entry.id}] ${entry.name}* (awaiting full implementation) telah terdaftar.\n\n` +
+        `📝 *Deskripsi:* ${entry.description}\n` +
+        `💡 *Cara pakai:* \`${entry.usage}\`\n\n` +
+        `Game ini sedang dalam pengembangan dan akan aktif penuh setelah Batch terkait diimplementasikan.`,
         { quotedMessageId: ctx.id }
       );
       return;
     }
 
-    // Handle the 5 implemented games
+    // Handle the implemented games
     const gameId = entry.id;
     if (gameId === 'G020') {
       await this.playWordle(ctx, args, adapter);
@@ -63,6 +88,20 @@ export class PrdGamesSuiteCommand implements Command {
       await this.playMathSprint(ctx, args, adapter);
     } else if (gameId === 'G030') {
       await this.playSuitTournament(ctx, args, adapter);
+    } else if (gameId === 'G001') {
+      await this.playWwChaos(ctx, args, adapter);
+    } else if (gameId === 'G002') {
+      await this.playWwRanked(ctx, args, adapter);
+    } else if (gameId === 'G008') {
+      await this.playTebakEmoji(ctx, args, adapter);
+    } else if (gameId === 'G019') {
+      await this.playSudokuMini(ctx, args, adapter);
+    } else if (gameId === 'G023') {
+      await this.playTypingRace(ctx, args, adapter);
+    } else if (gameId === 'G024') {
+      await this.playMemoryCards(ctx, args, adapter);
+    } else if (gameId === 'G025') {
+      await this.playMinesweeperChat(ctx, args, adapter);
     }
   }
 
@@ -602,23 +641,428 @@ export class PrdGamesSuiteCommand implements Command {
       await this.checkRoundStatus(matchedRoom, adapter);
     }
   }
+
+  private async playWwChaos(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    if (!ctx.isGroup) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Game Werewolf Chaos Mode hanya bisa dimainkan di grup.', { quotedMessageId: ctx.id });
+      return;
+    }
+    try {
+      const res = await werewolfEngine.createLobby(ctx.chatId, ctx.senderId, ctx.senderName, 'wwchaos');
+      await adapter.sendMessage(ctx.chatId, `✅ ${res}`, { quotedMessageId: ctx.id });
+    } catch (err: any) {
+      await adapter.sendMessage(ctx.chatId, `⚠️ ${err.message}`, { quotedMessageId: ctx.id });
+    }
+  }
+
+  private async playWwRanked(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    if (!ctx.isGroup) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Game Werewolf Ranked Season hanya bisa dimainkan di grup.', { quotedMessageId: ctx.id });
+      return;
+    }
+    try {
+      const res = await werewolfEngine.createLobby(ctx.chatId, ctx.senderId, ctx.senderName, 'wwranked');
+      await adapter.sendMessage(ctx.chatId, `✅ ${res}`, { quotedMessageId: ctx.id });
+    } catch (err: any) {
+      await adapter.sendMessage(ctx.chatId, `⚠️ ${err.message}`, { quotedMessageId: ctx.id });
+    }
+  }
+
+  private async playTebakEmoji(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G008') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Game Tebak Emoji telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Tebak Emoji aktif yang bisa dibatalkan.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const item = TEBAK_EMOJI_POOL[Math.floor(Math.random() * TEBAK_EMOJI_POOL.length)];
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G008',
+      gameName: 'Tebak Emoji',
+      hostId: ctx.senderId
+    });
+
+    room.state = {
+      clue: item.clue,
+      answer: item.answer.toLowerCase()
+    };
+    room.status = 'playing';
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(60000, async () => {
+      if (activeRooms.get(ctx.chatId) === room) {
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, `⏰ *Waktu Tebak Emoji Habis!* Jawaban yang benar adalah: *${item.answer.toUpperCase()}*`);
+      }
+    });
+
+    const msg = `🧩 *TEBAK EMOJI* 🧩\n\n` +
+      `Tebak film/kata/frasa dari clue emoji berikut:\n` +
+      `👉 *${item.clue}*\n\n` +
+      `Ketik jawaban Anda langsung di chat grup!\n` +
+      `Waktu menjawab: *60 detik*.`;
+    await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+  }
+
+  private async playSudokuMini(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G019') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Game Sudoku Mini telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Sudoku Mini aktif yang bisa dibatalkan.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const boards = [
+      [1, 2, 3, 4, 3, 4, 1, 2, 2, 3, 4, 1, 4, 1, 2, 3],
+      [4, 3, 2, 1, 1, 2, 3, 4, 2, 1, 4, 3, 3, 4, 1, 2],
+      [2, 4, 1, 3, 1, 3, 4, 2, 3, 1, 2, 4, 4, 2, 3, 1]
+    ];
+    const solution = boards[Math.floor(Math.random() * boards.length)];
+    const current = [...solution];
+
+    const maskedIndices = new Set<number>();
+    while (maskedIndices.size < 6) {
+      maskedIndices.add(Math.floor(Math.random() * 16));
+    }
+    for (const idx of maskedIndices) {
+      current[idx] = 0;
+    }
+
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G019',
+      gameName: 'Sudoku Mini',
+      hostId: ctx.senderId
+    });
+
+    room.state = {
+      solution,
+      current
+    };
+    room.status = 'playing';
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(180000, async () => {
+      if (activeRooms.get(ctx.chatId) === room) {
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '⏰ *Sudoku Mini Timeout!* Sesi game dibatalkan karena tidak ada aktivitas.');
+      }
+    });
+
+    const boardStr = this.renderSudokuBoard(current);
+    const msg = `🧩 *SUDOKU MINI 4x4* 🧩\n\n` +
+      `Isi angka kosong (▪) dengan angka 1 sampai 4!\n\n` +
+      `${boardStr}\n\n` +
+      `*Cara menjawab:* Ketik koordinat dan angka langsung di chat (contoh: \`A2 3\` atau \`c4 1\`), atau gunakan \`/sudoku A2 3\`.`;
+    await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+  }
+
+  public renderSudokuBoard(current: number[]): string {
+    let out = '    *1   2   3   4*\n';
+    const rows = ['A', 'B', 'C', 'D'];
+    for (let r = 0; r < 4; r++) {
+      out += `*${rows[r]}*   `;
+      for (let c = 0; c < 4; c++) {
+        const val = current[r * 4 + c];
+        out += val === 0 ? '▪  ' : `${val}  `;
+      }
+      out += '\n';
+    }
+    return out;
+  }
+
+  private async playTypingRace(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G023') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Game Typing Race telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Typing Race aktif yang bisa dibatalkan.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const targetText = TYPING_RACE_POOL[Math.floor(Math.random() * TYPING_RACE_POOL.length)];
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G023',
+      gameName: 'Typing Race',
+      hostId: ctx.senderId
+    });
+
+    room.state = {
+      targetText,
+      startTime: Date.now()
+    };
+    room.status = 'playing';
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(60000, async () => {
+      if (activeRooms.get(ctx.chatId) === room) {
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '⏰ *Typing Race Selesai!* Waktu habis dan tidak ada yang berhasil mengetik dengan tepat.');
+      }
+    });
+
+    const msg = `⚡ *TYPING RACE* ⚡\n\n` +
+      `Ketik ulang kalimat di bawah ini secara tepat dan cepat!\n\n` +
+      `📝 *"${targetText}"*\n\n` +
+      `Siapa cepat mengetik dengan benar dia pemenangnya!`;
+    await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+  }
+
+  private async playMemoryCards(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G024') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Game Memory Cards telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Memory Cards aktif yang bisa dibatalkan.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const emojis = ['🍎', '🍌', '🍇', '🍊', '🍓', '🍒', '🍍', '🍉'];
+    const pairs = [...emojis, ...emojis].sort(() => Math.random() - 0.5);
+    const revealed = new Array(16).fill(false);
+
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G024',
+      gameName: 'Memory Cards',
+      hostId: ctx.senderId
+    });
+
+    room.state = {
+      pairs,
+      revealed,
+      playerMatches: {} as Record<string, number>
+    };
+    room.status = 'playing';
+    activeRooms.set(ctx.chatId, room);
+
+    let revealStr = '🃏 *MEMORY CARDS — INGAT PASANGAN BERIKUT!* 🃏\n\n';
+    for (let i = 0; i < 16; i += 4) {
+      revealStr += `${i + 1}:${pairs[i]}  ${i + 2}:${pairs[i + 1]}  ${i + 3}:${pairs[i + 2]}  ${i + 4}:${pairs[i + 3]}\n`;
+    }
+    revealStr += `\nKartu akan ditutup otomatis dalam *5 detik*!`;
+    await adapter.sendMessage(ctx.chatId, revealStr, { quotedMessageId: ctx.id });
+
+    setTimeout(async () => {
+      if (activeRooms.get(ctx.chatId) === room && room.status === 'playing') {
+        const boardStr = this.renderMemoryBoard(revealed, pairs);
+        const hideMsg = `🔒 *KARTU TELAH DITUTUP!* 🔒\n\n` +
+          `${boardStr}\n\n` +
+          `*Cara menebak:* Ketik dua angka kartu (1-16) terpisah spasi langsung di chat grup (contoh: \`1 9\` atau \`4 12\`), atau gunakan \`/memory 1 9\`.`;
+        await adapter.sendMessage(ctx.chatId, hideMsg);
+
+        room.setAfkTimeout(180000, async () => {
+          if (activeRooms.get(ctx.chatId) === room) {
+            activeRooms.delete(ctx.chatId);
+            await adapter.sendMessage(ctx.chatId, '⏰ *Memory Cards Selesai!* Sesi dibatalkan karena tidak ada aktivitas.');
+          }
+        });
+      }
+    }, 5000);
+  }
+
+  public renderMemoryBoard(revealed: boolean[], pairs: string[], tempIdxs: number[] = []): string {
+    let out = '';
+    for (let i = 0; i < 16; i++) {
+      const idx = i + 1;
+      const numStr = idx < 10 ? `0${idx}` : `${idx}`;
+      const isRevealed = revealed[i] || tempIdxs.includes(i);
+      out += isRevealed ? `[ ${pairs[i]} ] ` : `[ ${numStr} ] `;
+      if ((i + 1) % 4 === 0) out += '\n';
+    }
+    return out;
+  }
+
+  private async playMinesweeperChat(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
+    const action = args[0]?.toLowerCase();
+    if (action === 'cancel' || action === 'stop') {
+      const room = activeRooms.get(ctx.chatId);
+      if (room && room.gameType === 'G025') {
+        room.cancel();
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '🛑 Game Minesweeper Chat telah dibatalkan.', { quotedMessageId: ctx.id });
+      } else {
+        await adapter.sendMessage(ctx.chatId, '⚠️ Tidak ada sesi Minesweeper aktif yang bisa dibatalkan.', { quotedMessageId: ctx.id });
+      }
+      return;
+    }
+
+    if (activeRooms.has(ctx.chatId)) {
+      await adapter.sendMessage(ctx.chatId, '⚠️ Ada game lain yang sedang aktif di grup ini.', { quotedMessageId: ctx.id });
+      return;
+    }
+
+    const mines = new Array(25).fill(false);
+    const mineIndices = new Set<number>();
+    while (mineIndices.size < 5) {
+      mineIndices.add(Math.floor(Math.random() * 25));
+    }
+    for (const idx of mineIndices) {
+      mines[idx] = true;
+    }
+
+    const counts = new Array(25).fill(0);
+    for (let i = 0; i < 25; i++) {
+      if (mines[i]) continue;
+      const row = Math.floor(i / 5);
+      const col = i % 5;
+      let count = 0;
+      for (let r = -1; r <= 1; r++) {
+        for (let c = -1; c <= 1; c++) {
+          if (r === 0 && c === 0) continue;
+          const nr = row + r;
+          const nc = col + c;
+          if (nr >= 0 && nr < 5 && nc >= 0 && nc < 5) {
+            if (mines[nr * 5 + nc]) count++;
+          }
+        }
+      }
+      counts[i] = count;
+    }
+
+    const revealed = new Array(25).fill(false);
+
+    const room = new GameRoom({
+      id: ctx.chatId,
+      gameType: 'G025',
+      gameName: 'Minesweeper Chat',
+      hostId: ctx.senderId
+    });
+
+    room.state = {
+      mines,
+      counts,
+      revealed,
+      ended: false
+    };
+    room.status = 'playing';
+    activeRooms.set(ctx.chatId, room);
+
+    room.setAfkTimeout(180000, async () => {
+      if (activeRooms.get(ctx.chatId) === room) {
+        activeRooms.delete(ctx.chatId);
+        await adapter.sendMessage(ctx.chatId, '⏰ *Minesweeper Chat Timeout!* Sesi dibatalkan karena tidak ada aktivitas.');
+      }
+    });
+
+    const boardStr = this.renderMinesweeperBoard(revealed, counts, mines);
+    const msg = `💣 *MINESWEEPER CHAT 5x5* 💣\n\n` +
+      `Buka semua sel aman tanpa terkena ranjau (terdapat *5 ranjau* hidden)!\n\n` +
+      `${boardStr}\n\n` +
+      `*Cara bermain:* Ketik koordinat sel langsung di chat grup (contoh: \`A1\` atau \`d3\`), atau gunakan \`/minesweeper A1\`.`;
+    await adapter.sendMessage(ctx.chatId, msg, { quotedMessageId: ctx.id });
+  }
+
+  public renderMinesweeperBoard(revealed: boolean[], counts: number[], mines: boolean[], exploded?: boolean): string {
+    let out = '    *1   2   3   4   5*\n';
+    const rows = ['A', 'B', 'C', 'D', 'E'];
+    const numberEmojis = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣'];
+    for (let r = 0; r < 5; r++) {
+      out += `*${rows[r]}*  `;
+      for (let c = 0; c < 5; c++) {
+        const idx = r * 5 + c;
+        if (revealed[idx]) {
+          out += numberEmojis[counts[idx]] + ' ';
+        } else if (exploded && mines[idx]) {
+          out += '💥 ';
+        } else {
+          out += '▫️ ';
+        }
+      }
+      out += '\n';
+    }
+    return out;
+  }
 }
 
 // Intercept game answers
 class PrdGameAnswerHandler implements GameAnswerHandler {
   public async canHandle(ctx: MessageContext): Promise<boolean> {
-    // Suit tournament choices should be parsed by execute/command, not intercept
     const room = activeRooms.get(ctx.chatId);
     if (!room || room.status !== 'playing') return false;
 
-    // Check if message is a command first, if it has command prefix and is recognized, skip intercept
-    if (ctx.command?.isCommand) {
-      const cmdName = ctx.command.commandName?.toLowerCase();
-      // Allow /wordleindo tebak, /hangmanindo tebak, /anagramrace, /mathsprint to fall through
-      if (['wordleindo', 'hangmanindo', 'anagramrace', 'mathsprint'].includes(cmdName)) {
-        return false;
+    // Check if the body starts with a prefix
+    const firstChar = ctx.body.trim().charAt(0);
+    const hasPrefix = ['/', '!', '.', '#'].includes(firstChar);
+
+    if (hasPrefix) {
+      const cleanBody = ctx.body.trim().slice(1);
+      const parts = cleanBody.split(/\s+/);
+      const cmdName = parts[0]?.toLowerCase();
+      const args = parts.slice(1);
+
+      // Check if it is a control command for the current game
+      const isControl = args[0]?.toLowerCase() === 'stop' || args[0]?.toLowerCase() === 'cancel';
+
+      const gameType = room.gameType;
+      
+      let validCommands: string[] = [];
+      if (gameType === 'G008') validCommands = ['tebakemoji', 'emoji', 'g008'];
+      else if (gameType === 'G019') validCommands = ['sudokumini', 'sudoku', 'g019'];
+      else if (gameType === 'G023') validCommands = ['typingrace', 'g023'];
+      else if (gameType === 'G024') validCommands = ['memorycards', 'memory', 'g024'];
+      else if (gameType === 'G025') validCommands = ['minesweeperchat', 'minesweeper', 'g025'];
+      else if (gameType === 'G020') validCommands = ['wordleindo', 'wordle', 'g020'];
+      else if (gameType === 'G021') validCommands = ['hangmanindo', 'hangman', 'g021'];
+      else if (gameType === 'G022') validCommands = ['anagramrace', 'anagram', 'g022'];
+      else if (gameType === 'G016') validCommands = ['mathsprint', 'math', 'g016'];
+
+      if (validCommands.includes(cmdName)) {
+        if (isControl || args.length === 0) {
+          // Do not intercept stop/cancel or empty command checks, let the command router process it
+          return false;
+        }
+        return true;
       }
+      
+      return false;
     }
+
     return true;
   }
 
@@ -626,11 +1070,23 @@ class PrdGameAnswerHandler implements GameAnswerHandler {
     const room = activeRooms.get(ctx.chatId);
     if (!room || room.status !== 'playing') return false;
 
-    const text = ctx.body.trim().toLowerCase();
-    
-    // Ignore commands starting with prefix unless it is a play command handled by execute
-    if (['/', '!', '.', '#'].includes(ctx.body.trim().charAt(0))) {
-      return false;
+    const rawBody = ctx.body.trim();
+    let text = rawBody.toLowerCase();
+    let rawText = rawBody;
+
+    // Check if it is a command prefix
+    const firstChar = rawBody.charAt(0);
+    const hasPrefix = ['/', '!', '.', '#'].includes(firstChar);
+    if (hasPrefix) {
+      const cleanBody = rawBody.slice(1);
+      const parts = cleanBody.split(/\s+/);
+      rawText = parts.slice(1).join(' ').trim();
+      text = rawText.toLowerCase();
+    } else {
+      // If it has a prefix character but was not parsed as command in canHandle, skip it to avoid command leakage
+      if (['/', '!', '.', '#'].includes(firstChar)) {
+        return false;
+      }
     }
 
     if (room.gameType === 'G020') {
@@ -658,6 +1114,27 @@ class PrdGameAnswerHandler implements GameAnswerHandler {
         await this.handleMathSolve(room, ctx, adapter);
         return true;
       }
+    } else if (room.gameType === 'G008') {
+      // Tebak Emoji
+      if (text === room.state.answer) {
+        await this.handleTebakEmojiSolve(room, ctx, adapter);
+        return true;
+      }
+    } else if (room.gameType === 'G019') {
+      // Sudoku Mini
+      return await this.handleSudokuGuess(room, text, ctx, adapter);
+    } else if (room.gameType === 'G023') {
+      // Typing Race (using rawText for case-sensitivity)
+      if (rawText === room.state.targetText) {
+        await this.handleTypingRaceSolve(room, rawText, ctx, adapter);
+        return true;
+      }
+    } else if (room.gameType === 'G024') {
+      // Memory Cards
+      return await this.handleMemoryGuess(room, text, ctx, adapter);
+    } else if (room.gameType === 'G025') {
+      // Minesweeper Chat
+      return await this.handleMinesweeperGuess(room, text, ctx, adapter);
     }
 
     return false;
@@ -813,6 +1290,254 @@ class PrdGameAnswerHandler implements GameAnswerHandler {
       `Soal berikutnya:\n` +
       `🔢 *${q.equation} = ?*`;
     await adapter.sendMessage(room.id, msg, { quotedMessageId: ctx.id });
+  }
+
+  private async handleTebakEmojiSolve(room: GameRoom, ctx: MessageContext, adapter: WhatsAppAdapter): Promise<void> {
+    room.clearAfkTimeout();
+    activeRooms.delete(room.id);
+
+    const coins = 50;
+    await rewardPlayer(ctx.senderId, coins, 15);
+    await recordGameStats(ctx.senderId, room.id, 'tebakemoji', true, coins);
+
+    const winMsg = `🎉 *TEBAK EMOJI TERJAWAB!* 🎉\n\n` +
+      `Selamat @${ctx.senderId.split('@')[0]}, Anda berhasil menebak: *${room.state.answer.toUpperCase()}*\n` +
+      `💰 *Hadiah:* +${coins} Koin | +15 XP`;
+    await adapter.sendMessage(room.id, winMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+  }
+
+  private async handleSudokuGuess(room: GameRoom, text: string, ctx: MessageContext, adapter: WhatsAppAdapter): Promise<boolean> {
+    const match = text.match(/^([a-d])([1-4])\s+([1-4])$/i);
+    if (!match) return false;
+
+    room.updateActivity();
+    const state = room.state;
+    const rowStr = match[1].toUpperCase();
+    const colStr = match[2];
+    const val = parseInt(match[3], 10);
+
+    const row = rowStr.charCodeAt(0) - 65;
+    const col = parseInt(colStr, 10) - 1;
+    const idx = row * 4 + col;
+
+    if (state.current[idx] !== 0) {
+      await adapter.sendMessage(room.id, `⚠️ Koordinat *${rowStr}${colStr}* sudah terisi.`, { quotedMessageId: ctx.id });
+      return true;
+    }
+
+    const correctVal = state.solution[idx];
+    if (val === correctVal) {
+      state.current[idx] = val;
+      
+      const solved = state.current.every((v: number) => v !== 0);
+      const prdGames = new PrdGamesSuiteCommand();
+      if (solved) {
+        room.clearAfkTimeout();
+        activeRooms.delete(room.id);
+
+        const coins = 100;
+        await rewardPlayer(ctx.senderId, coins, 30);
+        await recordGameStats(ctx.senderId, room.id, 'sudokumini', true, coins);
+
+        const boardStr = prdGames.renderSudokuBoard(state.current);
+        const winMsg = `🎉 *SUDOKU MINI BERHASIL DIPECAHKAN!* 🎉\n\n` +
+          `@${ctx.senderId.split('@')[0]} memasukkan angka terakhir *${val}* di *${rowStr}${colStr}*!\n\n` +
+          `${boardStr}\n` +
+          `💰 *Hadiah:* +${coins} Koin | +30 XP`;
+        await adapter.sendMessage(room.id, winMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+      } else {
+        const boardStr = prdGames.renderSudokuBoard(state.current);
+        const msg = `✅ *Tepat!* Angka *${val}* di *${rowStr}${colStr}* benar.\n\n` +
+          `${boardStr}\n` +
+          `Ketik koordinat berikutnya!`;
+        await adapter.sendMessage(room.id, msg, { quotedMessageId: ctx.id });
+      }
+    } else {
+      await adapter.sendMessage(room.id, `❌ Angka *${val}* di *${rowStr}${colStr}* salah! Coba koordinat atau angka lain.`, { quotedMessageId: ctx.id });
+    }
+    return true;
+  }
+
+  private async handleTypingRaceSolve(room: GameRoom, rawText: string, ctx: MessageContext, adapter: WhatsAppAdapter): Promise<void> {
+    room.clearAfkTimeout();
+    activeRooms.delete(room.id);
+
+    const elapsed = ((Date.now() - room.state.startTime) / 1000).toFixed(2);
+    const coins = 60;
+    await rewardPlayer(ctx.senderId, coins, 20);
+    await recordGameStats(ctx.senderId, room.id, 'typingrace', true, coins);
+
+    const winMsg = `🎉 *TYPING RACE JUARA!* 🎉\n\n` +
+      `Selamat @${ctx.senderId.split('@')[0]} menang! Mengetik secara tepat dalam waktu *${elapsed}* detik.\n` +
+      `💰 *Hadiah:* +${coins} Koin | +20 XP`;
+    await adapter.sendMessage(room.id, winMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+  }
+
+  private async handleMemoryGuess(room: GameRoom, text: string, ctx: MessageContext, adapter: WhatsAppAdapter): Promise<boolean> {
+    const match = text.match(/^([1-9]|1[0-6])\s+([1-9]|1[0-6])$/);
+    if (!match) return false;
+
+    room.updateActivity();
+    const state = room.state;
+    const num1 = parseInt(match[1], 10);
+    const num2 = parseInt(match[2], 10);
+
+    const idx1 = num1 - 1;
+    const idx2 = num2 - 1;
+
+    if (idx1 === idx2) {
+      await adapter.sendMessage(room.id, `⚠️ Pilih dua kartu yang berbeda.`, { quotedMessageId: ctx.id });
+      return true;
+    }
+
+    if (state.revealed[idx1] || state.revealed[idx2]) {
+      await adapter.sendMessage(room.id, `⚠️ Salah satu atau kedua kartu sudah terbuka.`, { quotedMessageId: ctx.id });
+      return true;
+    }
+
+    const matchSuccess = state.pairs[idx1] === state.pairs[idx2];
+    const prdGames = new PrdGamesSuiteCommand();
+
+    if (matchSuccess) {
+      state.revealed[idx1] = true;
+      state.revealed[idx2] = true;
+      state.playerMatches[ctx.senderId] = (state.playerMatches[ctx.senderId] || 0) + 1;
+
+      const allSolved = state.revealed.every((r: boolean) => r);
+      if (allSolved) {
+        room.clearAfkTimeout();
+        activeRooms.delete(room.id);
+
+        let bestPlayer = ctx.senderId;
+        let maxMatches = 0;
+        for (const [pid, count] of Object.entries(state.playerMatches)) {
+          if ((count as number) > maxMatches) {
+            maxMatches = count as number;
+            bestPlayer = pid;
+          }
+        }
+
+        const winCoins = 50;
+        await rewardPlayer(bestPlayer, winCoins, 20);
+        await recordGameStats(bestPlayer, room.id, 'memorycards', true, winCoins);
+
+        const boardStr = prdGames.renderMemoryBoard(state.revealed, state.pairs);
+        const winMsg = `🎉 *CONGRATULATIONS! MEMORY CARDS SOLVED!* 🎉\n\n` +
+          `Semua kartu telah cocok!\n\n` +
+          `${boardStr}\n` +
+          `🏆 *Pemenang Utama:* @${bestPlayer.split('@')[0]} (${maxMatches} pasangan)\n` +
+          `💰 *Hadiah:* +${winCoins} Koin | +20 XP`;
+        await adapter.sendMessage(room.id, winMsg, { mentions: [bestPlayer], quotedMessageId: ctx.id });
+      } else {
+        await rewardPlayer(ctx.senderId, 15, 5);
+        const boardStr = prdGames.renderMemoryBoard(state.revealed, state.pairs);
+        const matchMsg = `✅ *COCOK!* Kartu ${num1} dan ${num2} sama-sama ${state.pairs[idx1]}!\n\n` +
+          `${boardStr}\n` +
+          `💰 +15 Koin! Sesi bermain berlanjut.`;
+        await adapter.sendMessage(room.id, matchMsg, { quotedMessageId: ctx.id });
+      }
+    } else {
+      const tempBoardStr = prdGames.renderMemoryBoard(state.revealed, state.pairs, [idx1, idx2]);
+      const mismatchMsg = `❌ *TIDAK COCOK!* Kartu ${num1} (${state.pairs[idx1]}) dan ${num2} (${state.pairs[idx2]}) berbeda.\n\n` +
+        `${tempBoardStr}\n` +
+        `Kartu ditutup kembali!`;
+      await adapter.sendMessage(room.id, mismatchMsg, { quotedMessageId: ctx.id });
+    }
+
+    return true;
+  }
+
+  private async handleMinesweeperGuess(room: GameRoom, text: string, ctx: MessageContext, adapter: WhatsAppAdapter): Promise<boolean> {
+    const match = text.match(/^([a-e])([1-5])$/i);
+    if (!match) return false;
+
+    room.updateActivity();
+    const state = room.state;
+    const rowStr = match[1].toUpperCase();
+    const colStr = match[2];
+
+    const row = rowStr.charCodeAt(0) - 65;
+    const col = parseInt(colStr, 10) - 1;
+    const idx = row * 5 + col;
+
+    if (state.revealed[idx]) {
+      await adapter.sendMessage(room.id, `⚠️ Koordinat *${rowStr}${colStr}* sudah terbuka.`, { quotedMessageId: ctx.id });
+      return true;
+    }
+
+    const prdGames = new PrdGamesSuiteCommand();
+
+    if (state.mines[idx]) {
+      room.clearAfkTimeout();
+      activeRooms.delete(room.id);
+      
+      await recordGameStats(ctx.senderId, room.id, 'minesweeperchat', false, 0);
+
+      const boardStr = prdGames.renderMinesweeperBoard(state.revealed, state.counts, state.mines, true);
+      const explodeMsg = `💥 *BOOM!* Anda terkena ranjau di *${rowStr}${colStr}*! 💥\n\n` +
+        `${boardStr}\n` +
+        `💀 *GAME OVER!*`;
+      await adapter.sendMessage(room.id, explodeMsg, { quotedMessageId: ctx.id });
+    } else {
+      const floodFill = (startIdx: number) => {
+        const queue = [startIdx];
+        const visited = new Set<number>();
+        visited.add(startIdx);
+
+        while (queue.length > 0) {
+          const currentIdx = queue.shift()!;
+          state.revealed[currentIdx] = true;
+
+          if (state.counts[currentIdx] === 0) {
+            const r = Math.floor(currentIdx / 5);
+            const c = currentIdx % 5;
+            for (let dr = -1; dr <= 1; dr++) {
+              for (let dc = -1; dc <= 1; dc++) {
+                if (dr === 0 && dc === 0) continue;
+                const nr = r + dr;
+                const nc = c + dc;
+                if (nr >= 0 && nr < 5 && nc >= 0 && nc < 5) {
+                  const neighborIdx = nr * 5 + nc;
+                  if (!state.mines[neighborIdx] && !state.revealed[neighborIdx] && !visited.has(neighborIdx)) {
+                    visited.add(neighborIdx);
+                    queue.push(neighborIdx);
+                  }
+                }
+              }
+            }
+          }
+        }
+      };
+
+      floodFill(idx);
+
+      const revealedCount = state.revealed.filter((r: boolean) => r).length;
+      const win = revealedCount === 20;
+
+      if (win) {
+        room.clearAfkTimeout();
+        activeRooms.delete(room.id);
+
+        const coins = 80;
+        await rewardPlayer(ctx.senderId, coins, 25);
+        await recordGameStats(ctx.senderId, room.id, 'minesweeperchat', true, coins);
+
+        const boardStr = prdGames.renderMinesweeperBoard(state.revealed, state.counts, state.mines);
+        const winMsg = `🎉 *CONGRATULATIONS! MINESWEEPER CLEAR!* 🎉\n\n` +
+          `@${ctx.senderId.split('@')[0]} berhasil membuka sel aman terakhir di *${rowStr}${colStr}*!\n\n` +
+          `${boardStr}\n` +
+          `💰 *Hadiah:* +${coins} Koin | +25 XP`;
+        await adapter.sendMessage(room.id, winMsg, { mentions: [ctx.senderId], quotedMessageId: ctx.id });
+      } else {
+        const boardStr = prdGames.renderMinesweeperBoard(state.revealed, state.counts, state.mines);
+        const msg = `✅ Sel aman dibuka di koordinat *${rowStr}${colStr}*!\n\n` +
+          `${boardStr}\n` +
+          `Ketik koordinat berikutnya!`;
+        await adapter.sendMessage(room.id, msg, { quotedMessageId: ctx.id });
+      }
+    }
+
+    return true;
   }
 }
 

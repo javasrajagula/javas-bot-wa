@@ -2,7 +2,7 @@ import { Command, registerCommand, checkIfAdmin } from './index.js';
 import { MessageContext } from '../bot/message.types.js';
 import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
 import prisma from '../db/client.js';
-import { DEFAULT_FEATURES, parseFeatureFlags, getGroupFeatures } from '../config/feature-flags.js';
+import { DEFAULT_FEATURES, parseFeatureFlags, getGroupFeatures, saveGroupConfigSnapshot } from '../config/feature-flags.js';
 
 const PRESETS: Record<string, Record<string, any>> = {
   sekolah: {
@@ -59,6 +59,68 @@ const PRESETS: Record<string, Record<string, any>> = {
     economy: true,
     miniGames: true,
     groupMode: 'komunitas'
+  },
+  aman: {
+    welcome: true,
+    goodbye: false,
+    antilink: true,
+    antispam: true,
+    badword: true,
+    captcha: true,
+    antiraid: true,
+    antivirtex: true,
+    antimention: true,
+    antisticker: true,
+    antispamMode: 'warn',
+    antilinkMode: 'delete',
+    groupMode: 'aman'
+  },
+  ramai: {
+    welcome: true,
+    goodbye: true,
+    antilink: false,
+    antispam: false,
+    leveling: true,
+    economy: true,
+    miniGames: true,
+    rpg: true,
+    werewolf: true,
+    prd_games: true,
+    groupMode: 'ramai'
+  },
+  edukasi: {
+    welcome: true,
+    goodbye: false,
+    reminder: true,
+    attendance: true,
+    school: true,
+    prd_school: true,
+    prd_ai: true,
+    badword: true,
+    groupMode: 'edukasi'
+  },
+  bisnis: {
+    welcome: false,
+    goodbye: false,
+    antilink: true,
+    antispam: true,
+    autoreply: true,
+    business: true,
+    prd_business: true,
+    groupMode: 'bisnis'
+  },
+  ringan: {
+    welcome: false,
+    goodbye: false,
+    antilink: false,
+    antispam: false,
+    badword: false,
+    economy: false,
+    miniGames: false,
+    werewolf: false,
+    leveling: false,
+    prd_games: false,
+    groupMode: 'ringan'
   }
 };
 
@@ -213,6 +275,7 @@ export async function handleWizardInput(ctx: MessageContext, adapter: WhatsAppAd
           // Save prefix and active configurations
           const { prefix, groupMode, ...features } = session.config;
 
+          await saveGroupConfigSnapshot(ctx.chatId);
           await prisma.groupConfig.upsert({
             where: { groupId: ctx.chatId },
             create: {
@@ -358,7 +421,10 @@ export class SetupCommand implements Command {
       if (!preset) {
         await adapter.sendMessage(
           ctx.chatId,
-          `⚠️ Pack tidak ditemukan. Pilihan:\n• \`/${commandType} sekolah\`\n• \`/${commandType} jualan\`\n• \`/${commandType} gaming\`\n• \`/${commandType} islami\`\n• \`/${commandType} komunitas\``,
+          `⚠️ Pack/preset tidak ditemukan. Pilihan:\n` +
+          `• Preset Fitur Grup (F022): \`aman\`, \`ramai\`, \`edukasi\`, \`bisnis\`, \`ringan\`\n` +
+          `• Onboarding Wizard Presets (F021): \`sekolah\`, \`jualan\`, \`gaming\`, \`islami\`, \`komunitas\`\n\n` +
+          `Contoh: \`/${commandType} aman\` atau \`/${commandType} sekolah\``,
           { quotedMessageId: ctx.id }
         );
         return;
@@ -369,6 +435,7 @@ export class SetupCommand implements Command {
 
       // Apply changes to database
       const { groupMode, ...features } = next;
+      await saveGroupConfigSnapshot(ctx.chatId);
       await prisma.groupConfig.upsert({
         where: { groupId: ctx.chatId },
         create: {

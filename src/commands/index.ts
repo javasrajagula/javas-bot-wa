@@ -17,6 +17,8 @@ const lastMessages = new Map<string, { body: string; count: number; timestamp: n
 const stickerTimestamps = new Map<string, number[]>();
 const lastSuggestionTime = new Map<string, number>();
 const mediaSpamTimestamps = new Map<string, number[]>();
+const floodTimestamps = new Map<string, number[]>();
+const forwardTimestamps = new Map<string, number[]>();
 
 function pruneCommandRouterMaps() {
   const now = Date.now();
@@ -28,6 +30,26 @@ function pruneCommandRouterMaps() {
       messageTimestamps.delete(key);
     } else {
       messageTimestamps.set(key, valid);
+    }
+  }
+
+  // Prune floodTimestamps
+  for (const [key, timestamps] of floodTimestamps.entries()) {
+    const valid = timestamps.filter(t => now - t < 10 * 60 * 1000); // 10 minutes
+    if (valid.length === 0) {
+      floodTimestamps.delete(key);
+    } else {
+      floodTimestamps.set(key, valid);
+    }
+  }
+
+  // Prune forwardTimestamps
+  for (const [key, timestamps] of forwardTimestamps.entries()) {
+    const valid = timestamps.filter(t => now - t < 10 * 60 * 1000); // 10 minutes
+    if (valid.length === 0) {
+      forwardTimestamps.delete(key);
+    } else {
+      forwardTimestamps.set(key, valid);
     }
   }
 
@@ -170,6 +192,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   let prefix = env.BOT_PREFIX || '/';
   let botEnabled = true;
   let groupConfig: any = null;
+  let groupPlan = 'free';
 
   if (isGroup) {
     const { getOrCreateGroupConfig } = await import('../services/system/default-record.service.js');
@@ -456,6 +479,19 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
         }
       }
 
+      // F008: Anti-Tag-All check
+      if (flags.antitagall && ctx.body) {
+        const isEveryone = ctx.body.toLowerCase().includes('@everyone') || ctx.body.toLowerCase().includes('@everyone');
+        const matches = ctx.body.match(/@\d+/g) || [];
+        const totalMentions = matches.length + (ctx.quotedMessage ? 1 : 0);
+        const limit = flags.antitagallLimit || 5;
+        if (totalMentions > limit || isEveryone) {
+          const action = flags.antitagallMode || 'delete';
+          await executePunishment(ctx.chatId, ctx.senderId, action, `Tag-All / Mass Mention Terdeteksi (${totalMentions} mention)`, ctx, adapter);
+          return;
+        }
+      }
+
       // 3. Anti-Sticker Spam
       if (flags.antisticker && ctx.media?.type === 'sticker') {
         const now = Date.now();
@@ -466,6 +502,53 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
 
         if (valid.length > 3) {
           await executePunishment(ctx.chatId, ctx.senderId, flags.antispamMode || 'delete', 'Spam stiker beruntun', ctx, adapter);
+          return;
+        }
+      }
+
+      // F001: Anti-Flood Check (Adaptive Anti-flood)
+      if (flags.antiflood) {
+        const now = Date.now();
+        const timestamps = floodTimestamps.get(scopeKey) || [];
+        const valid = timestamps.filter(t => now - t < 5000); // 5 seconds duration
+        
+        let memberCount = 0;
+        const socket = (adapter as any).sock;
+        if (socket) {
+          try {
+            const metadata = await socket.groupMetadata(ctx.chatId);
+            memberCount = metadata.participants?.length || 0;
+          } catch {}
+        }
+        
+        let limit = 5;
+        if (memberCount >= 50 && memberCount <= 200) {
+          limit = 4;
+        } else if (memberCount > 200) {
+          limit = 3;
+        }
+        
+        valid.push(now);
+        floodTimestamps.set(scopeKey, valid);
+        
+        if (valid.length > limit) {
+          await executePunishment(ctx.chatId, ctx.senderId, flags.antifloodMode || 'warn', `Flood pesan beruntun (limit adaptif: ${limit} pesan / 5 detik untuk ${memberCount} anggota)`, ctx, adapter);
+          return;
+        }
+      }
+
+      // F003: Anti-Forward Spam Check
+      if (flags.antiforward && ctx.isForwarded && ctx.body) {
+        const now = Date.now();
+        const timestamps = forwardTimestamps.get(scopeKey) || [];
+        const valid = timestamps.filter(t => now - t < 10000); // 10 seconds duration
+        
+        valid.push(now);
+        forwardTimestamps.set(scopeKey, valid);
+        
+        const limit = flags.antiforwardLimit || 3;
+        if (valid.length > limit) {
+          await executePunishment(ctx.chatId, ctx.senderId, flags.antiforwardMode || 'delete', `Spam pesan forward berlebihan (${valid.length}/${limit} forward / 10 detik)`, ctx, adapter);
           return;
         }
       }
@@ -503,18 +586,75 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
         }
       }
 
-      // 5. Anti-Link Check
-      if (flags.antilink && ctx.body) {
+      // 5. Anti-Link Check & Multi-level Whitelist
+      if ((flags.antilink || flags.antilinkwhitelist) && ctx.body) {
         const hasLink = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi.test(ctx.body);
         if (hasLink) {
-          const whitelisted = flags.whitelistedDomains || [];
+          const whitelisted = Array.isArray(flags.whitelistedDomains) ? [...flags.whitelistedDomains] : [];
+          
+          // Add default whitelisted domains
+          const defaultSafe = ['google.com', 'whatsapp.com', 'github.com', 's.whatsapp.net'];
+          for (const d of defaultSafe) {
+            if (!whitelisted.includes(d)) whitelisted.push(d);
+          }
+
+          // Check group mode and auto whitelist category-specific domains
+          const groupModeVar = await prisma.customVariable.findUnique({
+            where: { groupId_userId_key: { groupId: ctx.chatId, userId: 'system', key: 'groupMode' } }
+          });
+          const currentGroupMode = groupModeVar?.value || '';
+          
+          if (currentGroupMode === 'sekolah') {
+            const eduDomains = ['wikipedia.org', 'kemdikbud.go.id', 'ruangguru.com', 'brainly.co.id'];
+            for (const d of eduDomains) {
+              if (!whitelisted.includes(d)) whitelisted.push(d);
+            }
+          } else if (currentGroupMode === 'ramai' || currentGroupMode === 'komunitas') {
+            const communityDomains = ['youtube.com', 'youtu.be', 'instagram.com', 'facebook.com', 'twitter.com', 'x.com', 'tiktok.com'];
+            for (const d of communityDomains) {
+              if (!whitelisted.includes(d)) whitelisted.push(d);
+            }
+          } else if (currentGroupMode === 'bisnis') {
+            const bizDomains = ['tokopedia.com', 'shopee.co.id', 'gojek.com', 'grab.com', 'bukalapak.com', 'lazada.co.id'];
+            for (const d of bizDomains) {
+              if (!whitelisted.includes(d)) whitelisted.push(d);
+            }
+          }
+
+          // Query CustomVariable for group-specific and global whitelisted domains
+          try {
+            const customWhitelists = await prisma.customVariable.findMany({
+              where: {
+                key: { startsWith: 'whitelistdomain:' },
+                OR: [
+                  { groupId: ctx.chatId },
+                  { groupId: 'global', userId: 'system' }
+                ]
+              }
+            });
+            for (const item of customWhitelists) {
+              const domain = item.key.replace('whitelistdomain:', '').toLowerCase();
+              if (domain && !whitelisted.includes(domain)) {
+                whitelisted.push(domain);
+              }
+            }
+          } catch (err) {
+            console.error('[Link Whitelist DB Query Error]', err);
+          }
+
           let isWhitelisted = false;
           try {
             const matches = ctx.body.match(/(https?:\/\/[^\s]+|www\.[^\s]+)/gi);
             if (matches) {
               isWhitelisted = matches.every(link => {
                 const cleanLink = link.startsWith('http') ? link : 'http://' + link;
-                const hostname = new URL(cleanLink).hostname.toLowerCase();
+                let hostname = '';
+                try {
+                  hostname = new URL(cleanLink).hostname.toLowerCase();
+                  if (hostname.startsWith('www.')) hostname = hostname.slice(4);
+                } catch {
+                  return false;
+                }
                 return whitelisted.some((domain: string) => hostname === domain || hostname.endsWith('.' + domain));
               });
             }
@@ -707,6 +847,45 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   // 4. Validate if feature is enabled in Group
   if (isGroup && groupConfig) {
     const flags = parseFeatureFlags(groupConfig.featuresJson);
+
+    // F018: Private Guard check
+    if (flags.privateguard) {
+      const classificationVar = await prisma.customVariable.findUnique({
+        where: {
+          groupId_userId_key: {
+            groupId: ctx.chatId,
+            userId: 'group',
+            key: `classification:${commandName}`
+          }
+        }
+      }).catch(() => null);
+      if (classificationVar?.value === 'sensitive') {
+        await adapter.sendMessage(ctx.chatId, `⚠️ Perintah "/${commandName}" diblokir oleh Private Guard karena berkategori SENSITIVE dan hanya dapat digunakan di Private Chat.`, { quotedMessageId: ctx.id });
+        return;
+      }
+    }
+
+    // F016: AI Consent check
+    if (flags.consentai) {
+      const category = registeredCmd.metadata.category || '';
+      const isAiCommand = category.toLowerCase().includes('ai') || category.toLowerCase() === 'ai' || commandName === 'ai';
+      if (isAiCommand) {
+        const consentVar = await prisma.customVariable.findUnique({
+          where: {
+            groupId_userId_key: {
+              groupId: 'global',
+              userId: ctx.senderId,
+              key: 'consent:ai'
+            }
+          }
+        }).catch(() => null);
+        if (consentVar?.value !== 'yes') {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Anda belum memberikan persetujuan (consent) untuk menggunakan fitur AI.\n\nKetik \`/consentai yes\` untuk menyetujui agar data Anda dapat diproses oleh penyedia AI eksternal.`, { quotedMessageId: ctx.id });
+          return;
+        }
+      }
+    }
+
     if (featureKey !== 'general') {
       const isEnabled = flags[featureKey] !== undefined ? flags[featureKey] : DEFAULT_FEATURES[featureKey];
       if (!isEnabled) {
@@ -716,7 +895,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
     }
 
     // Enforce group subscription plan restrictions
-    let groupPlan = 'free';
+    groupPlan = 'free';
     const sub = await prisma.groupSubscription.findUnique({
       where: { groupId: ctx.chatId }
     });
@@ -754,8 +933,7 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
   }
 
   // --- ROLE AND PERMISSION CHECKS (Run for both Group and Private) ---
-  const { getUserRole } = await import('../bot/permission.js');
-  const userRole = await getUserRole(isGroup ? ctx.chatId : null, ctx.senderId, adapter);
+  const userRole = await permissionService.getUserRole(isGroup ? ctx.chatId : null, ctx.senderId, adapter);
 
   // Role hierarchy mapping
   const roleHierarchy: Record<string, number> = {
@@ -765,10 +943,108 @@ export async function routeMessage(ctx: MessageContext, adapter: WhatsAppAdapter
     user: 1
   };
 
+  // If user role is a custom role (not defined in hierarchy), treat base role hierarchy level as 1 (user) or 2 (premium)
+  if (userRole && roleHierarchy[userRole] === undefined) {
+    const isPremiumUser = await prisma.userProfile.findUnique({
+      where: { userId: ctx.senderId }
+    }).then(u => u?.isPremium ?? false).catch(() => false);
+    roleHierarchy[userRole] = isPremiumUser ? 2 : 1;
+  }
+
+  // Check if custom role explicitly grants this command
+  let isExplicitlyGranted = false;
+  if (isGroup && userRole && !['owner', 'admin', 'premium', 'user'].includes(userRole)) {
+    const roleConfigVar = await prisma.customVariable.findUnique({
+      where: {
+        groupId_userId_key: {
+          groupId: ctx.chatId,
+          userId: 'role',
+          key: `config:${userRole}`
+        }
+      }
+    }).catch(() => null);
+    if (roleConfigVar?.value) {
+      const configData = JSON.parse(roleConfigVar.value);
+      const allowedCmds = configData.allowedCommands || [];
+      if (allowedCmds.includes(commandName.toLowerCase())) {
+        isExplicitlyGranted = true;
+      }
+    }
+  }
+
   const minRole = registeredCmd.metadata.minRole || 'user';
   const isPremiumOnly = registeredCmd.metadata.premiumOnly || false;
 
-  if (roleHierarchy[userRole] < roleHierarchy[minRole]) {
+  // --- CUSTOM COMMAND POLICY CHECKS (F027) ---
+  if (isGroup && !isOwner(ctx.senderId)) {
+    const policyVar = await prisma.customVariable.findUnique({
+      where: {
+        groupId_userId_key: {
+          groupId: ctx.chatId,
+          userId: 'policy',
+          key: `command:${commandName}`
+        }
+      }
+    }).catch(() => null);
+
+    if (policyVar?.value) {
+      const policy = JSON.parse(policyVar.value);
+
+      // A. Check role policies (allowed/denied lists)
+      if (policy.deniedRoles && policy.deniedRoles.includes(userRole)) {
+        await adapter.sendMessage(ctx.chatId, `⚠️ Perintah "/${commandName}" dinonaktifkan untuk peran Anda (${userRole.toUpperCase()}) oleh Admin.`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      if (policy.allowedRoles && policy.allowedRoles.length > 0 && !policy.allowedRoles.includes(userRole)) {
+        await adapter.sendMessage(ctx.chatId, `⚠️ Perintah "/${commandName}" hanya dapat digunakan oleh peran tertentu: [${policy.allowedRoles.map((r: string) => r.toUpperCase()).join(', ')}].`, { quotedMessageId: ctx.id });
+        return;
+      }
+
+      // B. Check plan policies
+      if (policy.minPlan) {
+        const plans = ['free', 'basic', 'premium'];
+        const currentPlanIdx = plans.indexOf(groupPlan);
+        const requiredPlanIdx = plans.indexOf(policy.minPlan);
+        if (currentPlanIdx < requiredPlanIdx) {
+          await adapter.sendMessage(ctx.chatId, `⚠️ Perintah "/${commandName}" memerlukan paket sewa minimal: *${policy.minPlan.toUpperCase()}*.`, { quotedMessageId: ctx.id });
+          return;
+        }
+      }
+
+      // C. Check active hours (time restrictions)
+      if (policy.activeHours) {
+        const { start, end } = policy.activeHours;
+        const date = new Date();
+        const formatter = new Intl.DateTimeFormat('id-ID', {
+          timeZone: 'Asia/Jakarta',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        });
+        const currentHHMM = formatter.format(date).replace('.', ':'); // e.g. "13:27"
+
+        const isTimeMatch = (curr: string, st: string, en: string) => {
+          if (st <= en) {
+            return curr >= st && curr <= en;
+          } else {
+            return curr >= st || curr <= en;
+          }
+        };
+
+        if (!isTimeMatch(currentHHMM, start, end)) {
+          await adapter.sendMessage(
+            ctx.chatId,
+            `⚠️ Perintah "/${commandName}" tidak aktif saat ini. Perintah ini hanya dapat digunakan antara pukul ${start} - ${end} WIB.`,
+            { quotedMessageId: ctx.id }
+          );
+          return;
+        }
+      }
+    }
+  }
+
+  if (!isOwner(ctx.senderId) && !isExplicitlyGranted && roleHierarchy[userRole] < roleHierarchy[minRole]) {
     if (minRole === 'owner') {
       await adapter.sendMessage(ctx.chatId, '⚠️ Command ini khusus untuk Owner.', { quotedMessageId: ctx.id });
       return;
@@ -1113,47 +1389,79 @@ export async function executePunishment(
     const mention = `@${userId.split('@')[0]}`;
     let warningMsg = `⚠️ *PERINGATAN* ⚠️\n\n${mention} mendapatkan peringatan.\nAlasan: *${reason}*\nJumlah Peringatan: *${userWarnings}*`;
 
-    // Fetch dynamic rules
-    const rules = await prisma.warningRule.findMany({
-      where: { groupId: chatId },
-      orderBy: { threshold: 'desc' }
-    });
+    const { getGroupFeatures } = await import('../config/feature-flags.js');
+    const flags = await getGroupFeatures(chatId).catch(() => ({} as any));
 
-    let triggeredRule = null;
-    for (const rule of rules) {
-      if (userWarnings >= rule.threshold) {
-        triggeredRule = rule;
-        break;
-      }
-    }
-
-    // Default rule if no custom rules exist: Kick at 3 warnings
-    if (!triggeredRule && rules.length === 0 && userWarnings >= 3) {
-      triggeredRule = { threshold: 3, action: 'kick' };
-    }
-
-    if (triggeredRule) {
-      const ruleAction = triggeredRule.action;
-      warningMsg += `\n\n🚫 ${mention} telah mencapai batas ${triggeredRule.threshold} peringatan! Melakukan tindakan: *${ruleAction.toUpperCase()}*.`;
-
-      await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
-
-      if (ruleAction === 'kick') {
+    if (flags.muteprogressive) {
+      if (userWarnings === 1) {
+        warningMsg += `\n\n[Mute Bertahap] Peringatan pertama. Silakan patuhi peraturan grup.`;
+        await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
+      } else if (userWarnings === 2) {
+        warningMsg += `\n\n🚫 [Mute Bertahap] Peringatan kedua! Anda di-mute selama 5 menit.`;
+        await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
+        const { stateStore } = await import('../services/state/state-store.js');
+        await stateStore.set(`mute:${chatId}:${userId}`, true, 300);
+      } else if (userWarnings === 3) {
+        warningMsg += `\n\n🚫 [Mute Bertahap] Peringatan ketiga! Anda di-mute selama 30 menit.`;
+        await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
+        const { stateStore } = await import('../services/state/state-store.js');
+        await stateStore.set(`mute:${chatId}:${userId}`, true, 1800);
+      } else {
+        warningMsg += `\n\n🚫 [Mute Bertahap] Peringatan keempat atau lebih! Mengeluarkan Anda dari grup.`;
+        await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
         await prisma.warning.deleteMany({ where: { groupId: chatId, userId } });
         const socket = (adapter as any).sock;
         if (socket) {
           try {
             await socket.groupParticipantsUpdate(chatId, [userId], 'remove');
           } catch (err) {
-            console.error('[System Warn] Failed to kick user:', err);
+            console.error('[Mute Progressive Kick] Failed to kick user:', err);
           }
         }
-      } else if (ruleAction === 'mute') {
-        const { stateStore } = await import('../services/state/state-store.js');
-        await stateStore.set(`mute:${chatId}:${userId}`, true, 300);
       }
     } else {
-      await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
+      // Fetch dynamic rules
+      const rules = await prisma.warningRule.findMany({
+        where: { groupId: chatId },
+        orderBy: { threshold: 'desc' }
+      });
+
+      let triggeredRule = null;
+      for (const rule of rules) {
+        if (userWarnings >= rule.threshold) {
+          triggeredRule = rule;
+          break;
+        }
+      }
+
+      // Default rule if no custom rules exist: Kick at 3 warnings
+      if (!triggeredRule && rules.length === 0 && userWarnings >= 3) {
+        triggeredRule = { threshold: 3, action: 'kick' };
+      }
+
+      if (triggeredRule) {
+        const ruleAction = triggeredRule.action;
+        warningMsg += `\n\n🚫 ${mention} telah mencapai batas ${triggeredRule.threshold} peringatan! Melakukan tindakan: *${ruleAction.toUpperCase()}*.`;
+
+        await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
+
+        if (ruleAction === 'kick') {
+          await prisma.warning.deleteMany({ where: { groupId: chatId, userId } });
+          const socket = (adapter as any).sock;
+          if (socket) {
+            try {
+              await socket.groupParticipantsUpdate(chatId, [userId], 'remove');
+            } catch (err) {
+              console.error('[System Warn] Failed to kick user:', err);
+            }
+          }
+        } else if (ruleAction === 'mute') {
+          const { stateStore } = await import('../services/state/state-store.js');
+          await stateStore.set(`mute:${chatId}:${userId}`, true, 300);
+        }
+      } else {
+        await adapter.sendMessage(chatId, warningMsg, { mentions: [userId] });
+      }
     }
   } else if (actualAction === 'mute') {
     const { stateStore } = await import('../services/state/state-store.js');

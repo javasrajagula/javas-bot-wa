@@ -1,4 +1,5 @@
 import prisma from '../../db/client.js';
+import { recordGameStats } from '../games/game-engine.js';
 
 export type Role = 'Werewolf' | 'BlackWolf' | 'Witch' | 'Fool' | 'Seer' | 'Doctor' | 'Hunter' | 'Villager';
 export type Phase = 'lobby' | 'night' | 'day_discuss' | 'day_vote';
@@ -48,6 +49,7 @@ export interface WerewolfGameData {
   rolesJson: string;
   votesJson: string;
   nightActionsJson: string;
+  activeModifier: string;
 }
 
 function parseGameSession(session: any): WerewolfGameData | null {
@@ -57,7 +59,8 @@ function parseGameSession(session: any): WerewolfGameData | null {
     hostUserId: '',
     rolesJson: '{}',
     votesJson: '{}',
-    nightActionsJson: '{}'
+    nightActionsJson: '{}',
+    activeModifier: 'normal_night'
   };
   try {
     state = JSON.parse(session.stateJson || '{}');
@@ -75,11 +78,12 @@ function parseGameSession(session: any): WerewolfGameData | null {
     hostUserId: state.hostUserId || '',
     rolesJson: state.rolesJson || '{}',
     votesJson: state.votesJson || '{}',
-    nightActionsJson: state.nightActionsJson || '{}'
+    nightActionsJson: state.nightActionsJson || '{}',
+    activeModifier: state.activeModifier || 'normal_night'
   };
 }
 
-async function saveGameSession(groupId: string, data: Partial<WerewolfGameData>) {
+async function saveGameSession(groupId: string, data: Partial<WerewolfGameData & { activeModifier?: string }>) {
   const existing = await prisma.gameSession.findUnique({ where: { groupId } });
   let state = existing ? JSON.parse(existing.stateJson || '{}') : {};
   
@@ -88,6 +92,7 @@ async function saveGameSession(groupId: string, data: Partial<WerewolfGameData>)
   if (data.rolesJson !== undefined) state.rolesJson = data.rolesJson;
   if (data.votesJson !== undefined) state.votesJson = data.votesJson;
   if (data.nightActionsJson !== undefined) state.nightActionsJson = data.nightActionsJson;
+  if (data.activeModifier !== undefined) state.activeModifier = data.activeModifier;
 
   const updateData: any = {};
   if (data.status !== undefined) updateData.status = data.status;
@@ -101,27 +106,28 @@ async function saveGameSession(groupId: string, data: Partial<WerewolfGameData>)
   });
 }
 
-async function createGameSession(groupId: string, hostId: string, hostName: string, expiresAt: Date) {
+async function createGameSession(groupId: string, hostId: string, hostName: string, expiresAt: Date, gameType = 'werewolf') {
   const players: Player[] = [{ id: hostId, name: hostName, isAlive: true, role: 'Villager' }];
   const state = {
     phase: 'lobby',
     hostUserId: hostId,
     rolesJson: '{}',
     votesJson: '{}',
-    nightActionsJson: '{}'
+    nightActionsJson: '{}',
+    activeModifier: 'normal_night'
   };
   return prisma.gameSession.upsert({
     where: { groupId },
     create: {
       groupId,
-      gameType: 'werewolf',
+      gameType,
       status: 'lobby',
       playersJson: JSON.stringify(players),
       stateJson: JSON.stringify(state),
       expiresAt
     },
     update: {
-      gameType: 'werewolf',
+      gameType,
       status: 'lobby',
       playersJson: JSON.stringify(players),
       stateJson: JSON.stringify(state),
@@ -159,7 +165,7 @@ class WerewolfEngine {
 
   public async boot(): Promise<void> {
     const activeGames = await prisma.gameSession.findMany({
-      where: { gameType: 'werewolf', status: { in: ['lobby', 'playing'] } }
+      where: { gameType: { in: ['werewolf', 'wwchaos', 'wwranked'] }, status: { in: ['lobby', 'playing'] } }
     });
 
     for (const session of activeGames) {
@@ -236,7 +242,7 @@ class WerewolfEngine {
 
   public async findActiveGameForPlayer(playerId: string) {
     const activeGames = await prisma.gameSession.findMany({
-      where: { gameType: 'werewolf', status: 'playing' }
+      where: { gameType: { in: ['werewolf', 'wwchaos', 'wwranked'] }, status: 'playing' }
     });
     for (const session of activeGames) {
       const game = parseGameSession(session);
@@ -250,16 +256,17 @@ class WerewolfEngine {
     return null;
   }
 
-  public async createLobby(groupId: string, hostId: string, hostName: string): Promise<string> {
+  public async createLobby(groupId: string, hostId: string, hostName: string, gameType = 'werewolf'): Promise<string> {
     const existing = await prisma.gameSession.findUnique({ where: { groupId } });
     if (existing && existing.status !== 'finished') {
       throw new Error('Sudah ada game Werewolf yang aktif di grup ini.');
     }
 
     const expiresAt = this.setTimer(groupId, 'lobby', 300); // 5 minutes lobby
-    await createGameSession(groupId, hostId, hostName, expiresAt);
+    await createGameSession(groupId, hostId, hostName, expiresAt, gameType);
 
-    return 'Lobby Werewolf berhasil dibuat! Ketik `/ww join` untuk bergabung. Minimal 5 pemain, maksimal 10.';
+    const typeLabel = gameType === 'wwchaos' ? ' Chaos Mode' : gameType === 'wwranked' ? ' Ranked Season' : '';
+    return `Lobby Werewolf${typeLabel} berhasil dibuat! Ketik \`/ww join\` untuk bergabung. Minimal 5 pemain, maksimal 10.`;
   }
 
   public async joinGame(groupId: string, playerId: string, playerName: string): Promise<string> {
@@ -353,16 +360,31 @@ class WerewolfEngine {
       }
     });
 
+    let activeModifier = 'normal_night';
+    let chaosAnnounce = '';
+    if (game.gameType === 'wwchaos') {
+      const modifiers = ['eclipse', 'supermoon', 'normal_night'];
+      activeModifier = modifiers[Math.floor(Math.random() * modifiers.length)];
+      if (activeModifier === 'eclipse') {
+        chaosAnnounce = '\n\n🌌 *CHAOS MODIFIER: Gerhana (Eclipse)*\nKabut tebal menutupi desa! Seer dan Doctor tidak bisa menggunakan kemampuan mereka malam ini.';
+      } else if (activeModifier === 'supermoon') {
+        chaosAnnounce = '\n\n🌕 *CHAOS MODIFIER: Purnama Raya (Supermoon)*\nWerewolf sangat kuat! Serangan mereka menembus perlindungan Doctor.';
+      } else {
+        chaosAnnounce = '\n\n✨ *CHAOS MODIFIER: Malam Tenang (Normal)*\nMalam ini berlangsung damai tanpa ada modifier.';
+      }
+    }
+
     const expiresAt = this.setTimer(groupId, 'night', 90);
 
     await saveGameSession(groupId, {
       status: 'playing',
       phase: 'night',
       playersJson: JSON.stringify(players),
+      activeModifier,
       expiresAt
     });
 
-    await this.notifyGroup(groupId, '🐺 Game Werewolf dimulai! Hari berganti Malam.\n\nBot telah mengirimkan peran ke Chat Pribadi masing-masing pemain.\nFase malam berlangsung selama 90 detik. Gunakan kemampuan Anda segera!');
+    await this.notifyGroup(groupId, `🐺 Game Werewolf dimulai! Hari berganti Malam.\n\nBot telah mengirimkan peran ke Chat Pribadi masing-masing pemain.\nFase malam berlangsung selama 90 detik. Gunakan kemampuan Anda segera!${chaosAnnounce}`);
 
     for (const p of players) {
       let roleMsg = `ℹ️ Peran Anda dalam game di grup: *${p.role}*\n`;
@@ -411,6 +433,15 @@ class WerewolfEngine {
 
     if (!actor || !actor.isAlive) {
       throw new Error('Anda tidak berpartisipasi atau sudah mati.');
+    }
+
+    if (game.gameType === 'wwchaos' && game.activeModifier === 'eclipse') {
+      if (action === 'protect') {
+        throw new Error('Aksi dibatalkan karena Gerhana Bulan (Eclipse)! Doctor kehilangan kekuatannya malam ini.');
+      }
+      if (action === 'check') {
+        throw new Error('Aksi dibatalkan karena Gerhana Bulan (Eclipse)! Seer kehilangan penglihatannya malam ini.');
+      }
     }
 
     if (action === 'kill' && actor.role !== 'Werewolf' && actor.role !== 'BlackWolf') {
@@ -503,14 +534,19 @@ class WerewolfEngine {
   }
 
   private async checkAllNightActionsDone(groupId: string, players: Player[], actions: NightActions) {
+    const session = await prisma.gameSession.findUnique({ where: { groupId } });
+    const game = parseGameSession(session);
+    if (!game) return;
+
     const hasWwAlive = players.some(p => (p.role === 'Werewolf' || p.role === 'BlackWolf') && p.isAlive);
     const hasDocAlive = players.some(p => p.role === 'Doctor' && p.isAlive);
     const hasSeerAlive = players.some(p => p.role === 'Seer' && p.isAlive);
     const hasWitchAlive = players.some(p => p.role === 'Witch' && p.isAlive);
 
+    const isEclipse = game.gameType === 'wwchaos' && game.activeModifier === 'eclipse';
     const wwDone = !hasWwAlive || !!actions.killTarget || !!actions.infectTarget;
-    const docDone = !hasDocAlive || !!actions.protectTarget;
-    const seerDone = !hasSeerAlive || !!actions.checkTarget;
+    const docDone = !hasDocAlive || !!actions.protectTarget || isEclipse;
+    const seerDone = !hasSeerAlive || !!actions.checkTarget || isEclipse;
 
     let witchDone = true;
     if (hasWitchAlive) {
@@ -549,7 +585,7 @@ class WerewolfEngine {
     if (actions.killTarget) {
       if (actions.healUsed) {
         // Saved by Witch!
-      } else if (actions.killTarget === actions.protectTarget) {
+      } else if (actions.killTarget === actions.protectTarget && !(game.gameType === 'wwchaos' && game.activeModifier === 'supermoon')) {
         // Saved by Doctor!
       } else {
         deadPlayersThisNight.push(actions.killTarget);
@@ -600,7 +636,25 @@ class WerewolfEngine {
       return;
     }
 
-    const discussSeconds = deadPlayersThisNight.some(id => players.find(p => p.id === id)?.role === 'Hunter') ? 30 : 180;
+    let activeModifier = 'peaceful_day';
+    let chaosAnnounce = '';
+    let discussSeconds = deadPlayersThisNight.some(id => players.find(p => p.id === id)?.role === 'Hunter') ? 30 : 180;
+
+    if (game.gameType === 'wwchaos') {
+      const dayModifiers = ['solar_eclipse', 'mob_rule', 'peaceful_day'];
+      activeModifier = dayModifiers[Math.floor(Math.random() * dayModifiers.length)];
+      if (activeModifier === 'solar_eclipse') {
+        if (discussSeconds === 180) {
+          discussSeconds = 45;
+        }
+        chaosAnnounce = '\n\n🌞 *CHAOS MODIFIER: Gerhana Matahari (Solar Eclipse)*\nSiang hari menjadi gelap gulita! Waktu diskusi dikurangi menjadi 45 detik.';
+      } else if (activeModifier === 'mob_rule') {
+        chaosAnnounce = '\n\n⚖️ *CHAOS MODIFIER: Hukum Rimba (Mob Rule)*\nKemarahan warga memuncak! Jika hasil voting berimbang (tie), semua kandidat dengan suara terbanyak akan dieksekusi.';
+      } else {
+        chaosAnnounce = '\n\n✨ *CHAOS MODIFIER: Siang Damai (Normal)*\nSiang hari ini berlangsung damai tanpa ada modifier.';
+      }
+    }
+
     const expiresAt = this.setTimer(groupId, 'day_discuss', discussSeconds);
 
     await saveGameSession(groupId, {
@@ -608,10 +662,11 @@ class WerewolfEngine {
       playersJson: JSON.stringify(players),
       votesJson: '{}',
       nightActionsJson: '{}',
+      activeModifier,
       expiresAt
     });
 
-    reportMsg += `\n\nDiskusi dimulai selama ${discussSeconds} detik.`;
+    reportMsg += `${chaosAnnounce}\n\nDiskusi dimulai selama ${discussSeconds} detik.`;
     await this.notifyGroup(groupId, reportMsg);
   }
 
@@ -654,7 +709,11 @@ class WerewolfEngine {
       await this.endGame(groupId, players, msg);
     } else {
       this.clearTimer(groupId);
-      const expiresAt = this.setTimer(groupId, 'day_discuss', 180);
+      let resumeSeconds = 180;
+      if (game.gameType === 'wwchaos' && game.activeModifier === 'solar_eclipse') {
+        resumeSeconds = 45;
+      }
+      const expiresAt = this.setTimer(groupId, 'day_discuss', resumeSeconds);
       
       await saveGameSession(groupId, {
         playersJson: JSON.stringify(players),
@@ -662,7 +721,7 @@ class WerewolfEngine {
         expiresAt
       });
       
-      await this.notifyGroup(groupId, msg + '\n\nDiskusi siang dilanjutkan (180 detik).');
+      await this.notifyGroup(groupId, msg + `\n\nDiskusi siang dilanjutkan (${resumeSeconds} detik).`);
     }
 
     return 'Tembakan pembalasan berhasil dilakukan!';
@@ -744,19 +803,20 @@ class WerewolfEngine {
     }
 
     let maxVotes = 0;
-    let targetToHangId: string | null = null;
-    let isTie = false;
+    const candidates: string[] = [];
 
     for (const targetId in voteMap) {
       const count = voteMap[targetId];
       if (count > maxVotes) {
         maxVotes = count;
-        targetToHangId = targetId;
-        isTie = false;
+        candidates.length = 0;
+        candidates.push(targetId);
       } else if (count === maxVotes) {
-        isTie = true;
+        candidates.push(targetId);
       }
     }
+
+    const isTie = candidates.length > 1;
 
     let resultMsg = '🗳️ *Hasil Voting:* \n';
     players.filter(p => p.isAlive).forEach(p => {
@@ -764,23 +824,60 @@ class WerewolfEngine {
       resultMsg += `- @${p.id.split('@')[0]}: ${gotVotes} suara\n`;
     });
 
-    if (targetToHangId && !isTie) {
-      const victim = players.find(p => p.id === targetToHangId)!;
-      victim.isAlive = false;
-      resultMsg += `\n⚖️ Warga sepakat membakar @${targetToHangId.split('@')[0]} hidup-hidup! Dia adalah seorang *${victim.role}*.`;
-      
-      if (victim.role === 'Fool') {
-        await this.endGame(groupId, players, resultMsg, 'Fool', victim.id);
-        return;
+    const executedPlayers: Player[] = [];
+
+    if (maxVotes > 0) {
+      if (game.gameType === 'wwchaos' && game.activeModifier === 'mob_rule') {
+        for (const targetId of candidates) {
+          const victim = players.find(p => p.id === targetId);
+          if (victim) {
+            victim.isAlive = false;
+            executedPlayers.push(victim);
+          }
+        }
+        const executedMentions = executedPlayers.map(p => `@${p.id.split('@')[0]} (${p.role})`).join(', ');
+        resultMsg += `\n⚖️ *HUKUM RIMBA (Mob Rule) aktif!* Warga sangat marah dan membakar semua kandidat dengan suara terbanyak: ${executedMentions} hidup-hidup!`;
+      } else if (!isTie) {
+        const targetToHangId = candidates[0];
+        const victim = players.find(p => p.id === targetToHangId);
+        if (victim) {
+          victim.isAlive = false;
+          executedPlayers.push(victim);
+          resultMsg += `\n⚖️ Warga sepakat membakar @${targetToHangId.split('@')[0]} hidup-hidup! Dia adalah seorang *${victim.role}*.`;
+        }
+      } else {
+        resultMsg += '\n⚖️ Suara berimbang. Tidak ada warga yang dieksekusi hari ini.';
       }
     } else {
-      resultMsg += '\n⚖️ Suara berimbang atau tidak ada voting. Tidak ada warga yang dieksekusi hari ini.';
+      resultMsg += '\n⚖️ Tidak ada voting. Tidak ada warga yang dieksekusi hari ini.';
+    }
+
+    if (executedPlayers.length > 0) {
+      const foolVictim = executedPlayers.find(p => p.role === 'Fool');
+      if (foolVictim) {
+        await this.endGame(groupId, players, resultMsg, 'Fool', foolVictim.id);
+        return;
+      }
     }
 
     const isGameOver = this.checkWinCondition(players);
     if (isGameOver) {
       await this.endGame(groupId, players, resultMsg);
       return;
+    }
+
+    let activeModifier = 'normal_night';
+    let chaosAnnounce = '';
+    if (game.gameType === 'wwchaos') {
+      const modifiers = ['eclipse', 'supermoon', 'normal_night'];
+      activeModifier = modifiers[Math.floor(Math.random() * modifiers.length)];
+      if (activeModifier === 'eclipse') {
+        chaosAnnounce = '\n\n🌌 *CHAOS MODIFIER: Gerhana (Eclipse)*\nKabut tebal menutupi desa! Seer dan Doctor tidak bisa menggunakan kemampuan mereka malam ini.';
+      } else if (activeModifier === 'supermoon') {
+        chaosAnnounce = '\n\n🌕 *CHAOS MODIFIER: Purnama Raya (Supermoon)*\nWerewolf sangat kuat! Serangan mereka menembus perlindungan Doctor.';
+      } else {
+        chaosAnnounce = '\n\n✨ *CHAOS MODIFIER: Malam Tenang (Normal)*\nMalam ini berlangsung damai tanpa ada modifier.';
+      }
     }
 
     const expiresAt = this.setTimer(groupId, 'night', 90);
@@ -790,10 +887,11 @@ class WerewolfEngine {
       playersJson: JSON.stringify(players),
       votesJson: '{}',
       nightActionsJson: '{}',
+      activeModifier,
       expiresAt
     });
 
-    resultMsg += '\n\n🌙 Malam hari telah kembali. Werewolf, Seer, dan Doctor, segera hubungi bot untuk beraksi!';
+    resultMsg += `${chaosAnnounce}\n\n🌙 Malam hari telah kembali. Werewolf, Seer, dan Doctor, segera hubungi bot untuk beraksi!`;
     await this.notifyGroup(groupId, resultMsg);
   }
 
@@ -814,6 +912,9 @@ class WerewolfEngine {
   private async endGame(groupId: string, players: Player[], resultPrefix: string, forceWinner?: 'Citizens' | 'Werewolves' | 'Fool', foolId?: string) {
     this.clearTimer(groupId);
 
+    const session = await prisma.gameSession.findUnique({ where: { groupId } });
+    const gameType = session?.gameType || 'werewolf';
+
     let winnerTeam: 'Citizens' | 'Werewolves' | 'Fool' = 'Citizens';
     if (forceWinner) {
       winnerTeam = forceWinner;
@@ -827,6 +928,45 @@ class WerewolfEngine {
     players.forEach(p => {
       finalMsg += `- @${p.id.split('@')[0]}: ${p.role} (${p.isAlive ? '🏆 Hidup' : '💀 Mati'})\n`;
     });
+
+    const rankedStatsPromises: Promise<any>[] = [];
+    if (gameType === 'wwranked') {
+      finalMsg += '\n📈 *RANKED SEASON MMR UPDATES:* \n';
+      for (const p of players) {
+        let isWin = false;
+        let mmrChange = 0;
+        if (winnerTeam === 'Citizens') {
+          isWin = (p.role !== 'Werewolf' && p.role !== 'BlackWolf' && p.role !== 'Fool');
+          mmrChange = isWin ? 25 : (p.role === 'Fool' ? -10 : -15);
+        } else if (winnerTeam === 'Werewolves') {
+          isWin = (p.role === 'Werewolf' || p.role === 'BlackWolf');
+          mmrChange = isWin ? 30 : (p.role === 'Fool' ? -10 : -15);
+        } else if (winnerTeam === 'Fool') {
+          isWin = (p.role === 'Fool');
+          mmrChange = isWin ? 40 : -10;
+        }
+
+        const existing = await prisma.gameStats.findFirst({
+          where: { userId: p.id, gameType: 'wwranked', groupId }
+        });
+        const currentPoints = existing ? existing.points : 0;
+        const newPoints = Math.max(0, currentPoints + mmrChange);
+        const actualChange = newPoints - currentPoints;
+
+        rankedStatsPromises.push(
+          recordGameStats(p.id, groupId, 'wwranked', isWin, actualChange)
+            .then(() => {
+              const sign = actualChange >= 0 ? '+' : '';
+              finalMsg += `- @${p.id.split('@')[0]}: ${sign}${actualChange} MMR (Total: ${newPoints})\n`;
+            })
+            .catch(err => console.error(`[WW Ranked Stats Fail] for user ${p.id}:`, err))
+        );
+      }
+    }
+
+    if (rankedStatsPromises.length > 0) {
+      await Promise.all(rankedStatsPromises);
+    }
 
     const rewardPromises: Promise<any>[] = [];
     players.forEach(p => {
@@ -876,6 +1016,7 @@ class WerewolfEngine {
 
     await saveGameSession(groupId, {
       status: 'finished',
+      playersJson: JSON.stringify(players),
       expiresAt: null
     });
 

@@ -548,6 +548,8 @@ export class BaileysAdapter extends WhatsAppAdapter {
       };
     }
 
+    const isForwarded = !!contextInfo?.isForwarded;
+
     return {
       id: msg.key.id!,
       senderId,
@@ -562,6 +564,7 @@ export class BaileysAdapter extends WhatsAppAdapter {
       rawMessageKey: msg.key,
       rawQuotedMessageKey,
       isViewOnce,
+      isForwarded,
     };
   }
 

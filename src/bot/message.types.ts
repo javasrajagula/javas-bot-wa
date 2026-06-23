@@ -28,6 +28,7 @@ export interface MessageContext {
   rawQuotedMessageKey?: any;
   command?: ParsedCommand;
   isViewOnce?: boolean;
+  isForwarded?: boolean;
 }
 
 export interface MessageContextQuoted {

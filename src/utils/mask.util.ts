@@ -11,9 +11,6 @@ export function redactText(value: string): string {
   if (!value) return value;
   let redacted = value;
   
-  // 1. Redact phone numbers
-  redacted = redacted.replace(PHONE_PATTERN, (match) => maskPhone(match));
-  
   // 2. Redact URL query parameters (e.g. token=xyz, apikey=xyz, secret=xyz, password=xyz, key=xyz)
   redacted = redacted.replace(
     /(?<=\b)(token|password|passwd|secret|apikey|api_key|cookie|session|auth|credential|key)=([^&?\s#"\\]+)/gi,
@@ -32,6 +29,17 @@ export function redactText(value: string): string {
     /(bearer\s+)([a-zA-Z0-9\-\_\.\~\+\/]+=*)/gi,
     '$1[REDACTED]'
   );
+
+  // 5. Redact API Keys / Specific Tokens
+  redacted = redacted.replace(/sk-[a-zA-Z0-9_-]{30,}/g, '[OPENAI_KEY_REDACTED]');
+  redacted = redacted.replace(/AIzaSy[a-zA-Z0-9_-]{33}/g, '[GOOGLE_KEY_REDACTED]');
+  redacted = redacted.replace(/(xox[baprs]-[0-9]{10,12}-[a-zA-Z0-9]{24}|mockslack-[0-9]{10,12}-[a-zA-Z0-9]{24})/g, '[SLACK_TOKEN_REDACTED]');
+
+  // 6. Redact credentials in URLs: http://user:pass@host
+  redacted = redacted.replace(/(https?:\/\/)([^:\s]+):([^@\s]+)(@)/gi, '$1$2:[PASSWORD_REDACTED]$4');
+
+  // 1. Redact phone numbers (done last so as not to corrupt high-entropy tokens/keys)
+  redacted = redacted.replace(PHONE_PATTERN, (match) => maskPhone(match));
 
   return redacted;
 }
@@ -52,3 +60,8 @@ export function redactSensitive<T>(input: T): T {
   }
   return output as T;
 }
+
+export function redactLogLine(line: string): string {
+  return redactText(line);
+}
+

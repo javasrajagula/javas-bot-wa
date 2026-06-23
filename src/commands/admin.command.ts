@@ -2,6 +2,7 @@ import { Command, registerCommand, checkIfAdmin, cooldownOverrides } from './ind
 import { MessageContext } from '../bot/message.types.js';
 import { WhatsAppAdapter } from '../bot/whatsapp.adapter.js';
 import prisma from '../db/client.js';
+import { saveGroupConfigSnapshot } from '../config/feature-flags.js';
 
 export class AdminCommand implements Command {
   public async execute(ctx: MessageContext, args: string[], adapter: WhatsAppAdapter): Promise<void> {
@@ -22,6 +23,7 @@ export class AdminCommand implements Command {
     if (commandType === 'bot') {
       const action = args[0]?.toLowerCase();
       if (action === 'off') {
+        await saveGroupConfigSnapshot(ctx.chatId);
         await prisma.groupConfig.update({
           where: { groupId: ctx.chatId },
           data: { botEnabled: false }
@@ -43,6 +45,7 @@ export class AdminCommand implements Command {
         return;
       }
 
+      await saveGroupConfigSnapshot(ctx.chatId);
       await prisma.groupConfig.update({
         where: { groupId: ctx.chatId },
         data: { prefix }

@@ -18,11 +18,11 @@ function normalizePhone(value: string): string {
 export function isOwner(userId: string): boolean {
   const currentOwnerList = env.OWNER_IDS
     ? env.OWNER_IDS
-        .split(',')
-        .map((id: string) => normalizePhone(id))
-        .filter(Boolean)
+      .split(',')
+      .map((id: string) => normalizePhone(id))
+      .filter(Boolean)
     : [];
-  
+
   const number = normalizePhone(userId);
   const result = currentOwnerList.includes(number);
 

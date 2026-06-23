@@ -157,14 +157,88 @@ async function bootstrap() {
             }
           }).catch(err => console.error('Failed to log join event:', err));
 
+          const phone = participant.split('@')[0];
+
+          // Calculate risk score (F004)
+          const { calculateRiskScore, getGradedCaptcha } = await import('./utils/security.util.js');
+          const socket = (adapter as any).sock;
+          const riskScore = await calculateRiskScore(participant, socket);
+
+          // Determine Indonesian code check flag and profile details for logging/alerts
+          const isIndonesian = phone.startsWith('62');
+          let hasProfilePic = false;
+          if (socket && typeof socket.profilePictureUrl === 'function') {
+            try {
+              const url = await socket.profilePictureUrl(participant, 'image');
+              if (url) hasProfilePic = true;
+            } catch {}
+          }
+          let hasName = false;
+          if (socket && socket.contacts) {
+            const contact = socket.contacts[participant];
+            if (contact && (contact.name || contact.notify || contact.verifiedName)) {
+              hasName = true;
+            }
+          }
+
+          // Process antijoin feature action
+          let isKicked = false;
+          if (features.antijoin) {
+            const threshold = features.antijoinRisk || 50;
+            if (riskScore >= threshold) {
+              const mode = features.antijoinMode || 'kick';
+              const mention = `@${phone}`;
+              if (mode === 'kick') {
+                try {
+                  if (socket && typeof socket.groupParticipantsUpdate === 'function') {
+                    await socket.groupParticipantsUpdate(groupId, [participant], 'remove');
+                    isKicked = true;
+                    await adapter.sendMessage(
+                      groupId,
+                      `🚪 ${mention} dikeluarkan otomatis oleh sistem keamanan Anti-Join karena skor risiko (*${riskScore}/100*) melebihi batas threshold (*${threshold}*).`,
+                      { mentions: [participant] }
+                    );
+                  }
+                } catch (err) {
+                  console.error('[Anti-Join Kick Failed]', err);
+                }
+              } else if (mode === 'warn') {
+                const alertMsg = `⚠️ *PERINGATAN ANTI-JOIN* ⚠️\n\n` +
+                  `Pengguna ${mention} terdeteksi sebagai akun berisiko dengan skor *${riskScore}/100* (Threshold: ${threshold}).\n` +
+                  `Detail Analisis:\n` +
+                  `- Negara: ${isIndonesian ? 'Indonesia (Aman)' : 'Luar Negeri (+40)'}\n` +
+                  `- Foto Profil: ${hasProfilePic ? 'Ada (Aman)' : 'Tidak Ada (+30)'}\n` +
+                  `- Panjang Nomor: ${phone.length > 13 ? 'Mencurigakan (>13 digit) (+20)' : 'Normal (Aman)'}\n` +
+                  `- Nama Profil: ${hasName ? 'Terdeteksi (Aman)' : 'Kosong (+10)'}\n\n` +
+                  `🛡️ Admin, harap periksa pengguna ini.`;
+                await adapter.sendMessage(groupId, alertMsg, { mentions: [participant] });
+              }
+            }
+          }
+
+          if (isKicked) {
+            continue; // Skip welcome message and captcha if kicked
+          }
+
           const nowHour = new Date().getHours();
           const isQuietHours = nowHour >= 22 || nowHour < 6;
 
           // Captcha Verification
-          if (features.captcha && !isQuietHours) {
-            const a = Math.floor(Math.random() * 9) + 1;
-            const b = Math.floor(Math.random() * 9) + 1;
-            const answer = String(a + b);
+          if ((features.captcha || features.captcha2) && !isQuietHours) {
+            let captchaMsg = '';
+            let answer = '';
+
+            if (features.captcha2) {
+              const graded = getGradedCaptcha(riskScore, phone);
+              answer = graded.answer;
+              captchaMsg = graded.captchaMsg;
+            } else {
+              // Default captcha: Simple math
+              const a = Math.floor(Math.random() * 9) + 1;
+              const b = Math.floor(Math.random() * 9) + 1;
+              answer = String(a + b);
+              captchaMsg = `⚠️ *VERIFIKASI CAPTCHA* ⚠️\n\nHalo @${phone}, silakan jawab matematika berikut untuk masuk ke grup:\n*${a} + ${b} = ?*\n\nKetik jawabannya di grup ini dalam waktu 2 menit, atau Anda akan dikeluarkan otomatis!`;
+            }
 
             let welcomeText = '';
             if (features.welcome) {
@@ -181,7 +255,7 @@ async function bootstrap() {
 
             await adapter.sendMessage(
               groupId,
-              `⚠️ *VERIFIKASI CAPTCHA* ⚠️\n\nHalo @${participant.split('@')[0]}, silakan jawab matematika berikut untuk masuk ke grup:\n*${a} + ${b} = ?*\n\nKetik jawabannya di grup ini dalam waktu 2 menit, atau Anda akan dikeluarkan otomatis!`,
+              captchaMsg,
               { mentions: [participant] }
             );
 
@@ -193,7 +267,7 @@ async function bootstrap() {
                   const socket = (adapter as any).sock;
                   if (socket && typeof socket.groupParticipantsUpdate === 'function') {
                     await socket.groupParticipantsUpdate(groupId, [participant], 'remove');
-                    await adapter.sendMessage(groupId, `🚪 @${participant.split('@')[0]} dikeluarkan karena gagal menyelesaikan Captcha tepat waktu.`, { mentions: [participant] });
+                    await adapter.sendMessage(groupId, `🚪 @${phone} dikeluarkan karena gagal menyelesaikan Captcha tepat waktu.`, { mentions: [participant] });
                   }
                 } catch (err) {
                   console.error('[Captcha Timeout Kick Failed]', err);
@@ -210,7 +284,7 @@ async function bootstrap() {
 
             if (features.welcomecard && !isQuietHours) {
               try {
-                const avatarUrl = `https://api.dicebear.com/7.x/initials/png?seed=${encodeURIComponent(participant.split('@')[0])}`;
+                const avatarUrl = `https://api.dicebear.com/7.x/initials/png?seed=${encodeURIComponent(phone)}`;
                 const response = await fetch(avatarUrl);
                 const arrayBuf = await response.arrayBuffer();
                 const buffer = Buffer.from(arrayBuf);

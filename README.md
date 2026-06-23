@@ -329,23 +329,28 @@ Utility non-paid AI & Offline System Dependencies:
 
 | Command | Deskripsi | Peran |
 |:--------|:----------|:------|
+| `/tebakemoji` / `/emoji` | Tebak peribahasa/film dari emoji (G008) | User |
+| `/sudokumini` / `/sudoku` | Game Sudoku grid mini 4x4 (G019) | User |
+| `/typingrace` | Lomba ketik cepat kalimat (G023) | User |
+| `/memorycards` / `/memory` | Game Memory Cards mencocokkan kartu (G024) | User |
+| `/minesweeperchat` / `/minesweeper` | Sapu ranjau berbasis grid chat (G025) | User |
 | `/tod` / `/truth` / `/dare` | Truth or Dare | User |
 | `/tebakkata` | Tebak kata berhadiah XP | User |
-| `/suit @user` | Batu Gunting Kertas PvP | User |
-| `/ttt @user` | Tic-Tac-Toe multiplayer | User |
+| `/suit` @user | Batu Gunting Kertas PvP | User |
+| `/ttt` @user | Tic-Tac-Toe multiplayer | User |
 | `/slot` | Slot machine virtual | User |
 | `/math` | Game matematika cepat | User |
 | `/family100` | Kuis survey Family 100 | User |
 | `/couple` / `/jodoh` | Cek kecocokan antar member | User |
-| `/ww [create/join/start/stop/poison/heal/infect]` | Werewolf game (Witch, Black Wolf, Jester/Fool, night actions, and RPG economy rewards) | User |
+| `/ww` [create/join/start/stop/poison/heal/infect] | Werewolf game (Witch, Black Wolf, Jester/Fool, night actions, and RPG economy rewards) | User |
 | `/balance` / `/bal` | Cek saldo & level | User |
 | `/claim` / `/daily` | Klaim bonus harian | User |
-| `/transfer @user <jumlah>` | Transfer saldo virtual | User |
+| `/transfer` @user <jumlah> | Transfer saldo virtual | User |
 | `/rank` | Level Card & XP | User |
 | `/top` / `/leaderboard` | Top 10 kekayaan | User |
 | `/shop` / `/buy <item>` | Toko item virtual | User |
 | `/inventory` / `/inv` | Isi tas item | User |
-| `/pet [adopt/feed/status/battle]` | Adopsi & rawat hewan peliharaan | User |
+| `/pet` [adopt/feed/status/battle] | Adopsi & rawat hewan peliharaan | User |
 | `/dungeon` | Petualangan RPG turn-based | User |
 | `/misi` | Misi harian | User |
 
@@ -670,8 +675,9 @@ Test suite (Vitest) mencakup:
 - Coupon, Quota, Subscription
 - Dynamic Unified Routers (AI, Security, Games, Utility, Integration)
 - Watermark video dengan 5 pilihan posisi overlay
+- Tebak Emoji, Sudoku Mini, Typing Race, Memory Cards, Minesweeper Chat (Batch 7)
 
-**Total: 227 tests passing (31 test files)**
+**Total: 305 tests passing (40 test files)**
 
 ---
 

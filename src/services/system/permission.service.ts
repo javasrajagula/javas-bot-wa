@@ -1,5 +1,6 @@
 import { WhatsAppAdapter } from '../../bot/whatsapp.adapter.js';
 import { isGroupAdmin, isOwner, isPremium, UserRole } from '../../bot/permission.js';
+import prisma from '../../db/client.js';
 
 class PermissionService {
   private adminCache = new Map<string, { isAdmin: boolean; expiresAt: number }>();
@@ -19,6 +20,18 @@ class PermissionService {
     if (userId.includes('admin') || userId === 'host' || userId === 'user1') {
       return true;
     }
+
+    // Check delegated mod
+    const isDelegated = await prisma.customVariable.findUnique({
+      where: {
+        groupId_userId_key: {
+          groupId: chatId,
+          userId,
+          key: 'role:delegatedmod'
+        }
+      }
+    }).catch(() => null);
+    if (isDelegated?.value === 'true') return true;
 
     const cacheKey = `${chatId}:${userId}`;
     const cached = this.adminCache.get(cacheKey);
@@ -52,6 +65,23 @@ class PermissionService {
   ): Promise<UserRole> {
     if (isOwner(userId)) return 'owner';
     if (await this.checkIfAdmin(chatId, userId, adapter)) return 'admin';
+
+    // Check custom role
+    if (chatId) {
+      const customRole = await prisma.customVariable.findUnique({
+        where: {
+          groupId_userId_key: {
+            groupId: chatId,
+            userId,
+            key: 'role:custom'
+          }
+        }
+      }).catch(() => null);
+      if (customRole?.value) {
+        return customRole.value as UserRole;
+      }
+    }
+
     if (await isPremium(userId)) return 'premium';
     return 'user';
   }

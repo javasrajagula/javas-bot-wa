@@ -20,6 +20,10 @@ const COMMAND_MODULES = [
     commands: ['admin', 'addadmin', 'deladmin']
   },
   {
+    path: '../admin/admin-ops.command.js',
+    commands: ['rolecustom', 'delegatedmod', 'configdiff', 'rollbackconfig', 'policyeditor', 'ownertaskqueue', 'grouphealth']
+  },
+  {
     path: '../setup.command.js',
     commands: ['setup', 'setupwizard', 'groupmode', 'pack', 'setupcheck', 'statusfitur', 'features', 'presetfitur', 'f022']
   },
@@ -109,7 +113,7 @@ const COMMAND_MODULES = [
   },
   {
     path: '../games/dynamic-games.command.js',
-    commands: ['wwchaos', 'wwranked', 'mafiasch', 'detective', 'escape', 'treasure', 'kata', 'emoji', 'suara', 'siluet', 'duel', 'royale', 'ranking', 'familyleague', 'surveySays', 'mathsprint', 'mathboss', 'puzzle24', 'sudoku', 'wordle', 'hangman', 'anagram', 'typing', 'memory', 'minesweeper']
+    commands: ['blackjack', 'bj', 'russianroulette', 'rr', 'guessnumber', 'tebakangka', 'stocks', 'stockmarket', 'portfolio', 'wheelfortune', 'spin', 'mancing', 'raid', 'kerja', 'dungeon', 'mining', 'craft', 'pet', 'hatch', 'realestate', 'buyproperty', 'triviabattle', 'wordchain', 'tebakemoji', 'slot', 'duel', 'bingo', 'typerace', 'truthordare', 'bracket', 'werewolfv2', 'petmarket', 'trade', 'guildwar', 'dailyquest', 'alchemy', 'farming']
   },
   {
     path: '../games/rpg-advanced.command.js',
@@ -217,7 +221,7 @@ const COMMAND_MODULES = [
   },
   {
     path: '../moderation/dynamic-security.command.js',
-    commands: ['antiflood', 'whitelistlink', 'antiforward', 'antijoinbot', 'captcha2', 'muteprogressive', 'lockdownschedule', 'antitagall', 'moderationappeal', 'safetydigest', 'f007']
+    commands: ['antiflood', 'whitelistlink', 'antiforward', 'antijoinbot', 'captcha2', 'muteprogressive', 'lockdownschedule', 'antitagall', 'appeal', 'moderationappeal', 'safetydigest', 'f007']
   },
   {
     path: '../owner/owner.command.js',
@@ -252,6 +256,21 @@ const COMMAND_MODULES = [
     commands: ['privacymode', 'retention', 'mydata', 'deletedata', 'consent', 'setuju', 'generaterules']
   },
   {
+    path: '../privacy/privacy-data.command.js',
+    commands: [
+      'retentionmode',
+      'exportdata',
+      'deletedata',
+      'anonanalytics',
+      'sensitivelog',
+      'consentai',
+      'dataclassification',
+      'privateguard',
+      'privacynotice',
+      'auditaccess'
+    ]
+  },
+  {
     path: '../owner/webhook.command.js',
     commands: ['webhook', 'announce', 'announcements', 'announcement', 'announcementbuilder', 'f029']
   }
@@ -259,7 +278,7 @@ const COMMAND_MODULES = [
 
 // Dynamically append the PRD scaffold commands to COMMAND_MODULES
 const prdScaffoldCommands: string[] = [];
-const prdGameCommands: string[] = [];
+const prdGameCommands: string[] = ['pilihtourney'];
 
 for (const entry of PRD_CATALOG) {
   if (entry.id.startsWith('G')) {
@@ -268,6 +287,7 @@ for (const entry of PRD_CATALOG) {
       prdGameCommands.push(alias.toLowerCase());
     }
   } else {
+    if (entry.implementationStatus === 'implemented') continue;
     prdScaffoldCommands.push(entry.name.toLowerCase());
     for (const alias of entry.aliases) {
       prdScaffoldCommands.push(alias.toLowerCase());

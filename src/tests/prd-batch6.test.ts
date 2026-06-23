@@ -258,5 +258,35 @@ describe('PRD Batch 6 — Game Scaffolding & 5 Simple Games', () => {
       // Since batu beats gunting, host (userId) should win the tournament!
       expect(sentMessages.some(m => m.text.includes('🏆 Pemenang Utama:'))).toBe(true);
     });
+
+    it('returns coming soon message for unimplemented games', async () => {
+      const { commandRegistry } = await import('../commands/registry/command-registry.js');
+
+      // Verify a few PRD game commands are registered
+      const wwchaosRegistered = await commandRegistry.get('wwchaos');
+      expect(wwchaosRegistered).toBeDefined();
+
+      const monopolyminiRegistered = await commandRegistry.get('monopolymini');
+      expect(monopolyminiRegistered).toBeDefined();
+
+      // Execute an unimplemented game and expect scaffold message
+      sentMessages = [];
+      const ctxScaffold = getCtx('monopolymini', '/monopolymini');
+      await gameCmd.execute(ctxScaffold, ctxScaffold.command.args, mockAdapter);
+
+      expect(sentMessages[0].text).toContain('awaiting full implementation');
+    });
+
+    it('shows scaffold metadata in menu/help command', async () => {
+      const { MenuCommand } = await import('../commands/menu.command.js');
+      const menuCmd = new MenuCommand();
+
+      sentMessages = [];
+      const ctxHelp = getCtx('help', '/help wwchaos');
+      await menuCmd.execute(ctxHelp, ['wwchaos'], mockAdapter);
+
+      expect(sentMessages[0].text).toContain('HELP: /wwchaos');
+      expect(sentMessages[0].text).toContain('Werewolf Chaos Mode');
+    });
   });
 });

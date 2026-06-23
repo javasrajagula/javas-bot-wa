@@ -428,5 +428,5 @@ export class GroupStatsCommand implements Command {
 }
 
 const groupStatsCmd = new GroupStatsCommand();
-registerCommand(['groupstats', 'topchat', 'topactive', 'topcmd', 'inactive', 'grouphealth', 'weeklyreport'], groupStatsCmd);
+registerCommand(['groupstats', 'topchat', 'topactive', 'topcmd', 'inactive', 'weeklyreport'], groupStatsCmd);
 

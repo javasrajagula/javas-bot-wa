@@ -35,7 +35,7 @@ export const DEFAULT_FEATURES: Record<string, any> = {
   rob: true,
   language: 'id',
   persona: 'formal',
-  
+
   // Advanced Moderation Configurations
   antispamMode: 'warn', // delete, warn, mute, kick
   antispamLimit: 5,     // requests
@@ -51,6 +51,29 @@ export const DEFAULT_FEATURES: Record<string, any> = {
   antiviewonce: false,
   antidelete: false,
   badword_censor: false,
+
+  // Phase 1 Batch 1C Configurations
+  antiflood: false,
+  antifloodMode: 'warn',
+  antilinkwhitelist: false,
+  antiforward: false,
+  antiforwardLimit: 3,
+  antiforwardMode: 'delete',
+  antijoin: false,
+  antijoinRisk: 50,
+  antijoinMode: 'kick',
+  captcha2: false,
+  muteprogressive: false,
+
+  // Phase 1 Batch 1D Configurations
+  antitagall: false,
+  antitagallLimit: 5,
+  antitagallMode: 'delete',
+  anonanalytics: false,
+  sensitivelog: false,
+  consentai: false,
+  privateguard: false,
+  privacynotice: true,
 
   // Fase 1 Moderation Flags
   antiraid: false,
@@ -89,6 +112,23 @@ export const DEFAULT_FEATURES: Record<string, any> = {
   developer: true,
   premium: true,
   games: true,
+
+  // PRD Category Feature Flags
+  prd_moderation: true,
+  prd_privacy: true,
+  prd_admin_ops: true,
+  prd_school: true,
+  prd_productivity: true,
+  prd_media: true,
+  prd_document: true,
+  prd_ai: true,
+  prd_business: true,
+  prd_downloader: false, // Default downloader is disabled by default
+  prd_automation: true,
+  prd_analytics: true,
+  prd_devops: true,
+  prd_premium: true,
+  prd_games: true,
 };
 
 export interface GroupFeatures {
@@ -120,6 +160,40 @@ export async function getGroupFeatures(groupId: string): Promise<GroupFeatures> 
   return parseFeatureFlags(config.featuresJson);
 }
 
+export async function saveGroupConfigSnapshot(groupId: string): Promise<void> {
+  const config = await prisma.groupConfig.findUnique({
+    where: { groupId }
+  });
+  if (!config) return;
+
+  const snapshot = {
+    prefix: config.prefix,
+    featuresJson: config.featuresJson,
+    welcomeMessage: config.welcomeMessage,
+    goodbyeMessage: config.goodbyeMessage,
+    botEnabled: config.botEnabled
+  };
+
+  await prisma.customVariable.upsert({
+    where: {
+      groupId_userId_key: {
+        groupId,
+        userId: 'system',
+        key: 'config_snapshot'
+      }
+    },
+    create: {
+      groupId,
+      userId: 'system',
+      key: 'config_snapshot',
+      value: JSON.stringify(snapshot)
+    },
+    update: {
+      value: JSON.stringify(snapshot)
+    }
+  });
+}
+
 /**
  * Toggles a feature flag for a group.
  */
@@ -134,6 +208,9 @@ export async function setGroupFeature(
   if (!(featureName in DEFAULT_FEATURES)) {
     throw new Error(`Fitur "${featureName}" tidak terdaftar di sistem.`);
   }
+
+  // Save current config to snapshot before changing
+  await saveGroupConfigSnapshot(groupId);
 
   currentFeatures[featureName] = value;
 
